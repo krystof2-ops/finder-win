@@ -134,6 +134,37 @@ export function kindLabel(entry: FileEntry): string {
   return `Soubor ${entry.extension.toUpperCase()}`;
 }
 
+/* ------------------------------ Quick Look -------------------------------- */
+
+export type PreviewKind = "image" | "pdf" | "markdown" | "text" | "video" | "audio" | "other";
+
+const PREVIEW_IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
+const PREVIEW_MARKDOWN = new Set(["md", "markdown"]);
+const PREVIEW_VIDEO = new Set(["mp4", "webm", "mov", "mkv", "avi"]);
+const PREVIEW_AUDIO = new Set(["mp3", "wav", "flac", "ogg", "m4a", "aac"]);
+const PREVIEW_TEXT = new Set([
+  "txt", "json", "js", "ts", "tsx", "jsx", "py", "rs", "html", "css", "yaml",
+  "yml", "toml", "xml", "log", "csv", "ini", "bat", "ps1", "sh", "go", "java",
+  "cs", "c", "cpp", "h", "hpp",
+]);
+
+/** Jakým způsobem se soubor ukáže v Quick Look náhledu. */
+export function previewKind(entry: FileEntry): PreviewKind {
+  if (entry.is_dir) return "other";
+
+  const extension = entry.extension ?? "";
+
+  // Markdown má přednost před obecným textem.
+  if (PREVIEW_MARKDOWN.has(extension)) return "markdown";
+  if (PREVIEW_IMAGE.has(extension)) return "image";
+  if (extension === "pdf") return "pdf";
+  if (PREVIEW_VIDEO.has(extension)) return "video";
+  if (PREVIEW_AUDIO.has(extension)) return "audio";
+  if (PREVIEW_TEXT.has(extension)) return "text";
+
+  return "other";
+}
+
 /* --------------------------------- řazení --------------------------------- */
 
 export type SortKey = "name" | "modified" | "size" | "kind";

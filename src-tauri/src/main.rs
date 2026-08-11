@@ -218,6 +218,54 @@ fn open_file(path: String) -> Result<(), String> {
     opener::open(&path).map_err(|err| format!("{}: {}", path, err))
 }
 
+/// Strop pro náhled textu. Chrání před tím, aby omylem otevřený 500MB log
+/// protekl přes IPC do webview.
+const MAX_PREVIEW_BYTES: u64 = 1_048_576;
+
+/// Přečte začátek textového souboru pro Quick Look náhled.
+/// Nikdy nenačte víc než 1 MB, i kdyby si volající řekl o víc.
+#[tauri::command]
+fn read_text_file(path: String, max_bytes: u64) -> Result<String, String> {
+    use std::io::Read;
+
+    let limit = max_bytes.min(MAX_PREVIEW_BYTES);
+
+    let file = fs::File::open(&path).map_err(|err| format!("{}: {}", path, err))?;
+    let size = file
+        .metadata()
+        .map_err(|err| format!("{}: {}", path, err))?
+        .len();
+
+    let mut buffer = Vec::with_capacity(limit.min(size) as usize);
+    file.take(limit)
+        .read_to_end(&mut buffer)
+        .map_err(|err| format!("{}: {}", path, err))?;
+
+    let truncated = size > limit;
+
+    let mut text = match String::from_utf8(buffer) {
+        Ok(text) => text,
+        Err(err) => {
+            // U zkráceného souboru je rozseknutý vícebajtový znak na konci v pořádku;
+            // neplatné UTF-8 uprostřed znamená, že soubor prostě není textový.
+            let valid_up_to = err.utf8_error().valid_up_to();
+            let bytes = err.into_bytes();
+
+            if truncated && valid_up_to + 4 >= bytes.len() {
+                String::from_utf8_lossy(&bytes[..valid_up_to]).into_owned()
+            } else {
+                return Err(format!("{}: soubor není platný text (UTF-8)", path));
+            }
+        }
+    };
+
+    if truncated {
+        text.push_str("\n\n… (soubor zkrácen, ukazuji první 1 MB)");
+    }
+
+    Ok(text)
+}
+
 /// Volné místo na disku, na kterém leží `path` (bajty dostupné tomuhle uživateli).
 #[cfg(windows)]
 #[tauri::command]
@@ -280,7 +328,8 @@ fn main() {
             list_dir,
             get_favorites,
             open_file,
-            get_disk_free_space
+            get_disk_free_space,
+            read_text_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

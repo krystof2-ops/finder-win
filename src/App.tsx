@@ -5,6 +5,7 @@ import { ColumnView } from "./components/ColumnView";
 import { IconDefs } from "./components/icons";
 import { IconView } from "./components/IconView";
 import { ListView } from "./components/ListView";
+import { QuickLook } from "./components/QuickLook";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
@@ -41,6 +42,7 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [query, setQuery] = useState("");
+  const [quickLookOpen, setQuickLookOpen] = useState(false);
 
   // Rozlišuje odpovědi z rychle po sobě jdoucích navigací, ať nepřepíšou tu poslední.
   const requestId = useRef(0);
@@ -158,6 +160,38 @@ export default function App() {
     });
   }, []);
 
+  /**
+   * Quick Look bere seznam z aktivního view, aby šipky přepínaly ve stejném
+   * pořadí, jaké má uživatel před sebou. V column view je to zaměřený sloupec.
+   */
+  const focusedColumn = columnsApi.columns[columnsApi.focusedIndex];
+  const columnSelected =
+    focusedColumn?.entries.find((entry) => entry.path === focusedColumn.selectedPath) ?? null;
+
+  const previewEntries = viewMode === "column" ? (focusedColumn?.entries ?? []) : visibleEntries;
+  const previewSelected = viewMode === "column" ? columnSelected : selected;
+  const canQuickLook = previewSelected !== null && !previewSelected.is_dir;
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== " " || event.repeat) return;
+
+      // Mezerník v hledání (a jakémkoli jiném poli) musí psát mezeru.
+      const target = event.target as HTMLElement | null;
+      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+      if (target?.isContentEditable) return;
+
+      // Otevřený modal si mezerník obsluhuje sám (zavírá se jím).
+      if (quickLookOpen || !canQuickLook) return;
+
+      event.preventDefault();
+      setQuickLookOpen(true);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [quickLookOpen, canQuickLook]);
+
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName = crumbs.length > 0 ? crumbs[crumbs.length - 1].label : "Finder";
 
@@ -250,6 +284,15 @@ export default function App() {
         freeSpace={freeSpace}
         onNavigate={navigate}
       />
+
+      {quickLookOpen && previewSelected && !previewSelected.is_dir && (
+        <QuickLook
+          entries={previewEntries}
+          entry={previewSelected}
+          onClose={() => setQuickLookOpen(false)}
+          onOpenFile={openFile}
+        />
+      )}
     </div>
   );
 }
