@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/* Tailwind v4 nemá tailwind.config.js — darkMode: 'class' se zapíná takhle. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* `inline` znamená, že utility vypíšou var(--…) přímo,
+   takže přepnutí .dark na <html> se propíše bez rebuildu. */
+@theme inline {
+  --font-sans: Inter, system-ui, sans-serif;
+
+  --color-window: var(--bg-window);
+  --color-sidebar: var(--bg-sidebar);
+  --color-main: var(--bg-main);
+  --color-toolbar: var(--bg-toolbar);
+
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-section: var(--text-section);
+
+  --color-accent: var(--accent);
+  --color-accent-bg: var(--accent-bg);
+  --color-line: var(--border);
+  --color-hover: var(--hover);
+  --color-selected: var(--row-selected);
+  --color-selected-inactive: var(--row-selected-inactive);
+}
+
+:root {
+  --bg-window: #ececec;
+  --bg-sidebar: rgba(230, 230, 230, 0.7);
+  --bg-main: #ffffff;
+  --bg-toolbar: rgba(246, 246, 246, 0.85);
+  --text-primary: #1d1d1f;
+  --text-secondary: #86868b;
+  --text-section: #6e6e73;
+  --accent: #0a84ff;
+  --accent-bg: rgba(10, 132, 255, 0.15);
+  --border: rgba(0, 0, 0, 0.08);
+  --hover: rgba(0, 0, 0, 0.05);
+  --row-selected: rgba(10, 132, 255, 0.2);
+  --row-selected-inactive: rgba(0, 0, 0, 0.08);
+
+  /* "papírek" pod ikonou souboru v icon view */
+  --paper: #ffffff;
+  --paper-border: rgba(0, 0, 0, 0.12);
+}
+
+.dark {
+  --bg-window: #1e1e1e;
+  --bg-sidebar: rgba(40, 40, 40, 0.7);
+  --bg-main: #2b2b2b;
+  --bg-toolbar: rgba(50, 50, 50, 0.85);
+  --text-primary: #f5f5f7;
+  --text-secondary: #98989d;
+  --text-section: #98989d;
+  --accent: #0a84ff;
+  --accent-bg: rgba(10, 132, 255, 0.25);
+  --border: rgba(255, 255, 255, 0.08);
+  --hover: rgba(255, 255, 255, 0.06);
+  --row-selected: rgba(10, 132, 255, 0.4);
+  --row-selected-inactive: rgba(255, 255, 255, 0.1);
+
+  --paper: #f2f2f4;
+  --paper-border: rgba(0, 0, 0, 0.2);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 13px;
+  /* Inter character variants — jednovrstvá "a", rovné "l", Mac-like číslovky. */
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  background-color: var(--bg-window);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  /* Souborový manažer není dokument — text se needituje ani neoznačuje. */
+  user-select: none;
+  cursor: default;
+}
+
+/* Plynulý přechod light <-> dark. Vědomě jen na plochách, ne na `*`,
+   aby si to nepřebilo rychlejší 100ms hover přechody na řádcích. */
+.surface {
+  transition:
+    background-color 200ms ease,
+    color 200ms ease,
+    border-color 200ms ease;
+}
+
+/* Tenké překryvné scrollbary ve stylu macOS. */
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.22);
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 5px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.25);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
