@@ -8,6 +8,8 @@ export type FileEntry = {
   size: number;
   /** Unix timestamp v sekundách. */
   modified: number;
+  /** Unix timestamp v sekundách. */
+  created: number;
   /** Přípona bez tečky, malými písmeny. */
   extension: string | null;
 };

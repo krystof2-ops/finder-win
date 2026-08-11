@@ -111,6 +111,8 @@ const KINDS: Record<string, string> = {
   yaml: "Konfigurace YAML",
   ttf: "Písmo TrueType",
   otf: "Písmo OpenType",
+  lnk: "Zástupce",
+  url: "Internetový zástupce",
 };
 
 const SOURCE_EXTENSIONS = new Set([

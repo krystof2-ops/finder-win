@@ -9,6 +9,7 @@ import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
+import { useColumns } from "./columns";
 import { breadcrumbs, sortEntries, type SortDirection, type SortKey } from "./format";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
@@ -45,6 +46,8 @@ export default function App() {
   const requestId = useRef(0);
 
   const navigate = useCallback((path: string) => dispatch({ type: "go", path }), []);
+
+  const columnsApi = useColumns(nav.current, viewMode === "column");
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -116,18 +119,34 @@ export default function App() {
     return sortEntries(filtered, sortKey, sortDirection);
   }, [entries, query, sortKey, sortDirection]);
 
+  const openFile = useCallback((entry: FileEntry) => {
+    invoke("open_file", { path: entry.path }).catch((err: unknown) =>
+      setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`),
+    );
+  }, []);
+
   const open = useCallback(
     (entry: FileEntry) => {
       setSelected(entry);
-      if (entry.is_dir) {
-        navigate(entry.path);
-        return;
-      }
-      invoke("open_file", { path: entry.path }).catch((err: unknown) =>
-        setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`),
-      );
+      if (entry.is_dir) navigate(entry.path);
+      else openFile(entry);
     },
-    [navigate],
+    [navigate, openFile],
+  );
+
+  /**
+   * Odchod z column view přenese uživatele do sloupce, ve kterém právě je —
+   * jinak by se po naklikání hierarchie vrátil zpátky na výchozí složku.
+   */
+  const changeViewMode = useCallback(
+    (mode: ViewMode) => {
+      const { activePath } = columnsApi;
+      if (viewMode === "column" && mode !== "column" && activePath && activePath !== nav.current) {
+        navigate(activePath);
+      }
+      setViewMode(mode);
+    },
+    [viewMode, columnsApi, nav.current, navigate],
   );
 
   const sortBy = useCallback((key: SortKey) => {
@@ -144,7 +163,13 @@ export default function App() {
 
   function renderContent() {
     if (nav.current === null) return <Placeholder>Začni výběrem složky vlevo.</Placeholder>;
-    if (viewMode === "column") return <ColumnView />;
+
+    // Column view si obsah i stavy načítání řeší sám, sloupec po sloupci.
+    if (viewMode === "column") {
+      return (
+        <ColumnView api={columnsApi} windowFocused={windowFocused} onOpenFile={openFile} />
+      );
+    }
     if (loading) return <Placeholder>Načítám…</Placeholder>;
     if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
     if (visibleEntries.length === 0) {
@@ -202,7 +227,7 @@ export default function App() {
             onBack={() => dispatch({ type: "back" })}
             onForward={() => dispatch({ type: "forward" })}
             viewMode={viewMode}
-            onViewModeChange={setViewMode}
+            onViewModeChange={changeViewMode}
             theme={theme}
             onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
             query={query}

@@ -17,6 +17,8 @@ struct FileEntry {
     size: u64,
     /// Unix timestamp v sekundách, 0 když čas není k dispozici.
     modified: i64,
+    /// Unix timestamp v sekundách, 0 když čas není k dispozici.
+    created: i64,
     /// Přípona bez tečky, malými písmeny. None pro složky a soubory bez přípony.
     extension: Option<String>,
 }
@@ -65,10 +67,9 @@ fn is_hidden(_metadata: &fs::Metadata) -> bool {
     false
 }
 
-fn modified_timestamp(metadata: &fs::Metadata) -> i64 {
-    metadata
-        .modified()
-        .ok()
+/// SystemTime → unix sekundy. Nedostupný čas (nebo čas před rokem 1970) dává 0.
+fn to_unix_seconds(time: std::io::Result<std::time::SystemTime>) -> i64 {
+    time.ok()
         .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or(0)
@@ -108,7 +109,8 @@ fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
             path: entry_path.to_string_lossy().to_string(),
             is_dir,
             size: if is_dir { 0 } else { metadata.len() },
-            modified: modified_timestamp(&metadata),
+            modified: to_unix_seconds(metadata.modified()),
+            created: to_unix_seconds(metadata.created()),
         });
     }
 
