@@ -11,6 +11,7 @@ import {
   SlidersHorizontal,
   Sun,
   Tag,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 
@@ -53,6 +54,7 @@ type ToolbarProps = {
   onToggleTheme: () => void;
   query: string;
   onQueryChange: (query: string) => void;
+  searchRef: React.RefObject<HTMLInputElement | null>;
 };
 
 export function Toolbar({
@@ -67,6 +69,7 @@ export function Toolbar({
   onToggleTheme,
   query,
   onQueryChange,
+  searchRef,
 }: ToolbarProps) {
   return (
     <header
@@ -123,12 +126,36 @@ export function Toolbar({
       <div className="group flex h-7 w-[180px] shrink-0 items-center gap-1.5 rounded-md bg-hover px-2.5 py-1 transition-[width] duration-150 focus-within:w-[240px]">
         <Search size={14} strokeWidth={2} className="shrink-0 text-secondary" />
         <input
+          ref={searchRef}
           type="text"
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
+          onKeyDown={(event) => {
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onQueryChange("");
+              event.currentTarget.blur();
+            }
+          }}
           placeholder="Hledat"
           className="min-w-0 flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-secondary"
+          style={{ userSelect: "text" }}
         />
+
+        {query.length > 0 && (
+          <button
+            type="button"
+            aria-label="Zrušit hledání"
+            onClick={() => {
+              onQueryChange("");
+              searchRef.current?.focus();
+            }}
+            className="shrink-0 text-secondary transition-colors duration-100 hover:text-primary"
+          >
+            <XCircle size={14} strokeWidth={2} />
+          </button>
+        )}
       </div>
     </header>
   );

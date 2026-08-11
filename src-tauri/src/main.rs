@@ -218,6 +218,203 @@ fn open_file(path: String) -> Result<(), String> {
     opener::open(&path).map_err(|err| format!("{}: {}", path, err))
 }
 
+/* --------------------------- souborové operace ---------------------------- */
+
+/// Znaky, které Windows v názvu souboru nepovoluje.
+const INVALID_NAME_CHARS: [char; 9] = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+#[derive(Debug, Serialize)]
+struct FileProperties {
+    size: u64,
+    created: i64,
+    modified: i64,
+    accessed: i64,
+    is_dir: bool,
+    is_readonly: bool,
+    is_hidden: bool,
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+
+    if trimmed.is_empty() {
+        return Err("název nesmí být prázdný".to_string());
+    }
+    if trimmed.contains(INVALID_NAME_CHARS) {
+        return Err("název obsahuje nepovolený znak".to_string());
+    }
+
+    Ok(())
+}
+
+/// Najde volný název v cílové složce: "soubor.txt" → "soubor (kopie).txt"
+/// → "soubor (kopie 2).txt" …
+fn unique_destination(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
+    let direct = dir.join(file_name);
+    if !direct.exists() {
+        return Ok(direct);
+    }
+
+    let as_path = Path::new(file_name);
+    let stem = as_path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_else(|| file_name.to_string());
+    let extension = as_path.extension().map(|ext| ext.to_string_lossy().to_string());
+
+    for attempt in 1..10_000 {
+        let suffix = if attempt == 1 {
+            " (kopie)".to_string()
+        } else {
+            format!(" (kopie {})", attempt)
+        };
+
+        let candidate_name = match &extension {
+            Some(extension) => format!("{}{}.{}", stem, suffix, extension),
+            None => format!("{}{}", stem, suffix),
+        };
+
+        let candidate = dir.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err("nepodařilo se najít volný název".to_string())
+}
+
+fn copy_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
+    if from.is_dir() {
+        fs::create_dir_all(to)?;
+        for entry in fs::read_dir(from)? {
+            let entry = entry?;
+            copy_recursive(&entry.path(), &to.join(entry.file_name()))?;
+        }
+    } else {
+        fs::copy(from, to)?;
+    }
+
+    Ok(())
+}
+
+fn parent_of(path: &Path) -> Result<&Path, String> {
+    path.parent()
+        .ok_or_else(|| "cesta nemá nadřazenou složku".to_string())
+}
+
+fn file_name_of(path: &Path) -> Result<String, String> {
+    path.file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .ok_or_else(|| "cesta nemá název".to_string())
+}
+
+#[tauri::command]
+fn rename_path(from: String, to_name: String) -> Result<String, String> {
+    validate_name(&to_name)?;
+
+    let source = PathBuf::from(&from);
+    let target = parent_of(&source)?.join(to_name.trim());
+
+    // Přejmenování na sebe sama není chyba, jen se nic nestane.
+    if target == source {
+        return Ok(source.to_string_lossy().to_string());
+    }
+    if target.exists() {
+        return Err(format!("{} už existuje", target.to_string_lossy()));
+    }
+
+    fs::rename(&source, &target).map_err(|err| format!("{}: {}", from, err))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn move_to_trash(path: String) -> Result<(), String> {
+    trash::delete(&path).map_err(|err| format!("{}: {}", path, err))
+}
+
+#[tauri::command]
+fn copy_path(from: String, to_dir: String) -> Result<String, String> {
+    let source = PathBuf::from(&from);
+    let target = unique_destination(Path::new(&to_dir), &file_name_of(&source)?)?;
+
+    copy_recursive(&source, &target).map_err(|err| format!("{}: {}", from, err))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn move_path(from: String, to_dir: String) -> Result<String, String> {
+    let source = PathBuf::from(&from);
+    let target = unique_destination(Path::new(&to_dir), &file_name_of(&source)?)?;
+
+    // rename je atomický, ale funguje jen v rámci jednoho svazku.
+    if fs::rename(&source, &target).is_ok() {
+        return Ok(target.to_string_lossy().to_string());
+    }
+
+    copy_recursive(&source, &target).map_err(|err| format!("{}: {}", from, err))?;
+
+    let removed = if source.is_dir() {
+        fs::remove_dir_all(&source)
+    } else {
+        fs::remove_file(&source)
+    };
+    removed.map_err(|err| format!("{}: zkopírováno, ale nešlo smazat originál: {}", from, err))?;
+
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn duplicate_path(path: String) -> Result<String, String> {
+    let source = PathBuf::from(&path);
+    let directory = parent_of(&source)?;
+    let target = unique_destination(directory, &file_name_of(&source)?)?;
+
+    copy_recursive(&source, &target).map_err(|err| format!("{}: {}", path, err))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn open_in_explorer(path: String) -> Result<(), String> {
+    use std::process::Command;
+
+    let target = PathBuf::from(&path);
+
+    let mut command = Command::new("explorer.exe");
+    if target.is_dir() {
+        command.arg(&path);
+    } else {
+        // /select, potřebuje cestu v jednom argumentu i s uvozovkami, jinak
+        // se Explorer u cest s mezerami splete — proto raw_arg.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            command.raw_arg(format!("/select,\"{}\"", path));
+        }
+        #[cfg(not(windows))]
+        command.arg(&path);
+    }
+
+    // Explorer vrací nenulový exit kód i při úspěchu, proto se status neověřuje.
+    command.spawn().map_err(|err| format!("{}: {}", path, err))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn get_file_properties(path: String) -> Result<FileProperties, String> {
+    let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, err))?;
+    let is_dir = metadata.is_dir();
+
+    Ok(FileProperties {
+        size: if is_dir { 0 } else { metadata.len() },
+        created: to_unix_seconds(metadata.created()),
+        modified: to_unix_seconds(metadata.modified()),
+        accessed: to_unix_seconds(metadata.accessed()),
+        is_dir,
+        is_readonly: metadata.permissions().readonly(),
+        is_hidden: is_hidden(&metadata),
+    })
+}
+
 /// Strop pro náhled textu. Chrání před tím, aby omylem otevřený 500MB log
 /// protekl přes IPC do webview.
 const MAX_PREVIEW_BYTES: u64 = 1_048_576;
@@ -317,6 +514,7 @@ fn apply_rounded_corners(_window: &tauri::WebviewWindow) {}
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
@@ -329,7 +527,14 @@ fn main() {
             get_favorites,
             open_file,
             get_disk_free_space,
-            read_text_file
+            read_text_file,
+            rename_path,
+            move_to_trash,
+            copy_path,
+            move_path,
+            duplicate_path,
+            open_in_explorer,
+            get_file_properties
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

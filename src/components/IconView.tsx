@@ -1,20 +1,31 @@
 import { LargeEntryIcon } from "./icons";
+import { RenameInput } from "./RenameInput";
 import type { FileEntry } from "../types";
 
 type IconViewProps = {
   entries: FileEntry[];
-  selectedPath: string | null;
+  selectedPaths: Set<string>;
+  cutPaths: Set<string>;
   windowFocused: boolean;
+  renamingPath: string | null;
+  onRenameSubmit: (entry: FileEntry, name: string) => void;
+  onRenameCancel: () => void;
   onSelect: (entry: FileEntry) => void;
   onOpen: (entry: FileEntry) => void;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
 };
 
 export function IconView({
   entries,
-  selectedPath,
+  selectedPaths,
+  cutPaths,
   windowFocused,
+  renamingPath,
+  onRenameSubmit,
+  onRenameCancel,
   onSelect,
   onOpen,
+  onContextMenu,
 }: IconViewProps) {
   return (
     <div
@@ -22,7 +33,8 @@ export function IconView({
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}
     >
       {entries.map((entry) => {
-        const isSelected = entry.path === selectedPath;
+        const isSelected = selectedPaths.has(entry.path);
+        const isRenaming = entry.path === renamingPath;
         const selectedBg = windowFocused
           ? "var(--row-selected)"
           : "var(--row-selected-inactive)";
@@ -35,27 +47,41 @@ export function IconView({
             title={entry.name}
             onClick={() => onSelect(entry)}
             onDoubleClick={() => onOpen(entry)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") onOpen(entry);
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onSelect(entry);
+              onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className="flex h-[100px] w-full flex-col items-center gap-1 outline-none"
+            style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
           >
             <div
               className="rounded-md p-0.5 transition-colors duration-100"
-              style={{ backgroundColor: isSelected ? selectedBg : "transparent" }}
+              style={{ backgroundColor: isSelected && !isRenaming ? selectedBg : "transparent" }}
             >
               <LargeEntryIcon entry={entry} />
             </div>
 
-            <span
-              className="line-clamp-2 rounded px-1 text-center text-[12px] leading-tight text-primary transition-colors duration-100"
-              style={{
-                backgroundColor: isSelected ? "var(--accent-bg)" : "transparent",
-                overflowWrap: "anywhere",
-              }}
-            >
-              {entry.name}
-            </span>
+            {isRenaming ? (
+              <div className="w-full px-0.5">
+                <RenameInput
+                  entry={entry}
+                  onSubmit={onRenameSubmit}
+                  onCancel={onRenameCancel}
+                  centered
+                />
+              </div>
+            ) : (
+              <span
+                className="line-clamp-2 rounded px-1 text-center text-[12px] leading-tight text-primary transition-colors duration-100"
+                style={{
+                  backgroundColor: isSelected ? "var(--accent-bg)" : "transparent",
+                  overflowWrap: "anywhere",
+                }}
+              >
+                {entry.name}
+              </span>
+            )}
           </div>
         );
       })}

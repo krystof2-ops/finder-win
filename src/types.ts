@@ -25,6 +25,19 @@ export type FavoriteSection = {
   items: FavoriteEntry[];
 };
 
+export type FileProperties = {
+  size: number;
+  created: number;
+  modified: number;
+  accessed: number;
+  is_dir: boolean;
+  is_readonly: boolean;
+  is_hidden: boolean;
+};
+
 export type ViewMode = "icon" | "list" | "column";
+
+/** Interní schránka aplikace — nesouvisí se systémovou schránkou Windows. */
+export type Clipboard = { paths: string[]; mode: "copy" | "cut" };
 
 export type Theme = "light" | "dark";

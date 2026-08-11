@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 import { SmallEntryIcon } from "./icons";
+import { RenameInput } from "./RenameInput";
 import { formatModified, formatSize, kindLabel, type SortDirection, type SortKey } from "../format";
 import type { FileEntry } from "../types";
 
@@ -15,24 +16,34 @@ const GRID_TEMPLATE = COLUMNS.map((column) => column.width).join(" ");
 
 type ListViewProps = {
   entries: FileEntry[];
-  selectedPath: string | null;
+  selectedPaths: Set<string>;
+  cutPaths: Set<string>;
   windowFocused: boolean;
+  renamingPath: string | null;
+  onRenameSubmit: (entry: FileEntry, name: string) => void;
+  onRenameCancel: () => void;
   sortKey: SortKey;
   sortDirection: SortDirection;
   onSort: (key: SortKey) => void;
   onSelect: (entry: FileEntry) => void;
   onOpen: (entry: FileEntry) => void;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
 };
 
 export function ListView({
   entries,
-  selectedPath,
+  selectedPaths,
+  cutPaths,
   windowFocused,
+  renamingPath,
+  onRenameSubmit,
+  onRenameCancel,
   sortKey,
   sortDirection,
   onSort,
   onSelect,
   onOpen,
+  onContextMenu,
 }: ListViewProps) {
   const SortArrow = sortDirection === "asc" ? ChevronUp : ChevronDown;
 
@@ -58,7 +69,8 @@ export function ListView({
       </div>
 
       {entries.map((entry) => {
-        const isSelected = entry.path === selectedPath;
+        const isSelected = selectedPaths.has(entry.path);
+        const isRenaming = entry.path === renamingPath;
         const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
 
         return (
@@ -68,17 +80,26 @@ export function ListView({
             tabIndex={0}
             onClick={() => onSelect(entry)}
             onDoubleClick={() => onOpen(entry)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") onOpen(entry);
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onSelect(entry);
+              onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className={`grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${
-              isSelected ? selectedClass : "hover:bg-hover"
+              isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
-            style={{ gridTemplateColumns: GRID_TEMPLATE }}
+            style={{
+              gridTemplateColumns: GRID_TEMPLATE,
+              opacity: cutPaths.has(entry.path) ? 0.5 : 1,
+            }}
           >
             <div className="flex min-w-0 items-center gap-2">
               <SmallEntryIcon entry={entry} />
-              <span className="truncate">{entry.name}</span>
+              {isRenaming ? (
+                <RenameInput entry={entry} onSubmit={onRenameSubmit} onCancel={onRenameCancel} />
+              ) : (
+                <span className="truncate">{entry.name}</span>
+              )}
             </div>
             <span className="truncate text-secondary">{formatModified(entry.modified)}</span>
             <span className="truncate text-right text-secondary">

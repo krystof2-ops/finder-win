@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import type { FileEntry } from "./types";
@@ -24,6 +24,8 @@ export type ColumnsApi = {
   openInto: (columnIndex: number, entry: FileEntry) => void;
   focusColumn: (columnIndex: number) => void;
   move: (target: MoveTarget) => void;
+  /** Přenačte obsah všech otevřených sloupců beze změny hierarchie. */
+  refresh: () => void;
 };
 
 /**
@@ -153,10 +155,39 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
     [focusedIndex],
   );
 
+  // Refresh potřebuje aktuální sloupce, ale nesmí se kvůli nim překreslovat,
+  // jinak by se identita callbacku měnila při každém výběru.
+  const columnsRef = useRef<Column[]>([]);
+  useEffect(() => {
+    columnsRef.current = columns;
+  }, [columns]);
+
+  const refresh = useCallback(() => {
+    const snapshot = columnsRef.current;
+
+    void Promise.all(
+      snapshot.map((column) =>
+        invoke<FileEntry[]>("list_dir", { path: column.path }).catch(() => null),
+      ),
+    ).then((results) => {
+      setColumns((prev) =>
+        prev.map((column, index) => {
+          const entries = results[index];
+          // Sloupec se mezitím mohl vyměnit — pak jeho data nechceme přepsat.
+          if (entries === null || entries === undefined) return column;
+          if (snapshot[index]?.path !== column.path) return column;
+
+          const stillExists = entries.some((entry) => entry.path === column.selectedPath);
+          return { ...column, entries, selectedPath: stillExists ? column.selectedPath : null };
+        }),
+      );
+    });
+  }, []);
+
   const activePath = columns.length > 0 ? columns[columns.length - 1].path : rootPath;
 
   return useMemo(
-    () => ({ columns, focusedIndex, activePath, select, openInto, focusColumn, move }),
-    [columns, focusedIndex, activePath, select, openInto, focusColumn, move],
+    () => ({ columns, focusedIndex, activePath, select, openInto, focusColumn, move, refresh }),
+    [columns, focusedIndex, activePath, select, openInto, focusColumn, move, refresh],
   );
 }

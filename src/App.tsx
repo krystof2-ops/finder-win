@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+
 import { ColumnView } from "./components/ColumnView";
+import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { IconDefs } from "./components/icons";
+import { PropertiesDialog } from "./components/PropertiesDialog";
 import { IconView } from "./components/IconView";
 import { ListView } from "./components/ListView";
 import { QuickLook } from "./components/QuickLook";
@@ -11,16 +15,34 @@ import { StatusBar } from "./components/StatusBar";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { useColumns } from "./columns";
+import {
+  copyPath,
+  duplicatePath,
+  movePath,
+  moveToTrash,
+  openInExplorer,
+  parentPath,
+  renamePath,
+} from "./fileops";
 import { breadcrumbs, sortEntries, type SortDirection, type SortKey } from "./format";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
-import type { FavoriteSection, FileEntry, Theme, ViewMode } from "./types";
+import type { Clipboard, FavoriteSection, FileEntry, Theme, ViewMode } from "./types";
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
       {children}
     </div>
+  );
+}
+
+/** Zkratky se nesmí spouštět, když uživatel píše do pole. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (element === null) return false;
+  return (
+    element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable
   );
 }
 
@@ -35,8 +57,19 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [selected, setSelected] = useState<FileEntry | null>(null);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+
+  // Aktivní položka řídí operace pro jednu položku (přejmenování, Quick Look,
+  // vlastnosti); selection drží celý výběr pro hromadné operace.
+  const [active, setActive] = useState<FileEntry | null>(null);
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+
+  const [clipboard, setClipboard] = useState<Clipboard | null>(null);
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [pathEditing, setPathEditing] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
+  const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -44,16 +77,14 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [quickLookOpen, setQuickLookOpen] = useState(false);
 
-  // Rozlišuje odpovědi z rychle po sobě jdoucích navigací, ať nepřepíšou tu poslední.
   const requestId = useRef(0);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const navigate = useCallback((path: string) => dispatch({ type: "go", path }), []);
-
   const columnsApi = useColumns(nav.current, viewMode === "column");
 
   useEffect(() => applyTheme(theme), [theme]);
 
-  // Vybraný řádek musí zešednout, když okno není aktivní — jako v macOS.
   useEffect(() => {
     const onFocus = () => setWindowFocused(true);
     const onBlur = () => setWindowFocused(false);
@@ -76,6 +107,16 @@ export default function App() {
       .catch((err: unknown) => setError(String(err)));
   }, []);
 
+  // Reset stavu patří k navigaci, ne k přenačtení — jinak by refresh
+  // po každé operaci shodil výběr i rozepsané hledání.
+  useEffect(() => {
+    setSelection(new Set());
+    setActive(null);
+    setQuery("");
+    setRenamingPath(null);
+    setPathEditing(false);
+  }, [nav.current]);
+
   useEffect(() => {
     if (nav.current === null) return;
 
@@ -84,9 +125,6 @@ export default function App() {
 
     setLoading(true);
     setError(null);
-    setNotice(null);
-    setSelected(null);
-    setQuery("");
 
     invoke<FileEntry[]>("list_dir", { path })
       .then((result) => {
@@ -102,7 +140,6 @@ export default function App() {
         if (requestId.current === id) setLoading(false);
       });
 
-    // Volné místo je jen doplňková informace — když selže, status bar ho vynechá.
     invoke<number>("get_disk_free_space", { path })
       .then((bytes) => {
         if (requestId.current === id) setFreeSpace(bytes);
@@ -110,16 +147,47 @@ export default function App() {
       .catch(() => {
         if (requestId.current === id) setFreeSpace(null);
       });
-  }, [nav.current]);
+  }, [nav.current, refreshToken]);
+
+  const sortedEntries = useMemo(
+    () => sortEntries(entries, sortKey, sortDirection),
+    [entries, sortKey, sortDirection],
+  );
 
   const visibleEntries = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const filtered = needle
-      ? entries.filter((entry) => entry.name.toLowerCase().includes(needle))
-      : entries;
+    if (!needle) return sortedEntries;
+    return sortedEntries.filter((entry) => entry.name.toLowerCase().includes(needle));
+  }, [sortedEntries, query]);
 
-    return sortEntries(filtered, sortKey, sortDirection);
-  }, [entries, query, sortKey, sortDirection]);
+  /* ------------------------------ výběr ---------------------------------- */
+
+  const focusedColumn = columnsApi.columns[columnsApi.focusedIndex];
+  const columnSelected =
+    focusedColumn?.entries.find((entry) => entry.path === focusedColumn.selectedPath) ?? null;
+
+  const isColumnView = viewMode === "column";
+  const currentDir = isColumnView ? columnsApi.activePath : nav.current;
+
+  const selectEntry = useCallback((entry: FileEntry) => {
+    setActive(entry);
+    setSelection(new Set([entry.path]));
+  }, []);
+
+  /** Položky, na které míří operace — v column view vždy jen ta zaměřená. */
+  const targetEntries = useMemo((): FileEntry[] => {
+    if (isColumnView) return columnSelected ? [columnSelected] : [];
+    return visibleEntries.filter((entry) => selection.has(entry.path));
+  }, [isColumnView, columnSelected, visibleEntries, selection]);
+
+  const activeEntry = isColumnView ? columnSelected : active;
+
+  /* ---------------------------- operace ---------------------------------- */
+
+  const refresh = useCallback(() => {
+    setRefreshToken((token) => token + 1);
+    columnsApi.refresh();
+  }, [columnsApi]);
 
   const openFile = useCallback((entry: FileEntry) => {
     invoke("open_file", { path: entry.path }).catch((err: unknown) =>
@@ -129,17 +197,187 @@ export default function App() {
 
   const open = useCallback(
     (entry: FileEntry) => {
-      setSelected(entry);
+      selectEntry(entry);
       if (entry.is_dir) navigate(entry.path);
       else openFile(entry);
     },
-    [navigate, openFile],
+    [navigate, openFile, selectEntry],
   );
 
-  /**
-   * Odchod z column view přenese uživatele do sloupce, ve kterém právě je —
-   * jinak by se po naklikání hierarchie vrátil zpátky na výchozí složku.
-   */
+  /** Společné ošetření chyb + refresh po každé mutující operaci. */
+  const runOperation = useCallback(
+    async (label: string, action: () => Promise<unknown>) => {
+      try {
+        setNotice(null);
+        await action();
+        refresh();
+      } catch (err: unknown) {
+        setNotice(`${label} — ${String(err)}`);
+      }
+    },
+    [refresh],
+  );
+
+  const submitRename = useCallback(
+    (entry: FileEntry, name: string) => {
+      setRenamingPath(null);
+      if (name.trim() === entry.name) return;
+      void runOperation("Přejmenování selhalo", () => renamePath(entry.path, name.trim()));
+    },
+    [runOperation],
+  );
+
+  const deleteTargets = useCallback(() => {
+    if (targetEntries.length === 0) return;
+    void runOperation("Smazání selhalo", async () => {
+      for (const entry of targetEntries) await moveToTrash(entry.path);
+    });
+  }, [targetEntries, runOperation]);
+
+  const duplicateActive = useCallback(() => {
+    if (!activeEntry) return;
+    void runOperation("Duplikace selhala", () => duplicatePath(activeEntry.path));
+  }, [activeEntry, runOperation]);
+
+  const copyToClipboard = useCallback(
+    (mode: "copy" | "cut") => {
+      if (targetEntries.length === 0) return;
+      setClipboard({ paths: targetEntries.map((entry) => entry.path), mode });
+    },
+    [targetEntries],
+  );
+
+  const paste = useCallback(() => {
+    if (!clipboard || currentDir === null) return;
+    const target = currentDir;
+    const { paths, mode } = clipboard;
+
+    void runOperation("Vložení selhalo", async () => {
+      for (const path of paths) {
+        if (mode === "copy") await copyPath(path, target);
+        else await movePath(path, target);
+      }
+      // Vyjmuté položky se dají vložit jen jednou.
+      if (mode === "cut") setClipboard(null);
+    });
+  }, [clipboard, currentDir, runOperation]);
+
+  const goToParent = useCallback(() => {
+    if (currentDir === null) return;
+    const parent = parentPath(currentDir);
+    if (parent !== null) navigate(parent);
+  }, [currentDir, navigate]);
+
+  const selectAll = useCallback(() => {
+    if (isColumnView) return;
+    setSelection(new Set(visibleEntries.map((entry) => entry.path)));
+    if (visibleEntries.length > 0) setActive(visibleEntries[0]);
+  }, [isColumnView, visibleEntries]);
+
+  /* --------------------------- klávesové zkratky -------------------------- */
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      // Modal si klávesy obsluhuje sám.
+      if (quickLookOpen) return;
+      if (isTypingTarget(event.target)) return;
+
+      const ctrl = event.ctrlKey || event.metaKey;
+
+      if (ctrl) {
+        switch (event.key.toLowerCase()) {
+          case "arrowup":
+            event.preventDefault();
+            goToParent();
+            return;
+          case "arrowdown":
+            event.preventDefault();
+            if (activeEntry) open(activeEntry);
+            return;
+          case "l":
+            event.preventDefault();
+            setPathEditing(true);
+            return;
+          case "f":
+            event.preventDefault();
+            searchRef.current?.focus();
+            searchRef.current?.select();
+            return;
+          case "c":
+            event.preventDefault();
+            copyToClipboard("copy");
+            return;
+          case "x":
+            event.preventDefault();
+            copyToClipboard("cut");
+            return;
+          case "v":
+            event.preventDefault();
+            paste();
+            return;
+          case "d":
+            event.preventDefault();
+            duplicateActive();
+            return;
+          case "a":
+            event.preventDefault();
+            selectAll();
+            return;
+          case "r":
+            event.preventDefault();
+            refresh();
+            return;
+          default:
+            return;
+        }
+      }
+
+      switch (event.key) {
+        case "F5":
+          event.preventDefault();
+          refresh();
+          break;
+        case "F2":
+          event.preventDefault();
+          if (activeEntry) setRenamingPath(activeEntry.path);
+          break;
+        case "Delete":
+          event.preventDefault();
+          deleteTargets();
+          break;
+        case " ":
+          if (activeEntry && !activeEntry.is_dir) {
+            event.preventDefault();
+            setQuickLookOpen(true);
+          }
+          break;
+        case "Enter":
+          // V column view má Enter vlastní obsluhu na jeho kontejneru.
+          if (isColumnView) break;
+          event.preventDefault();
+          if (activeEntry) open(activeEntry);
+          break;
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    quickLookOpen,
+    isColumnView,
+    activeEntry,
+    goToParent,
+    open,
+    copyToClipboard,
+    paste,
+    duplicateActive,
+    selectAll,
+    refresh,
+    deleteTargets,
+  ]);
+
+  /* ----------------------------- view mode -------------------------------- */
+
   const changeViewMode = useCallback(
     (mode: ViewMode) => {
       const { activePath } = columnsApi;
@@ -160,50 +398,122 @@ export default function App() {
     });
   }, []);
 
-  /**
-   * Quick Look bere seznam z aktivního view, aby šipky přepínaly ve stejném
-   * pořadí, jaké má uživatel před sebou. V column view je to zaměřený sloupec.
-   */
-  const focusedColumn = columnsApi.columns[columnsApi.focusedIndex];
-  const columnSelected =
-    focusedColumn?.entries.find((entry) => entry.path === focusedColumn.selectedPath) ?? null;
+  const cutPaths = useMemo(
+    () => new Set(clipboard?.mode === "cut" ? clipboard.paths : []),
+    [clipboard],
+  );
 
-  const previewEntries = viewMode === "column" ? (focusedColumn?.entries ?? []) : visibleEntries;
-  const previewSelected = viewMode === "column" ? columnSelected : selected;
-  const canQuickLook = previewSelected !== null && !previewSelected.is_dir;
+  /* ---------------------------- context menu ------------------------------ */
 
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== " " || event.repeat) return;
+  const openContextMenu = useCallback((entry: FileEntry, x: number, y: number) => {
+    setMenu({ x, y, entry });
+  }, []);
 
-      // Mezerník v hledání (a jakémkoli jiném poli) musí psát mezeru.
-      const target = event.target as HTMLElement | null;
-      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-      if (target?.isContentEditable) return;
+  const menuItems = useMemo((): MenuItem[] => {
+    if (menu === null) return [];
+    const { entry } = menu;
+    const single = targetEntries.length <= 1;
 
-      // Otevřený modal si mezerník obsluhuje sám (zavírá se jím).
-      if (quickLookOpen || !canQuickLook) return;
-
-      event.preventDefault();
-      setQuickLookOpen(true);
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [quickLookOpen, canQuickLook]);
+    return [
+      { type: "item", label: "Otevřít", shortcut: "Enter", onSelect: () => open(entry) },
+      {
+        type: "item",
+        label: "Otevřít v Průzkumníku",
+        disabled: !single,
+        onSelect: () => {
+          void runOperation("Průzkumníka se nepodařilo otevřít", () => openInExplorer(entry.path));
+        },
+      },
+      { type: "separator" },
+      {
+        type: "item",
+        label: "Přejmenovat",
+        shortcut: "F2",
+        onSelect: () => setRenamingPath(entry.path),
+      },
+      { type: "item", label: "Duplikovat", shortcut: "Ctrl+D", onSelect: duplicateActive },
+      {
+        type: "item",
+        label: "Kopírovat cestu",
+        onSelect: () => {
+          writeText(entry.path).catch((err: unknown) =>
+            setNotice(`Cestu se nepodařilo zkopírovat — ${String(err)}`),
+          );
+        },
+      },
+      { type: "separator" },
+      {
+        type: "item",
+        label: "Kopírovat",
+        shortcut: "Ctrl+C",
+        onSelect: () => copyToClipboard("copy"),
+      },
+      { type: "item", label: "Vyjmout", shortcut: "Ctrl+X", onSelect: () => copyToClipboard("cut") },
+      {
+        type: "item",
+        label: "Vložit",
+        shortcut: "Ctrl+V",
+        disabled: clipboard === null,
+        onSelect: paste,
+      },
+      { type: "separator" },
+      {
+        type: "item",
+        label: "Smazat",
+        shortcut: "Delete",
+        danger: true,
+        onSelect: deleteTargets,
+      },
+      { type: "separator" },
+      { type: "item", label: "Vlastnosti", onSelect: () => setPropertiesFor(entry) },
+    ];
+  }, [
+    menu,
+    targetEntries.length,
+    clipboard,
+    open,
+    runOperation,
+    duplicateActive,
+    copyToClipboard,
+    paste,
+    deleteTargets,
+  ]);
 
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName = crumbs.length > 0 ? crumbs[crumbs.length - 1].label : "Finder";
 
+  // Status bar i Quick Look musí počítat s tím, co je opravdu vidět —
+  // v column view tedy se zaměřeným sloupcem, ne s obsahem nav.current.
+  const needle = query.trim().toLowerCase();
+
+  const columnEntries = focusedColumn?.entries ?? [];
+  const visibleColumnEntries = needle
+    ? columnEntries.filter((entry) => entry.name.toLowerCase().includes(needle))
+    : columnEntries;
+
+  const previewEntries = isColumnView ? visibleColumnEntries : visibleEntries;
+  const statusVisibleCount = isColumnView ? visibleColumnEntries.length : visibleEntries.length;
+  const statusTotalCount = isColumnView ? columnEntries.length : sortedEntries.length;
+
   function renderContent() {
     if (nav.current === null) return <Placeholder>Začni výběrem složky vlevo.</Placeholder>;
 
-    // Column view si obsah i stavy načítání řeší sám, sloupec po sloupci.
-    if (viewMode === "column") {
+    if (isColumnView) {
       return (
-        <ColumnView api={columnsApi} windowFocused={windowFocused} onOpenFile={openFile} />
+        <ColumnView
+          api={columnsApi}
+          windowFocused={windowFocused}
+          onOpenFile={openFile}
+          cutPaths={cutPaths}
+          renamingPath={renamingPath}
+          onRenameSubmit={submitRename}
+          onRenameCancel={() => setRenamingPath(null)}
+          onContextMenu={openContextMenu}
+          query={query}
+        />
       );
     }
+
     if (loading) return <Placeholder>Načítám…</Placeholder>;
     if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
     if (visibleEntries.length === 0) {
@@ -214,30 +524,31 @@ export default function App() {
       );
     }
 
+    const shared = {
+      entries: visibleEntries,
+      selectedPaths: selection,
+      cutPaths,
+      windowFocused,
+      renamingPath,
+      onRenameSubmit: submitRename,
+      onRenameCancel: () => setRenamingPath(null),
+      onSelect: selectEntry,
+      onOpen: open,
+      onContextMenu: openContextMenu,
+    };
+
     if (viewMode === "list") {
       return (
         <ListView
-          entries={visibleEntries}
-          selectedPath={selected?.path ?? null}
-          windowFocused={windowFocused}
+          {...shared}
           sortKey={sortKey}
           sortDirection={sortDirection}
           onSort={sortBy}
-          onSelect={setSelected}
-          onOpen={open}
         />
       );
     }
 
-    return (
-      <IconView
-        entries={visibleEntries}
-        selectedPath={selected?.path ?? null}
-        windowFocused={windowFocused}
-        onSelect={setSelected}
-        onOpen={open}
-      />
-    );
+    return <IconView {...shared} />;
   }
 
   return (
@@ -266,11 +577,15 @@ export default function App() {
             onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
             query={query}
             onQueryChange={setQuery}
+            searchRef={searchRef}
           />
 
           {notice && (
-            <div className="shrink-0 border-b border-line px-3 py-1.5 text-[12px] text-secondary">
-              {notice}
+            <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5 text-[12px] text-secondary">
+              <span className="min-w-0 flex-1 truncate">{notice}</span>
+              <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">
+                skrýt
+              </button>
             </div>
           )}
 
@@ -280,15 +595,27 @@ export default function App() {
 
       <StatusBar
         path={nav.current}
-        itemCount={visibleEntries.length}
+        itemCount={statusVisibleCount}
+        totalCount={statusTotalCount}
+        filtered={needle.length > 0}
         freeSpace={freeSpace}
         onNavigate={navigate}
+        editing={pathEditing}
+        onEditingChange={setPathEditing}
       />
 
-      {quickLookOpen && previewSelected && !previewSelected.is_dir && (
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
+
+      {propertiesFor && (
+        <PropertiesDialog entry={propertiesFor} onClose={() => setPropertiesFor(null)} />
+      )}
+
+      {quickLookOpen && activeEntry && !activeEntry.is_dir && (
         <QuickLook
           entries={previewEntries}
-          entry={previewSelected}
+          entry={activeEntry}
           onClose={() => setQuickLookOpen(false)}
           onOpenFile={openFile}
         />

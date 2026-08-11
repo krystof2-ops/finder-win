@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
+import { RenameInput } from "./RenameInput";
 import { formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
 import type { FileEntry } from "../types";
@@ -10,22 +11,35 @@ import type { FileEntry } from "../types";
 
 type ColumnPaneProps = {
   column: Column;
+  /** Položky k vykreslení — po případném filtru, proto ne column.entries. */
+  entries: FileEntry[];
   index: number;
   isFocused: boolean;
   windowFocused: boolean;
   onSelect: (columnIndex: number, entry: FileEntry) => void;
   onOpen: (columnIndex: number, entry: FileEntry) => void;
   onFocus: (columnIndex: number) => void;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  cutPaths: Set<string>;
+  renamingPath: string | null;
+  onRenameSubmit: (entry: FileEntry, name: string) => void;
+  onRenameCancel: () => void;
 };
 
 function ColumnPane({
   column,
+  entries,
   index,
   isFocused,
   windowFocused,
   onSelect,
   onOpen,
   onFocus,
+  onContextMenu,
+  cutPaths,
+  renamingPath,
+  onRenameSubmit,
+  onRenameCancel,
 }: ColumnPaneProps) {
   const selectedRef = useRef<HTMLDivElement>(null);
 
@@ -48,12 +62,15 @@ function ColumnPane({
         </div>
       )}
 
-      {!column.loading && !column.error && column.entries.length === 0 && (
-        <div className="px-2.5 py-1 text-[13px] text-secondary">Prázdná složka</div>
+      {!column.loading && !column.error && entries.length === 0 && (
+        <div className="px-2.5 py-1 text-[13px] text-secondary">
+          {column.entries.length === 0 ? "Prázdná složka" : "Nic neodpovídá hledání"}
+        </div>
       )}
 
-      {column.entries.map((entry) => {
+      {entries.map((entry) => {
         const isSelected = entry.path === column.selectedPath;
+        const isRenaming = entry.path === renamingPath;
         const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
 
         return (
@@ -63,13 +80,23 @@ function ColumnPane({
             title={entry.name}
             onClick={() => onSelect(index, entry)}
             onDoubleClick={() => onOpen(index, entry)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onSelect(index, entry);
+              onContextMenu?.(entry, event.clientX, event.clientY);
+            }}
             className={`flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
-              isSelected ? selectedClass : "hover:bg-hover"
+              isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
+            style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
           >
             <SmallEntryIcon entry={entry} />
-            <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-            {entry.is_dir && (
+            {isRenaming ? (
+              <RenameInput entry={entry} onSubmit={onRenameSubmit} onCancel={onRenameCancel} />
+            ) : (
+              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+            )}
+            {entry.is_dir && !isRenaming && (
               <ChevronRight size={13} strokeWidth={2} className="shrink-0 text-secondary" />
             )}
           </div>
@@ -145,13 +172,34 @@ type ColumnViewProps = {
   api: ColumnsApi;
   windowFocused: boolean;
   onOpenFile: (entry: FileEntry) => void;
+  cutPaths: Set<string>;
+  renamingPath: string | null;
+  onRenameSubmit: (entry: FileEntry, name: string) => void;
+  onRenameCancel: () => void;
+  onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  /** Filtruje se jen zaměřený sloupec, ostatní zůstávají celé. */
+  query: string;
 };
 
-export function ColumnView({ api, windowFocused, onOpenFile }: ColumnViewProps) {
+export function ColumnView({
+  api,
+  windowFocused,
+  onOpenFile,
+  cutPaths,
+  renamingPath,
+  onRenameSubmit,
+  onRenameCancel,
+  onContextMenu,
+  query,
+}: ColumnViewProps) {
   const { columns, focusedIndex, select, openInto, focusColumn, move } = api;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  const needle = query.trim().toLowerCase();
+  const filterEntries = (entries: FileEntry[]) =>
+    needle ? entries.filter((entry) => entry.name.toLowerCase().includes(needle)) : entries;
 
   const lastColumn = columns.length > 0 ? columns[columns.length - 1] : null;
   const selectedInLast =
@@ -228,12 +276,18 @@ export function ColumnView({ api, windowFocused, onOpenFile }: ColumnViewProps) 
           <ColumnPane
             key={`${index}/${column.path}`}
             column={column}
+            entries={index === focusedIndex ? filterEntries(column.entries) : column.entries}
             index={index}
             isFocused={index === focusedIndex}
             windowFocused={windowFocused}
             onSelect={select}
             onOpen={activate}
             onFocus={focusColumn}
+            onContextMenu={onContextMenu}
+            cutPaths={cutPaths}
+            renamingPath={renamingPath}
+            onRenameSubmit={onRenameSubmit}
+            onRenameCancel={onRenameCancel}
           />
         ))}
 
