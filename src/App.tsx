@@ -12,6 +12,7 @@ import { ListView } from "./components/ListView";
 import { QuickLook } from "./components/QuickLook";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
+import { TagView } from "./components/TagView";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { useColumns } from "./columns";
@@ -25,9 +26,12 @@ import {
   renamePath,
 } from "./fileops";
 import { breadcrumbs, sortEntries, type SortDirection, type SortKey } from "./format";
+import * as storage from "./lib/storage";
+import { TAG_LABEL } from "./lib/tags";
+import { useStorage } from "./lib/useStorage";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
-import type { Clipboard, FavoriteSection, FileEntry, Theme, ViewMode } from "./types";
+import type { Clipboard, FavoriteSection, FileEntry, TagColor, Theme, ViewMode } from "./types";
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -71,6 +75,18 @@ export default function App() {
   const [menu, setMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
   const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
 
+  // Tag view je samostatný režim hlavního panelu — nesouvisí s nav.current,
+  // proto vlastní stav a ne další ViewMode.
+  const [tagFilter, setTagFilter] = useState<TagColor | null>(null);
+  const [tagCount, setTagCount] = useState(0);
+  /** Co má "Zobrazit ve složce" označit, až dorazí výpis složky `dir`. */
+  const [pendingSelect, setPendingSelect] = useState<{ dir: string; path: string } | null>(null);
+  /** Složka, ke které patří obsah `entries`. Ne totéž co nav.current — ten se
+   *  změní hned, kdežto entries dojedou až po odpovědi backendu. */
+  const [loadedPath, setLoadedPath] = useState<string | null>(null);
+
+  const { tags } = useStorage();
+
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -80,8 +96,29 @@ export default function App() {
   const requestId = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  const navigate = useCallback((path: string) => dispatch({ type: "go", path }), []);
+  // Každý přechod do složky opouští tag view — jinak by sidebar zvýrazňoval
+  // barvu, jejíž výsledky už nikdo nevidí.
+  const navigate = useCallback((path: string) => {
+    setTagFilter(null);
+    dispatch({ type: "go", path });
+  }, []);
+
+  const goBack = useCallback(() => {
+    setTagFilter(null);
+    dispatch({ type: "back" });
+  }, []);
+
+  const goForward = useCallback(() => {
+    setTagFilter(null);
+    dispatch({ type: "forward" });
+  }, []);
+
   const columnsApi = useColumns(nav.current, viewMode === "column");
+
+  // Persistentní nastavení se načte jednou; do té doby jedou sekce prázdné.
+  useEffect(() => {
+    void storage.init();
+  }, []);
 
   useEffect(() => applyTheme(theme), [theme]);
 
@@ -130,10 +167,13 @@ export default function App() {
       .then((result) => {
         if (requestId.current !== id) return;
         setEntries(result);
+        setLoadedPath(path);
       })
       .catch((err: unknown) => {
         if (requestId.current !== id) return;
         setEntries([]);
+        // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
+        setLoadedPath(path);
         setError(String(err));
       })
       .finally(() => {
@@ -189,7 +229,10 @@ export default function App() {
     columnsApi.refresh();
   }, [columnsApi]);
 
+  /** Jediná cesta k otevření souboru — proto se nedávné zapisují právě tady. */
   const openFile = useCallback((entry: FileEntry) => {
+    void storage.addRecent(entry.path, entry.name, "file");
+
     invoke("open_file", { path: entry.path }).catch((err: unknown) =>
       setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`),
     );
@@ -198,11 +241,67 @@ export default function App() {
   const open = useCallback(
     (entry: FileEntry) => {
       selectEntry(entry);
-      if (entry.is_dir) navigate(entry.path);
-      else openFile(entry);
+
+      if (entry.is_dir) {
+        void storage.addRecent(entry.path, entry.name, "folder");
+        navigate(entry.path);
+      } else {
+        openFile(entry);
+      }
     },
     [navigate, openFile, selectEntry],
   );
+
+  /** Sidebar volá s holou cestou — nedávné o FileEntry nevědí. */
+  const openRecentFile = useCallback(
+    (path: string, name: string) => {
+      openFile({
+        name,
+        path,
+        is_dir: false,
+        size: 0,
+        modified: 0,
+        created: 0,
+        extension: null,
+      });
+    },
+    [openFile],
+  );
+
+  /** Skočí do nadřazené složky a označí v ní danou položku. */
+  const reveal = useCallback(
+    (path: string) => {
+      const parent = parentPath(path);
+      if (parent === null) return;
+
+      navigate(parent);
+      setPendingSelect({ dir: parent, path });
+    },
+    [navigate],
+  );
+
+  // Čeká se na výpis *té* složky, do které se odkrývá. Na `loading` se spolehnout
+  // nedá — v prvním průchodu efektů je ještě false z předchozí složky.
+  useEffect(() => {
+    if (pendingSelect === null || loadedPath !== pendingSelect.dir) return;
+
+    const found = entries.find((entry) => entry.path === pendingSelect.path);
+    if (found) {
+      setActive(found);
+      setSelection(new Set([found.path]));
+
+      // Ve stovkách položek by označení zůstalo mimo obrazovku. Řádek se hledá
+      // přes data-path, ať se kvůli jednomu doscrollování netahá ref přes obě views.
+      const target = found.path;
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-path="${CSS.escape(target)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    }
+    // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
+    setPendingSelect(null);
+  }, [entries, loadedPath, pendingSelect]);
 
   /** Společné ošetření chyb + refresh po každé mutující operaci. */
   const runOperation = useCallback(
@@ -280,6 +379,9 @@ export default function App() {
     function onKeyDown(event: KeyboardEvent) {
       // Modal si klávesy obsluhuje sám.
       if (quickLookOpen) return;
+      // Tag view nemá výběr v hlavním panelu — zkratky by mířily na položky
+      // podkladové složky, které uživatel nevidí. Nejnebezpečnější je Delete.
+      if (tagFilter !== null) return;
       if (isTypingTarget(event.target)) return;
 
       const ctrl = event.ctrlKey || event.metaKey;
@@ -364,6 +466,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
     quickLookOpen,
+    tagFilter,
     isColumnView,
     activeEntry,
     goToParent,
@@ -465,10 +568,18 @@ export default function App() {
         onSelect: deleteTargets,
       },
       { type: "separator" },
+      {
+        type: "tags",
+        label: "Tagy",
+        active: tags[entry.path] ?? [],
+        onToggle: (color) => void storage.toggleTag(entry.path, color),
+      },
+      { type: "separator" },
       { type: "item", label: "Vlastnosti", onSelect: () => setPropertiesFor(entry) },
     ];
   }, [
     menu,
+    tags,
     targetEntries.length,
     clipboard,
     open,
@@ -480,7 +591,12 @@ export default function App() {
   ]);
 
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
-  const folderName = crumbs.length > 0 ? crumbs[crumbs.length - 1].label : "Finder";
+  const folderName =
+    tagFilter !== null
+      ? TAG_LABEL[tagFilter]
+      : crumbs.length > 0
+        ? crumbs[crumbs.length - 1].label
+        : "Finder";
 
   // Status bar i Quick Look musí počítat s tím, co je opravdu vidět —
   // v column view tedy se zaměřeným sloupcem, ne s obsahem nav.current.
@@ -492,10 +608,32 @@ export default function App() {
     : columnEntries;
 
   const previewEntries = isColumnView ? visibleColumnEntries : visibleEntries;
-  const statusVisibleCount = isColumnView ? visibleColumnEntries.length : visibleEntries.length;
-  const statusTotalCount = isColumnView ? columnEntries.length : sortedEntries.length;
+
+  const inTagView = tagFilter !== null;
+  const statusVisibleCount = inTagView
+    ? tagCount
+    : isColumnView
+      ? visibleColumnEntries.length
+      : visibleEntries.length;
+  const statusTotalCount = inTagView
+    ? tagCount
+    : isColumnView
+      ? columnEntries.length
+      : sortedEntries.length;
 
   function renderContent() {
+    if (tagFilter !== null) {
+      return (
+        <TagView
+          color={tagFilter}
+          windowFocused={windowFocused}
+          onReveal={reveal}
+          onOpen={openFile}
+          onCountChange={setTagCount}
+        />
+      );
+    }
+
     if (nav.current === null) return <Placeholder>Začni výběrem složky vlevo.</Placeholder>;
 
     if (isColumnView) {
@@ -510,6 +648,7 @@ export default function App() {
           onRenameCancel={() => setRenamingPath(null)}
           onContextMenu={openContextMenu}
           query={query}
+          tags={tags}
         />
       );
     }
@@ -535,6 +674,7 @@ export default function App() {
       onSelect: selectEntry,
       onOpen: open,
       onContextMenu: openContextMenu,
+      tags,
     };
 
     if (viewMode === "list") {
@@ -562,6 +702,10 @@ export default function App() {
           currentPath={nav.current}
           windowFocused={windowFocused}
           onNavigate={navigate}
+          onOpenFile={openRecentFile}
+          onReveal={reveal}
+          activeTag={tagFilter}
+          onSelectTag={setTagFilter}
         />
 
         <main className="surface flex min-w-0 flex-1 flex-col bg-main">
@@ -569,8 +713,8 @@ export default function App() {
             folderName={folderName}
             canGoBack={nav.back.length > 0}
             canGoForward={nav.forward.length > 0}
-            onBack={() => dispatch({ type: "back" })}
-            onForward={() => dispatch({ type: "forward" })}
+            onBack={goBack}
+            onForward={goForward}
             viewMode={viewMode}
             onViewModeChange={changeViewMode}
             theme={theme}

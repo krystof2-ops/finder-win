@@ -40,6 +40,35 @@ export function formatModified(timestamp: number): string {
   });
 }
 
+/**
+ * Relativní čas pro seznam nedávných. Na rozdíl od formatModified bere
+ * **milisekundy**, protože tak si nedávné ukládá storage.
+ *
+ * Do hodiny minuty, do včerejška hodiny, pak "včera" a nakonec datum —
+ * "před 9 dny" už nikomu nic neřekne.
+ */
+export function formatRelative(timestampMs: number): string {
+  if (!timestampMs) return "";
+
+  const seconds = Math.round((Date.now() - timestampMs) / 1000);
+  if (seconds < 60) return "teď";
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `před ${minutes} min`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `před ${hours} h`;
+
+  const date = new Date(timestampMs);
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+
+  // "Včera" se počítá podle kalendáře, ne podle 24 hodin zpátky.
+  if (date.getTime() >= midnight.getTime() - 86_400_000) return "včera";
+
+  return date.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" });
+}
+
 /** Česká shoda čísla s podstatným jménem: 1 položka / 3 položky / 8 položek. */
 export function formatItemCount(count: number): string {
   if (count === 1) return "1 položka";

@@ -399,6 +399,42 @@ fn open_in_explorer(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Načte metadata pro seznam cest naráz — jeden IPC skok místo N.
+///
+/// Cesty, které na disku už nejsou (nebo jsou nečitelné), se tiše přeskočí.
+/// Volající tak z rozdílu vstupu a výstupu pozná, co mezitím zmizelo, a může
+/// si to promazat u sebe (tag view to dělá s uloženými tagy).
+#[tauri::command]
+fn stat_paths(paths: Vec<String>) -> Vec<FileEntry> {
+    paths
+        .into_iter()
+        .filter_map(|path| {
+            let entry_path = PathBuf::from(&path);
+            let metadata = fs::metadata(&entry_path).ok()?;
+            let is_dir = metadata.is_dir();
+
+            Some(FileEntry {
+                extension: if is_dir {
+                    None
+                } else {
+                    entry_path
+                        .extension()
+                        .map(|ext| ext.to_string_lossy().to_lowercase())
+                },
+                name: entry_path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().to_string())
+                    .unwrap_or_else(|| path.clone()),
+                path,
+                is_dir,
+                size: if is_dir { 0 } else { metadata.len() },
+                modified: to_unix_seconds(metadata.modified()),
+                created: to_unix_seconds(metadata.created()),
+            })
+        })
+        .collect()
+}
+
 #[tauri::command]
 fn get_file_properties(path: String) -> Result<FileProperties, String> {
     let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, err))?;
@@ -515,6 +551,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
@@ -534,7 +571,8 @@ fn main() {
             move_path,
             duplicate_path,
             open_in_explorer,
-            get_file_properties
+            get_file_properties,
+            stat_paths
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

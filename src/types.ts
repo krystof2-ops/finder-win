@@ -41,3 +41,30 @@ export type ViewMode = "icon" | "list" | "column";
 export type Clipboard = { paths: string[]; mode: "copy" | "cut" };
 
 export type Theme = "light" | "dark";
+
+/* ------------------------- persistentní nastavení -------------------------- */
+
+/** Položka v uživatelské sekci "Moje oblíbené". Vždycky složka. */
+export type CustomFavorite = {
+  /** Zobrazený název — jde přejmenovat nezávisle na cestě. */
+  label: string;
+  path: string;
+  /** Klíč do SIDEBAR_ICONS, prakticky vždy "Folder". */
+  icon: string;
+};
+
+export type RecentKind = "file" | "folder";
+
+export type RecentEntry = {
+  path: string;
+  name: string;
+  type: RecentKind;
+  /** Unix timestamp v **milisekundách** (na rozdíl od FileEntry.modified). */
+  opened_at: number;
+};
+
+/** Sedm barev jako ve Finderu, víc jich být nemůže. */
+export type TagColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "grey";
+
+/** Cesta → seznam barev. Soubor může mít víc tagů zároveň. */
+export type TagMap = Record<string, TagColor[]>;

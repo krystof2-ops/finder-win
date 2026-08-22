@@ -3,9 +3,11 @@ import { ChevronRight } from "lucide-react";
 
 import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
 import { RenameInput } from "./RenameInput";
+import { TagDots } from "./TagDots";
+import { endDrag, startDrag } from "../lib/dnd";
 import { formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
-import type { FileEntry } from "../types";
+import type { FileEntry, TagMap } from "../types";
 
 /* --------------------------------- sloupec -------------------------------- */
 
@@ -24,6 +26,7 @@ type ColumnPaneProps = {
   renamingPath: string | null;
   onRenameSubmit: (entry: FileEntry, name: string) => void;
   onRenameCancel: () => void;
+  tags: TagMap;
 };
 
 function ColumnPane({
@@ -40,6 +43,7 @@ function ColumnPane({
   renamingPath,
   onRenameSubmit,
   onRenameCancel,
+  tags,
 }: ColumnPaneProps) {
   const selectedRef = useRef<HTMLDivElement>(null);
 
@@ -78,6 +82,14 @@ function ColumnPane({
             key={entry.path}
             ref={isSelected ? selectedRef : undefined}
             title={entry.name}
+            draggable={!isRenaming}
+            onDragStart={(event) =>
+              startDrag(
+                { kind: "entry", path: entry.path, name: entry.name, isDir: entry.is_dir },
+                event.dataTransfer,
+              )
+            }
+            onDragEnd={endDrag}
             onClick={() => onSelect(index, entry)}
             onDoubleClick={() => onOpen(index, entry)}
             onContextMenu={(event) => {
@@ -95,6 +107,9 @@ function ColumnPane({
               <RenameInput entry={entry} onSubmit={onRenameSubmit} onCancel={onRenameCancel} />
             ) : (
               <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+            )}
+            {!entry.is_dir && !isRenaming && (
+              <TagDots colors={tags[entry.path] ?? []} size={6} />
             )}
             {entry.is_dir && !isRenaming && (
               <ChevronRight size={13} strokeWidth={2} className="shrink-0 text-secondary" />
@@ -179,6 +194,7 @@ type ColumnViewProps = {
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
   /** Filtruje se jen zaměřený sloupec, ostatní zůstávají celé. */
   query: string;
+  tags: TagMap;
 };
 
 export function ColumnView({
@@ -191,6 +207,7 @@ export function ColumnView({
   onRenameCancel,
   onContextMenu,
   query,
+  tags,
 }: ColumnViewProps) {
   const { columns, focusedIndex, select, openInto, focusColumn, move } = api;
 
@@ -288,6 +305,7 @@ export function ColumnView({
             renamingPath={renamingPath}
             onRenameSubmit={onRenameSubmit}
             onRenameCancel={onRenameCancel}
+            tags={tags}
           />
         ))}
 

@@ -1,6 +1,8 @@
 import { LargeEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
-import type { FileEntry } from "../types";
+import { TagDots } from "./TagDots";
+import { endDrag, startDrag } from "../lib/dnd";
+import type { FileEntry, TagMap } from "../types";
 
 type IconViewProps = {
   entries: FileEntry[];
@@ -13,6 +15,7 @@ type IconViewProps = {
   onSelect: (entry: FileEntry) => void;
   onOpen: (entry: FileEntry) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  tags: TagMap;
 };
 
 export function IconView({
@@ -26,6 +29,7 @@ export function IconView({
   onSelect,
   onOpen,
   onContextMenu,
+  tags,
 }: IconViewProps) {
   return (
     <div
@@ -42,9 +46,19 @@ export function IconView({
         return (
           <div
             key={entry.path}
+            data-path={entry.path}
             role="button"
             tabIndex={0}
             title={entry.name}
+            // Přejmenovaný řádek se netahá — jinak by drag ukradl výběr v inputu.
+            draggable={!isRenaming}
+            onDragStart={(event) =>
+              startDrag(
+                { kind: "entry", path: entry.path, name: entry.name, isDir: entry.is_dir },
+                event.dataTransfer,
+              )
+            }
+            onDragEnd={endDrag}
             onClick={() => onSelect(entry)}
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
@@ -52,7 +66,7 @@ export function IconView({
               onSelect(entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className="flex h-[100px] w-full flex-col items-center gap-1 outline-none"
+            className="flex h-[112px] w-full flex-col items-center gap-1 outline-none"
             style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
           >
             <div
@@ -82,6 +96,8 @@ export function IconView({
                 {entry.name}
               </span>
             )}
+
+            {!isRenaming && <TagDots colors={tags[entry.path] ?? []} size={8} />}
           </div>
         );
       })}
