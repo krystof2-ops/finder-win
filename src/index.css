@@ -43,6 +43,10 @@
   /* "papírek" pod ikonou souboru v icon view */
   --paper: #ffffff;
   --paper-border: rgba(0, 0, 0, 0.12);
+
+  /* Výběr v icon view: jeden neutrální tón pro dlaždici pod ikonou i pro
+     pilulku se jménem, aby to drželo pohromadě jako jeden celek. */
+  --icon-selection: rgba(0, 0, 0, 0.1);
 }
 
 .dark {
@@ -62,6 +66,8 @@
 
   --paper: #f2f2f4;
   --paper-border: rgba(0, 0, 0, 0.2);
+
+  --icon-selection: rgba(255, 255, 255, 0.14);
 }
 
 html,

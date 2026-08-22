@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -15,6 +16,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { AboutDialog } from "./AboutDialog";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { Theme, ViewMode } from "../types";
 
 type IconButtonProps = {
@@ -23,9 +26,18 @@ type IconButtonProps = {
   active?: boolean;
   disabled?: boolean;
   onClick?: () => void;
+  /** Tlačítka otevírající menu potřebují mousedown — viz komentář u "Více". */
+  onMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void;
 };
 
-function IconButton({ Icon, label, active = false, disabled = false, onClick }: IconButtonProps) {
+function IconButton({
+  Icon,
+  label,
+  active = false,
+  disabled = false,
+  onClick,
+  onMouseDown,
+}: IconButtonProps) {
   return (
     <button
       type="button"
@@ -33,6 +45,7 @@ function IconButton({ Icon, label, active = false, disabled = false, onClick }: 
       title={label}
       disabled={disabled}
       onClick={onClick}
+      onMouseDown={onMouseDown}
       className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary transition-colors duration-100 ${
         active ? "bg-selected" : "hover:bg-hover"
       } disabled:pointer-events-none disabled:opacity-35`}
@@ -55,6 +68,9 @@ type ToolbarProps = {
   query: string;
   onQueryChange: (query: string) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
+  onRefresh: () => void;
+  onGoToParent: () => void;
+  canGoToParent: boolean;
 };
 
 export function Toolbar({
@@ -70,7 +86,27 @@ export function Toolbar({
   query,
   onQueryChange,
   searchRef,
+  onRefresh,
+  onGoToParent,
+  canGoToParent,
 }: ToolbarProps) {
+  // Menu se otevírá pod tlačítkem, proto se pozice bere z jeho rámečku.
+  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
+
+  const moreItems: MenuItem[] = [
+    { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: onRefresh },
+    {
+      type: "item",
+      label: "Nadřazená složka",
+      shortcut: "Ctrl+↑",
+      disabled: !canGoToParent,
+      onSelect: onGoToParent,
+    },
+    { type: "separator" },
+    { type: "item", label: "O aplikaci Finder-Win", onSelect: () => setAboutOpen(true) },
+  ];
+
   return (
     <header
       className="surface flex h-[52px] shrink-0 items-center gap-2 border-b border-line bg-toolbar px-3"
@@ -115,7 +151,20 @@ export function Toolbar({
       <IconButton Icon={SlidersHorizontal} label="Seřadit" />
       <IconButton Icon={Share} label="Sdílet" />
       <IconButton Icon={Tag} label="Štítky" />
-      <IconButton Icon={MoreHorizontal} label="Více" />
+
+      {/* Přepínání musí běžet na mousedown se stopPropagation: ContextMenu se
+          zavírá posluchačem mousedown na window, takže by se na click otevřelo
+          znovu hned po zavření a tlačítko by menu nikdy nezavřelo. */}
+      <IconButton
+        Icon={MoreHorizontal}
+        label="Více"
+        active={moreMenu !== null}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+          const rect = event.currentTarget.getBoundingClientRect();
+          setMoreMenu((current) => (current ? null : { x: rect.left, y: rect.bottom + 4 }));
+        }}
+      />
 
       <IconButton
         Icon={theme === "dark" ? Sun : Moon}
@@ -157,6 +206,17 @@ export function Toolbar({
           </button>
         )}
       </div>
+
+      {moreMenu && (
+        <ContextMenu
+          x={moreMenu.x}
+          y={moreMenu.y}
+          items={moreItems}
+          onClose={() => setMoreMenu(null)}
+        />
+      )}
+
+      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
     </header>
   );
 }

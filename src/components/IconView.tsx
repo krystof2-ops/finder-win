@@ -39,9 +39,14 @@ export function IconView({
       {entries.map((entry) => {
         const isSelected = selectedPaths.has(entry.path);
         const isRenaming = entry.path === renamingPath;
-        const selectedBg = windowFocused
-          ? "var(--row-selected)"
-          : "var(--row-selected-inactive)";
+        // Během přejmenování výběr nekreslíme — podbarvení pod inputem ruší.
+        const showSelection = isSelected && !isRenaming;
+        // Jedno místo pro odstín výběru: ikona i jméno musí vyjít stejně.
+        const selectionBg = showSelection
+          ? windowFocused
+            ? "var(--icon-selection)"
+            : "var(--row-selected-inactive)"
+          : "transparent";
 
         return (
           <div
@@ -66,12 +71,14 @@ export function IconView({
               onSelect(entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className="flex h-[112px] w-full flex-col items-center gap-1 outline-none"
+            className="flex h-[118px] w-full flex-col items-center gap-1 outline-none"
             style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
           >
+            {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —
+                obojí bere selectionBg, takže se to nemůže rozejít. */}
             <div
-              className="rounded-md p-0.5 transition-colors duration-100"
-              style={{ backgroundColor: isSelected && !isRenaming ? selectedBg : "transparent" }}
+              className="rounded-[10px] p-1 transition-colors duration-100"
+              style={{ backgroundColor: selectionBg }}
             >
               <LargeEntryIcon entry={entry} />
             </div>
@@ -87,9 +94,9 @@ export function IconView({
               </div>
             ) : (
               <span
-                className="line-clamp-2 rounded px-1 text-center text-[12px] leading-tight text-primary transition-colors duration-100"
+                className="line-clamp-2 rounded-[5px] px-1.5 text-center text-[12px] text-primary leading-tight transition-colors duration-100"
                 style={{
-                  backgroundColor: isSelected ? "var(--accent-bg)" : "transparent",
+                  backgroundColor: selectionBg,
                   overflowWrap: "anywhere",
                 }}
               >

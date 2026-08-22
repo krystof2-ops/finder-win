@@ -268,6 +268,21 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [requestClose, step]);
 
+  // Boční tlačítka myši listují soubory stejně jako šipky. Capture fáze je
+  // nutná — karta níž si v onMouseDown volá stopPropagation, což by událost
+  // v bubble fázi do window nepustilo.
+  useEffect(() => {
+    function onMouseDown(event: MouseEvent) {
+      if (event.button !== 3 && event.button !== 4) return;
+
+      event.preventDefault();
+      step(event.button === 3 ? -1 : 1);
+    }
+
+    window.addEventListener("mousedown", onMouseDown, true);
+    return () => window.removeEventListener("mousedown", onMouseDown, true);
+  }, [step]);
+
   function handleOpen() {
     onOpenFile(current);
     requestClose();
@@ -275,7 +290,11 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
 
   return createPortal(
     <div
-      onMouseDown={requestClose}
+      // Jen primární tlačítko zavírá. Boční tlačítka listují soubory a prostřední
+      // by modal zavřelo taky, což u obojího nikdo nečeká.
+      onMouseDown={(event) => {
+        if (event.button === 0) requestClose();
+      }}
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{
         background: "rgba(0,0,0,0.7)",

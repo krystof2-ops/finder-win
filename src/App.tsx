@@ -479,6 +479,41 @@ export default function App() {
     deleteTargets,
   ]);
 
+  /* -------------------------- boční tlačítka myši ------------------------- */
+
+  // MB4/MB5 = zpět/vpřed v historii, přesně jako šipky v toolbaru.
+  //
+  // Posluchače běží v capture fázi. React má delegaci až na kontejneru a Quick
+  // Look si v onMouseDown volá stopPropagation, takže v bubble fázi by událost
+  // do window vůbec nedorazila.
+  useEffect(() => {
+    function onMouseDown(event: MouseEvent) {
+      if (event.button !== 3 && event.button !== 4) return;
+      // Quick Look si boční tlačítka obsluhuje sám — přepíná jimi soubory.
+      if (quickLookOpen) return;
+      if (isTypingTarget(event.target)) return;
+
+      event.preventDefault();
+      if (event.button === 3) goBack();
+      else goForward();
+    }
+
+    // Bez tohohle by webview na boční tlačítka odnavigovalo vlastní historii
+    // a odešlo pryč ze stránky aplikace. Ruší se proto vždy, i v Quick Look.
+    function swallow(event: MouseEvent) {
+      if (event.button === 3 || event.button === 4) event.preventDefault();
+    }
+
+    window.addEventListener("mousedown", onMouseDown, true);
+    window.addEventListener("mouseup", swallow, true);
+    window.addEventListener("auxclick", swallow, true);
+    return () => {
+      window.removeEventListener("mousedown", onMouseDown, true);
+      window.removeEventListener("mouseup", swallow, true);
+      window.removeEventListener("auxclick", swallow, true);
+    };
+  }, [quickLookOpen, goBack, goForward]);
+
   /* ----------------------------- view mode -------------------------------- */
 
   const changeViewMode = useCallback(
@@ -722,6 +757,9 @@ export default function App() {
             query={query}
             onQueryChange={setQuery}
             searchRef={searchRef}
+            onRefresh={refresh}
+            onGoToParent={goToParent}
+            canGoToParent={currentDir !== null && parentPath(currentDir) !== null}
           />
 
           {notice && (
