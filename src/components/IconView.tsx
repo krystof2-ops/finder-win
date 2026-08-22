@@ -2,6 +2,19 @@ import { LargeEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
+
+/**
+ * Restartuje "pop" animaci. Pouhé přidání třídy nestačí — když už na prvku
+ * visí, prohlížeč animaci nepřehraje znovu, dokud si nevynutíme reflow.
+ */
+function playPop(host: HTMLElement): void {
+  const inner = host.querySelector<HTMLElement>(".fw-card-inner");
+  if (inner === null) return;
+
+  inner.classList.remove("fw-pop");
+  void inner.offsetWidth;
+  inner.classList.add("fw-pop");
+}
 import type { FileEntry, TagMap } from "../types";
 
 type IconViewProps = {
@@ -64,20 +77,23 @@ export function IconView({
               )
             }
             onDragEnd={endDrag}
-            onClick={() => onSelect(entry)}
+            onClick={(event) => {
+              playPop(event.currentTarget);
+              onSelect(entry);
+            }}
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
               event.preventDefault();
               onSelect(entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className="flex h-[118px] w-full flex-col items-center gap-1 outline-none"
+            className="fw-card flex h-[118px] w-full flex-col items-center gap-1 outline-none"
             style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
           >
             {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —
                 obojí bere selectionBg, takže se to nemůže rozejít. */}
             <div
-              className="rounded-[10px] p-1 transition-colors duration-100"
+              className="fw-card-inner rounded-[10px] p-1"
               style={{ backgroundColor: selectionBg }}
             >
               <LargeEntryIcon entry={entry} />

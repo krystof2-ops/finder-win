@@ -17,7 +17,7 @@ function TrafficLight({ color, label, Icon, onClick }: TrafficLightProps) {
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="flex h-3 w-3 items-center justify-center rounded-full"
+      className="fw-traffic flex h-3 w-3 items-center justify-center rounded-full"
       style={{ backgroundColor: color }}
     >
       {/* Ikonka se objeví až při hoveru nad celou trojicí (skupina je na rodiči). */}

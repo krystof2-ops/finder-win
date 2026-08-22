@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
@@ -27,6 +27,8 @@ type ColumnPaneProps = {
   onRenameSubmit: (entry: FileEntry, name: string) => void;
   onRenameCancel: () => void;
   tags: TagMap;
+  /** Sloupec, který se právě zahazuje — jen dohrává odchod, nereaguje. */
+  exiting?: boolean;
 };
 
 function ColumnPane({
@@ -44,18 +46,23 @@ function ColumnPane({
   onRenameSubmit,
   onRenameCancel,
   tags,
+  exiting = false,
 }: ColumnPaneProps) {
   const selectedRef = useRef<HTMLDivElement>(null);
 
-  // Když se výběr posune klávesnicí, musí zůstat vidět.
+  // Když se výběr posune klávesnicí, musí zůstat vidět. Odcházející sloupec
+  // by tím ale přetáhl scroll zpátky doprava, proto ne u něj.
   useEffect(() => {
+    if (exiting) return;
     selectedRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [column.selectedPath]);
+  }, [column.selectedPath, exiting]);
 
   return (
     <div
       onMouseDown={() => onFocus(index)}
-      className="surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1"
+      className={`surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
+        exiting ? "fw-column-out" : "fw-column-in"
+      }`}
       style={{ backgroundColor: isFocused ? "var(--bg-toolbar)" : "var(--bg-main)" }}
     >
       {column.loading && <div className="px-2.5 py-1 text-[13px] text-secondary">Načítám…</div>}
@@ -81,6 +88,7 @@ function ColumnPane({
           <div
             key={entry.path}
             ref={isSelected ? selectedRef : undefined}
+            data-path={entry.path}
             title={entry.name}
             draggable={!isRenaming}
             onDragStart={(event) =>
@@ -97,7 +105,7 @@ function ColumnPane({
               onSelect(index, entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className={`flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
+            className={`fw-col-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
               isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
             style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
@@ -112,7 +120,11 @@ function ColumnPane({
               <TagDots colors={tags[entry.path] ?? []} size={6} />
             )}
             {entry.is_dir && !isRenaming && (
-              <ChevronRight size={13} strokeWidth={2} className="shrink-0 text-secondary" />
+              <ChevronRight
+                size={13}
+                strokeWidth={2}
+                className="fw-chevron shrink-0 text-secondary"
+              />
             )}
           </div>
         );
@@ -143,7 +155,7 @@ function InfoPanel({ entry, parentPath, onOpen }: InfoPanelProps) {
 
   return (
     <div
-      className="surface flex w-[280px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line p-4"
+      className="fw-info-panel surface flex w-[280px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line p-4"
       style={{ backgroundColor: "var(--bg-main)" }}
     >
       <div className="flex justify-center pt-2">
@@ -213,6 +225,35 @@ export function ColumnView({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  /** Živé sloupce bez těch odcházejících — cíl pro doscrollování doprava. */
+  const liveRef = useRef<HTMLDivElement>(null);
+
+  // Zahozené sloupce se ještě chvíli dorenderují, aby stihly odjet doprava.
+  // useColumns je zahazuje okamžitě, o odchod se proto musí postarat view.
+  const [exiting, setExiting] = useState<Column[]>([]);
+  const previousColumns = useRef<Column[]>(columns);
+
+  useEffect(() => {
+    const previous = previousColumns.current;
+    previousColumns.current = columns;
+
+    // První index, kde se cesty rozešly — od něj doprava je všechno pryč.
+    // Porovnává se podle cesty, ne podle délky: klik na jinou složku sloupec
+    // na témže indexu vymění, takže délka zůstane a změnu by to neodhalilo.
+    let changed = -1;
+    for (let index = 0; index < previous.length; index += 1) {
+      if (index >= columns.length || previous[index].path !== columns[index].path) {
+        changed = index;
+        break;
+      }
+    }
+
+    if (changed < 0) return;
+
+    setExiting(previous.slice(changed));
+    const timer = window.setTimeout(() => setExiting([]), 180);
+    return () => window.clearTimeout(timer);
+  }, [columns]);
 
   const needle = query.trim().toLowerCase();
   const filterEntries = (entries: FileEntry[]) =>
@@ -229,9 +270,11 @@ export function ColumnView({
     containerRef.current?.focus();
   }, []);
 
-  // Nově otevřený sloupec (nebo info panel) si musí sám doscrollovat do zorného pole.
+  // Nově otevřený sloupec (nebo info panel) si musí sám doscrollovat do zorného
+  // pole. Cílem je poslední *živý* prvek — lastElementChild scrolleru by během
+  // odchodu ukázal na sloupec, který za chvíli zmizí.
   useEffect(() => {
-    scrollerRef.current?.lastElementChild?.scrollIntoView({
+    liveRef.current?.lastElementChild?.scrollIntoView({
       inline: "end",
       block: "nearest",
       behavior: "smooth",
@@ -289,29 +332,52 @@ export function ColumnView({
       className="flex h-full outline-none"
     >
       <div ref={scrollerRef} className="flex min-w-0 flex-1 overflow-x-auto">
-        {columns.map((column, index) => (
+        <div ref={liveRef} className="flex shrink-0">
+          {columns.map((column, index) => (
+            <ColumnPane
+              key={`${index}/${column.path}`}
+              column={column}
+              entries={index === focusedIndex ? filterEntries(column.entries) : column.entries}
+              index={index}
+              isFocused={index === focusedIndex}
+              windowFocused={windowFocused}
+              onSelect={select}
+              onOpen={activate}
+              onFocus={focusColumn}
+              onContextMenu={onContextMenu}
+              cutPaths={cutPaths}
+              renamingPath={renamingPath}
+              onRenameSubmit={onRenameSubmit}
+              onRenameCancel={onRenameCancel}
+              tags={tags}
+            />
+          ))}
+
+          {infoEntry && lastColumn && (
+            <InfoPanel entry={infoEntry} parentPath={lastColumn.path} onOpen={onOpenFile} />
+          )}
+        </div>
+
+        {/* Dohrávají odchod napravo od živých sloupců, pak zmizí. */}
+        {exiting.map((column, index) => (
           <ColumnPane
-            key={`${index}/${column.path}`}
+            key={`exit-${index}-${column.path}`}
             column={column}
-            entries={index === focusedIndex ? filterEntries(column.entries) : column.entries}
-            index={index}
-            isFocused={index === focusedIndex}
+            entries={column.entries}
+            index={-1}
+            isFocused={false}
             windowFocused={windowFocused}
-            onSelect={select}
-            onOpen={activate}
-            onFocus={focusColumn}
-            onContextMenu={onContextMenu}
+            onSelect={() => undefined}
+            onOpen={() => undefined}
+            onFocus={() => undefined}
             cutPaths={cutPaths}
-            renamingPath={renamingPath}
-            onRenameSubmit={onRenameSubmit}
-            onRenameCancel={onRenameCancel}
+            renamingPath={null}
+            onRenameSubmit={() => undefined}
+            onRenameCancel={() => undefined}
             tags={tags}
+            exiting
           />
         ))}
-
-        {infoEntry && lastColumn && (
-          <InfoPanel entry={infoEntry} parentPath={lastColumn.path} onOpen={onOpenFile} />
-        )}
       </div>
     </div>
   );

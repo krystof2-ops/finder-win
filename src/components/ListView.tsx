@@ -77,10 +77,15 @@ export function ListView({
         ))}
       </div>
 
-      {entries.map((entry) => {
+      {entries.map((entry, index) => {
         const isSelected = selectedPaths.has(entry.path);
         const isRenaming = entry.path === renamingPath;
-        const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
+
+        // Pruhování se počítá z indexu, ne přes :nth-child — hlavička je
+        // sourozenec řádků, takže by CSS napočítalo o jedna vedle.
+        const stripeClass = index % 2 === 1 ? "fw-stripe" : "";
+        const stateClass =
+          isSelected && !isRenaming ? (windowFocused ? "is-selected" : "is-selected-dim") : "";
 
         return (
           <div
@@ -103,9 +108,7 @@ export function ListView({
               onSelect(entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className={`grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${
-              isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
-            }`}
+            className={`fw-list-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${stripeClass} ${stateClass}`}
             style={{
               gridTemplateColumns: GRID_TEMPLATE,
               opacity: cutPaths.has(entry.path) ? 0.5 : 1,

@@ -28,6 +28,8 @@ type IconButtonProps = {
   onClick?: () => void;
   /** Tlačítka otevírající menu potřebují mousedown — viz komentář u "Více". */
   onMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  /** Třída na samotnou ikonu, kvůli animaci uvnitř nehybného tlačítka. */
+  iconClassName?: string;
 };
 
 function IconButton({
@@ -37,6 +39,7 @@ function IconButton({
   disabled = false,
   onClick,
   onMouseDown,
+  iconClassName,
 }: IconButtonProps) {
   return (
     <button
@@ -46,11 +49,11 @@ function IconButton({
       disabled={disabled}
       onClick={onClick}
       onMouseDown={onMouseDown}
-      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary transition-colors duration-100 ${
+      className={`fw-tool-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary ${
         active ? "bg-selected" : "hover:bg-hover"
       } disabled:pointer-events-none disabled:opacity-35`}
     >
-      <Icon size={16} strokeWidth={1.75} />
+      <Icon size={16} strokeWidth={1.75} className={iconClassName} />
     </button>
   );
 }
@@ -109,7 +112,7 @@ export function Toolbar({
 
   return (
     <header
-      className="surface flex h-[52px] shrink-0 items-center gap-2 border-b border-line bg-toolbar px-3"
+      className="surface flex h-10 shrink-0 items-center gap-2 border-b border-line bg-toolbar px-3"
       style={{ backdropFilter: "blur(20px)" }}
     >
       <div className="flex shrink-0 items-center gap-1">
@@ -170,9 +173,10 @@ export function Toolbar({
         Icon={theme === "dark" ? Sun : Moon}
         label={theme === "dark" ? "Světlý režim" : "Tmavý režim"}
         onClick={onToggleTheme}
+        iconClassName="fw-theme-spin"
       />
 
-      <div className="group flex h-7 w-[180px] shrink-0 items-center gap-1.5 rounded-md bg-hover px-2.5 py-1 transition-[width] duration-150 focus-within:w-[240px]">
+      <div className="fw-search group flex h-7 w-[180px] shrink-0 items-center gap-1.5 rounded-md bg-hover px-2.5 py-1 focus-within:w-[240px]">
         <Search size={14} strokeWidth={2} className="shrink-0 text-secondary" />
         <input
           ref={searchRef}

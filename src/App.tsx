@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { X } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -33,6 +34,10 @@ import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
 import type { Clipboard, FavoriteSection, FileEntry, TagColor, Theme, ViewMode } from "./types";
 
+/** Jak dlouho hláška zůstane, než sama odjede. Musí sedět s fw-toast-out. */
+const TOAST_VISIBLE_MS = 2000;
+const TOAST_EXIT_MS = 240;
+
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
@@ -61,6 +66,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** Hláška ještě visí, ale už odjíždí dolů. */
+  const [noticeClosing, setNoticeClosing] = useState(false);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -88,6 +95,8 @@ export default function App() {
   const { tags } = useStorage();
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
+  /** Krátká fáze, kdy starý obsah dohasíná, než se vymění za nový. */
+  const [viewSwapping, setViewSwapping] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [query, setQuery] = useState("");
@@ -95,6 +104,7 @@ export default function App() {
 
   const requestId = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
+  const viewSwapTimer = useRef<number | null>(null);
 
   // Každý přechod do složky opouští tag view — jinak by sidebar zvýrazňoval
   // barvu, jejíž výsledky už nikdo nevidí.
@@ -121,6 +131,24 @@ export default function App() {
   }, []);
 
   useEffect(() => applyTheme(theme), [theme]);
+
+  // Hláška se sama sveze dolů po dvou sekundách. Oba časovače visí na `notice`,
+  // takže nová hláška ty staré zruší a odpočet začne znovu.
+  useEffect(() => {
+    if (notice === null) return;
+
+    setNoticeClosing(false);
+    const startExit = window.setTimeout(() => setNoticeClosing(true), TOAST_VISIBLE_MS);
+    const remove = window.setTimeout(
+      () => setNotice(null),
+      TOAST_VISIBLE_MS + TOAST_EXIT_MS,
+    );
+
+    return () => {
+      window.clearTimeout(startExit);
+      window.clearTimeout(remove);
+    };
+  }, [notice]);
 
   useEffect(() => {
     const onFocus = () => setWindowFocused(true);
@@ -518,13 +546,31 @@ export default function App() {
 
   const changeViewMode = useCallback(
     (mode: ViewMode) => {
+      if (mode === viewMode) return;
+
       const { activePath } = columnsApi;
-      if (viewMode === "column" && mode !== "column" && activePath && activePath !== nav.current) {
-        navigate(activePath);
-      }
-      setViewMode(mode);
+      const swap = () => {
+        if (viewMode === "column" && mode !== "column" && activePath && activePath !== nav.current) {
+          navigate(activePath);
+        }
+        setViewMode(mode);
+        setViewSwapping(false);
+      };
+
+      // Obsah nejdřív dohasne, teprve pak se vymění — bez toho by nové view
+      // skočilo doprostřed animace a cross-fade by nebyl vidět.
+      setViewSwapping(true);
+      if (viewSwapTimer.current !== null) window.clearTimeout(viewSwapTimer.current);
+      viewSwapTimer.current = window.setTimeout(swap, 120);
     },
     [viewMode, columnsApi, nav.current, navigate],
+  );
+
+  useEffect(
+    () => () => {
+      if (viewSwapTimer.current !== null) window.clearTimeout(viewSwapTimer.current);
+    },
+    [],
   );
 
   const sortBy = useCallback((key: SortKey) => {
@@ -762,16 +808,17 @@ export default function App() {
             canGoToParent={currentDir !== null && parentPath(currentDir) !== null}
           />
 
-          {notice && (
-            <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5 text-[12px] text-secondary">
-              <span className="min-w-0 flex-1 truncate">{notice}</span>
-              <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">
-                skrýt
-              </button>
-            </div>
-          )}
-
-          <div className="min-h-0 flex-1 overflow-auto">{renderContent()}</div>
+          {/* key vynutí remount při změně view, čímž se přehraje fw-view-swap.
+              Během dohasínání key ještě drží starou hodnotu. */}
+          <div
+            key={viewMode}
+            data-view={viewMode}
+            className={`min-h-0 flex-1 overflow-auto ${
+              viewSwapping ? "fw-view-out" : "fw-view-swap"
+            }`}
+          >
+            {renderContent()}
+          </div>
         </main>
       </div>
 
@@ -785,6 +832,37 @@ export default function App() {
         editing={pathEditing}
         onEditingChange={setPathEditing}
       />
+
+      {/* Hláška plave nad status barem. Vnější obal centruje, vnitřní animuje —
+          keyframes přepisují transform, takže by centrování translateX sežraly. */}
+      {notice && (
+        <div
+          className="pointer-events-none fixed inset-x-0 z-40 flex justify-center"
+          style={{ bottom: 32 }}
+        >
+          <div
+            className={`pointer-events-auto flex max-w-[70%] items-center gap-3 rounded-lg px-3 py-2 text-[12px] ${
+              noticeClosing ? "fw-toast-out" : "fw-toast-in"
+            }`}
+            style={{
+              background: "var(--bg-toolbar)",
+              border: "1px solid var(--border)",
+              boxShadow: "0 6px 24px rgba(0,0,0,0.25)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <span className="min-w-0 flex-1 text-primary">{notice}</span>
+            <button
+              type="button"
+              aria-label="Zavřít"
+              onClick={() => setNoticeClosing(true)}
+              className="shrink-0 text-secondary transition-colors duration-100 hover:text-primary"
+            >
+              <X size={12} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
+      )}
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />

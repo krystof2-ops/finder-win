@@ -40,6 +40,9 @@
   --row-selected: rgba(10, 132, 255, 0.2);
   --row-selected-inactive: rgba(0, 0, 0, 0.08);
 
+  /* Každý druhý řádek v list view. */
+  --row-stripe: rgba(0, 0, 0, 0.035);
+
   /* "papírek" pod ikonou souboru v icon view */
   --paper: #ffffff;
   --paper-border: rgba(0, 0, 0, 0.12);
@@ -47,12 +50,21 @@
   /* Výběr v icon view: jeden neutrální tón pro dlaždici pod ikonou i pro
      pilulku se jménem, aby to drželo pohromadě jako jeden celek. */
   --icon-selection: rgba(0, 0, 0, 0.1);
+
+  /* Animační křivky. Nejsou v .dark — na motion nemá téma vliv.
+     Pozor: --ease-out a --ease-in-out má i Tailwind ve své @layer theme.
+     Tenhle blok je mimo vrstvy, takže v kaskádě vyhrává a přebíjí je.
+     Projekt žádnou utilitu ease-* nepoužívá, takže to nikde nezlobí — ale kdyby
+     se někdy použila, dostane tyhle křivky, ne ty od Tailwindu. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .dark {
   --bg-window: #1e1e1e;
   --bg-sidebar: rgba(40, 40, 40, 0.7);
-  --bg-main: #2b2b2b;
+  --bg-main: #000000;
   --bg-toolbar: rgba(50, 50, 50, 0.85);
   --text-primary: #f5f5f7;
   --text-secondary: #98989d;
@@ -63,6 +75,8 @@
   --hover: rgba(255, 255, 255, 0.06);
   --row-selected: rgba(10, 132, 255, 0.4);
   --row-selected-inactive: rgba(255, 255, 255, 0.1);
+
+  --row-stripe: rgba(255, 255, 255, 0.085);
 
   --paper: #f2f2f4;
   --paper-border: rgba(0, 0, 0, 0.2);
@@ -89,15 +103,22 @@ body {
   /* Souborový manažer není dokument — text se needituje ani neoznačuje. */
   user-select: none;
   cursor: default;
+  /* Podklad okna se musí přebarvovat s tématem stejně jako .surface plochy,
+     jinak by při přepnutí problikl. */
+  transition:
+    background-color 260ms var(--ease-in-out),
+    color 220ms var(--ease-in-out);
 }
 
 /* Plynulý přechod light <-> dark. Vědomě jen na plochách, ne na `*`,
-   aby si to nepřebilo rychlejší 100ms hover přechody na řádcích. */
+   aby si to nepřebilo rychlejší hover přechody na řádcích. Vyjmenované
+   transition-property je tu podstatné — "all" by chytilo i transform
+   a rozmazalo hover posuny. */
 .surface {
   transition:
-    background-color 200ms ease,
-    color 200ms ease,
-    border-color 200ms ease;
+    background-color 260ms var(--ease-in-out),
+    color 220ms var(--ease-in-out),
+    border-color 260ms var(--ease-in-out);
 }
 
 /* Cross-fade obsahu Quick Look náhledu při přepnutí souboru šipkami. */
@@ -111,7 +132,7 @@ body {
 }
 
 .ql-fade {
-  animation: ql-fade-in 100ms ease-out;
+  animation: ql-fade-in 140ms var(--ease-out);
 }
 
 /* Markdown náhled — preflight shodí výchozí styly nadpisů i seznamů,
@@ -255,4 +276,316 @@ body {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+
+/* ========================== animace a microinteractions =====================
+   Všechno čistým CSS. Keyframes se pouštějí přes třídy, ať si komponenty
+   nemusí držet stav navíc.
+   ========================================================================= */
+
+@keyframes fw-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fw-slide-out-right {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes fw-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fw-view-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes fw-info-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes fw-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Klikací "pop". Jako animace, ne přepínaný transform — jinak by se
+   při rychlém klikání stavy přebíjely a pop by se občas nepřehrál. */
+@keyframes fw-click-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(0.96);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes fw-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fw-toast-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+}
+
+/* --------------------------------- sidebar -------------------------------- */
+
+.fw-sidebar-row {
+  transition:
+    background-color 140ms var(--ease-out),
+    transform 140ms var(--ease-out);
+}
+
+/* Aktivní řádek drží na místě — posouvat to, co je právě otevřené, ruší. */
+.fw-sidebar-row:hover:not(.is-active):not(.is-active-dim) {
+  background-color: var(--hover);
+  transform: translateX(2px);
+}
+
+.fw-sidebar-row.is-active {
+  background-color: var(--row-selected);
+}
+
+.fw-sidebar-row.is-active-dim {
+  background-color: var(--row-selected-inactive);
+}
+
+.fw-sidebar-icon {
+  transition: color 140ms var(--ease-out);
+}
+
+.fw-section-heading {
+  opacity: 0.55;
+  transition: opacity 200ms var(--ease-out);
+}
+
+.fw-section-heading:hover {
+  opacity: 0.85;
+}
+
+/* ------------------------------- ostatní ---------------------------------- */
+
+.fw-view-swap {
+  animation: fw-view-in 220ms var(--ease-out);
+}
+
+/* forwards drží obsah zhasnutý, dokud ho React nevymění za nový. */
+.fw-view-out {
+  animation: fw-view-out 120ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/* Tlačítka view mode v toolbaru. */
+.fw-tool-btn {
+  transition:
+    background-color 180ms var(--ease-out),
+    transform 180ms var(--ease-out);
+}
+
+.fw-tool-btn:hover:not(:disabled) {
+  transform: scale(1.05);
+}
+
+/* Sun/Moon se při přepnutí protočí. Ikona mění typ komponenty, takže se
+   remountne sama a animace se přehraje bez pomocného key. */
+@keyframes fw-theme-spin {
+  from {
+    transform: rotate(-180deg);
+  }
+  to {
+    transform: rotate(0deg);
+  }
+}
+
+.fw-theme-spin {
+  animation: fw-theme-spin 320ms var(--ease-out);
+}
+
+.fw-column-in {
+  animation: fw-slide-in-right 260ms var(--ease-out);
+}
+
+.fw-column-out {
+  animation: fw-slide-out-right 180ms var(--ease-out) forwards;
+  /* Odcházející sloupec už nesmí brát kliky. */
+  pointer-events: none;
+}
+
+.fw-info-panel {
+  animation: fw-info-in 220ms var(--ease-out);
+}
+
+/* Šipka u složky se pod kurzorem odlepí doprava — naznačuje "jde otevřít". */
+.fw-chevron {
+  transition: transform 160ms var(--ease-out);
+}
+
+.fw-col-row:hover .fw-chevron {
+  transform: translateX(3px);
+}
+
+.fw-menu {
+  animation: fw-menu-in 180ms var(--ease-out);
+  transform-origin: top left;
+}
+
+@keyframes fw-menu-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+}
+
+.fw-menu-out {
+  animation: fw-menu-out 140ms var(--ease-out) forwards;
+  transform-origin: top left;
+  pointer-events: none;
+}
+
+.fw-pop {
+  animation: fw-click-pop 80ms var(--ease-out);
+}
+
+/* Karta v icon view: zvedne se pod kurzorem. Transform je na vnitřním
+   obalu, aby scale nezvětšoval i klikací plochu buňky. */
+/* Pozor: transition-property je jediná vlastnost, takže tady musí být
+   vyjmenované všechno včetně barvy výběru — Tailwind utilita transition-colors
+   na témže prvku by celou deklaraci přebila a hover scale by skákal. */
+.fw-card-inner {
+  transition:
+    transform 180ms var(--ease-out),
+    filter 180ms var(--ease-out),
+    background-color 100ms linear;
+}
+
+.fw-card:hover .fw-card-inner {
+  transform: scale(1.03);
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.18));
+}
+
+/* Řádky v list view. Pořadí pravidel je tu nosné: všechna mají stejnou
+   specificitu (0,2,0), takže rozhoduje pořadí zápisu — pruh, přes něj hover,
+   přes něj výběr. V Tailwindu by to chtělo utility s ručním !important. */
+.fw-list-row.fw-stripe {
+  background-color: var(--row-stripe);
+}
+
+.fw-list-row:hover {
+  background-color: var(--hover);
+}
+
+.fw-list-row.is-selected {
+  background-color: var(--row-selected);
+}
+
+.fw-list-row.is-selected-dim {
+  background-color: var(--row-selected-inactive);
+}
+
+/* Semafor v titlebaru. */
+.fw-traffic {
+  transition: filter 120ms var(--ease-out);
+}
+
+.fw-traffic:hover {
+  filter: brightness(1.08);
+}
+
+/* Pole hledání. Rámeček je průhledný i v klidu, aby se šířka neměnila skokem
+   ve chvíli, kdy naskočí barva — box-sizing drží výšku na 28 px. */
+.fw-search {
+  border: 1px solid transparent;
+  transition:
+    width 260ms var(--ease-out),
+    border-color 260ms var(--ease-out),
+    box-shadow 260ms var(--ease-out);
+}
+
+.fw-search:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bg);
+}
+
+/* Hlášky nad status barem. */
+.fw-toast-in {
+  animation: fw-toast-in 300ms var(--ease-bounce);
+}
+
+.fw-toast-out {
+  animation: fw-toast-out 240ms var(--ease-out) forwards;
+  pointer-events: none;
+}
+
+/* --------------------------- respekt k nastavení -------------------------- */
+
+/* Windows: Nastavení → Přizpůsobení → Vizuální efekty → Efekty animace. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

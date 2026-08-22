@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronRight } from "lucide-react";
 
@@ -32,6 +32,8 @@ type ContextMenuProps = {
 
 const MARGIN = 8;
 const PALETTE_WIDTH = 152;
+/** Musí sedět s délkou fw-menu-out v CSS. */
+const CLOSE_MS = 140;
 
 /* ------------------------------ paleta tagů ------------------------------- */
 
@@ -113,6 +115,24 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const [position, setPosition] = useState({ left: x, top: y });
   const [flip, setFlip] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
+  const [closing, setClosing] = useState(false);
+
+  // Menu si odchod dohraje samo a teprve pak řekne rodiči, ať ho odmountuje.
+  // Volající tak dál píše jen {menu && <ContextMenu onClose={...} />}.
+  const closeTimer = useRef<number | null>(null);
+
+  const requestClose = useCallback(() => {
+    if (closeTimer.current !== null) return;
+    setClosing(true);
+    closeTimer.current = window.setTimeout(onClose, CLOSE_MS);
+  }, [onClose]);
+
+  useEffect(
+    () => () => {
+      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
+    },
+    [],
+  );
 
   // Po vykreslení se menu posune dovnitř okna, kdyby přetékalo.
   useLayoutEffect(() => {
@@ -129,29 +149,29 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) onClose();
+      if (!menuRef.current?.contains(event.target as Node)) requestClose();
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        requestClose();
       }
     }
 
     window.addEventListener("mousedown", onPointerDown);
     window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("resize", onClose);
+    window.addEventListener("resize", requestClose);
     return () => {
       window.removeEventListener("mousedown", onPointerDown);
       window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("resize", onClose);
+      window.removeEventListener("resize", requestClose);
     };
-  }, [onClose]);
+  }, [requestClose]);
 
   return createPortal(
     <div
       ref={menuRef}
-      className="fixed z-50 rounded-md p-1 text-[13px]"
+      className={`fixed z-50 rounded-md p-1 text-[13px] ${closing ? "fw-menu-out" : "fw-menu"}`}
       style={{
         left: position.left,
         top: position.top,
@@ -195,7 +215,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             onMouseEnter={() => setOpenSubmenu(null)}
             onClick={() => {
               item.onSelect();
-              onClose();
+              requestClose();
             }}
             className="flex h-[26px] w-full items-center gap-4 rounded-sm px-3 text-left transition-colors duration-100 hover:bg-hover disabled:pointer-events-none disabled:opacity-40"
             style={{ color: item.danger ? "#ff3b30" : "var(--text-primary)" }}

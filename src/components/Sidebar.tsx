@@ -40,7 +40,7 @@ function sectionHeading(label: string): string {
 function SectionHeading({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="px-4 pt-1.5 pb-1 text-[11px] font-semibold text-section"
+      className="fw-section-heading px-4 pt-1.5 pb-1 text-[11px] font-semibold text-section"
       style={{ letterSpacing: "0.5px" }}
     >
       {children}
@@ -50,11 +50,20 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 /** Společný vzhled všech řádků sidebaru, ať už jde o složku, tag nebo nedávný soubor. */
 const ROW_CLASS =
-  "mx-1.5 flex h-[26px] items-center gap-2 rounded-md px-3 py-1 text-left text-[13px] text-primary transition-colors duration-100";
+  "fw-sidebar-row mx-1.5 flex h-[26px] items-center gap-2 rounded-md px-3 py-1 text-left text-[13px] text-primary";
 
+/**
+ * Hover posun i podbarvení řeší .fw-sidebar-row v CSS — jen tam jde napsat
+ * "posuň při hoveru, ale ne když je řádek aktivní" bez druhé sady tříd.
+ */
 function rowStateClass(active: boolean, windowFocused: boolean): string {
-  if (!active) return "hover:bg-hover";
-  return windowFocused ? "bg-selected" : "bg-selected-inactive";
+  if (!active) return "";
+  return windowFocused ? "is-active" : "is-active-dim";
+}
+
+/** Ikona aktivního řádku se o kus zesvětlí, ať výběr čte i bez pozadí. */
+function iconColor(base: string, active: boolean): string {
+  return active ? `color-mix(in srgb, ${base} 85%, white)` : base;
 }
 
 /** Vodorovná linka ukazující, kam se přetahovaná položka vloží. */
@@ -253,7 +262,12 @@ function CustomFavorites({
                 }}
                 className={`${ROW_CLASS} ${rowStateClass(isActive && !isRenaming, windowFocused)}`}
               >
-                <Icon size={16} strokeWidth={1.75} className="shrink-0" color="var(--accent)" />
+                <Icon
+                  size={16}
+                  strokeWidth={1.75}
+                  className="fw-sidebar-icon shrink-0"
+                  color={iconColor("var(--accent)", isActive)}
+                />
 
                 {isRenaming ? (
                   <LabelInput
@@ -283,9 +297,16 @@ function CustomFavorites({
 
 /* ------------------------------- NEDÁVNÉ ---------------------------------- */
 
-function RecentIcon({ entry }: { entry: RecentEntry }) {
+function RecentIcon({ entry, active }: { entry: RecentEntry; active: boolean }) {
   if (entry.type === "folder") {
-    return <Folder size={16} strokeWidth={1.75} className="shrink-0" color="var(--accent)" />;
+    return (
+      <Folder
+        size={16}
+        strokeWidth={1.75}
+        className="fw-sidebar-icon shrink-0"
+        color={iconColor("var(--accent)", active)}
+      />
+    );
   }
 
   const extension = entry.name.includes(".")
@@ -302,7 +323,14 @@ function RecentIcon({ entry }: { entry: RecentEntry }) {
     extension,
   });
 
-  return <Icon size={16} strokeWidth={1.75} className="shrink-0" color={tint} />;
+  return (
+    <Icon
+      size={16}
+      strokeWidth={1.75}
+      className="fw-sidebar-icon shrink-0"
+      color={iconColor(tint, active)}
+    />
+  );
 }
 
 type RecentsProps = {
@@ -340,7 +368,7 @@ function Recents({ items, currentPath, windowFocused, onActivate, onContextMenu 
               }}
               className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
             >
-              <RecentIcon entry={entry} />
+              <RecentIcon entry={entry} active={isActive} />
               {/* min-w-0 musí být, jinak se flex položka odmítne zkrátit pod obsah. */}
               <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
                 {entry.name}
@@ -556,8 +584,8 @@ export function Sidebar({
                   <Icon
                     size={16}
                     strokeWidth={1.75}
-                    className="shrink-0"
-                    color={sidebarIconColor(section.label, item.label)}
+                    className="fw-sidebar-icon shrink-0"
+                    color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
                   />
                   <span className="truncate">{item.label}</span>
                 </button>

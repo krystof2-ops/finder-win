@@ -10,7 +10,36 @@ import { formatSize, kindLabel, previewKind, type PreviewKind } from "../format"
 import type { FileEntry } from "../types";
 
 const MAX_PREVIEW_BYTES = 1_048_576;
-const CLOSE_ANIMATION_MS = 150;
+
+/** Zoom z ikony. Zavření je o kus rychlejší, ať to neubíjí. */
+const OPEN_MS = 320;
+const CLOSE_MS = 280;
+/** Když se ikona nenajde, jede se jen jemný zoom uprostřed. */
+const FALLBACK_MS = 200;
+const OVERLAY_IN_MS = 200;
+
+type Origin = { x: number; y: number };
+
+/**
+ * Posun ze středu okna na střed ikony dané položky. Řádky ve všech views
+ * nesou data-path, takže stačí jeden dotaz do DOMu; modal je sice portál,
+ * ale zdrojový řádek je v tu chvíli pořád vykreslený.
+ *
+ * Vrací null, když položka není v DOMu (otevřeno klávesnicí nad odscrollovaným
+ * řádkem) — volající pak spadne na zoom uprostřed okna.
+ */
+function originFor(path: string): Origin | null {
+  const element = document.querySelector(`[data-path="${CSS.escape(path)}"]`);
+  if (element === null) return null;
+
+  const rect = element.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return null;
+
+  return {
+    x: rect.left + rect.width / 2 - window.innerWidth / 2,
+    y: rect.top + rect.height / 2 - window.innerHeight / 2,
+  };
+}
 
 /* ------------------------------ textový obsah ------------------------------ */
 
@@ -192,6 +221,8 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
 
   const [currentPath, setCurrentPath] = useState(entry.path);
   const [visible, setVisible] = useState(false);
+  // Spočítá se jednou při otevření, ještě než modal cokoli překryje.
+  const [origin, setOrigin] = useState<Origin | null>(() => originFor(entry.path));
 
   const cardRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number | null>(null);
@@ -203,9 +234,16 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
 
   const requestClose = useCallback(() => {
     if (closeTimer.current !== null) return;
+
+    // Šipkami se mohl soubor přepnout — zavírá se tedy do ikony toho, který je
+    // vidět teď, ne toho, kterým se začínalo.
+    const target = originFor(currentPath);
+    if (target !== null) setOrigin(target);
+
     setVisible(false);
-    closeTimer.current = window.setTimeout(onClose, CLOSE_ANIMATION_MS);
-  }, [onClose]);
+    const zooming = (target ?? origin) !== null;
+    closeTimer.current = window.setTimeout(onClose, zooming ? CLOSE_MS : FALLBACK_MS);
+  }, [onClose, currentPath, origin]);
 
   const step = useCallback(
     (delta: number) => {
@@ -288,6 +326,26 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
     requestClose();
   }
 
+  /* ---------------------------- animace karty ----------------------------- */
+
+  // Zavřený stav = zmenšeno na střed ikony. Pořadí funkcí je podstatné:
+  // scale proběhne kolem středu karty, translate ji teprve posadí na ikonu.
+  // Bez známé ikony zbývá jemný zoom uprostřed okna.
+  const closedTransform =
+    origin === null
+      ? "translate(0px, 0px) scale(0.9)"
+      : `translate(${origin.x}px, ${origin.y}px) scale(0.1)`;
+
+  const duration = visible
+    ? origin === null
+      ? FALLBACK_MS
+      : OPEN_MS
+    : origin === null
+      ? FALLBACK_MS
+      : CLOSE_MS;
+  const closeMs = origin === null ? FALLBACK_MS : CLOSE_MS;
+  const curve = visible ? "var(--ease-out)" : "var(--ease-in-out)";
+
   return createPortal(
     <div
       // Jen primární tlačítko zavírá. Boční tlačítka listují soubory a prostřední
@@ -300,7 +358,9 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
         background: "rgba(0,0,0,0.7)",
         backdropFilter: "blur(10px)",
         opacity: visible ? 1 : 0,
-        transition: `opacity ${CLOSE_ANIMATION_MS}ms ease`,
+        // Pozadí stmívá vlastním tempem, ale při zavírání nesmí zmizet dřív
+        // než karta — jinak by karta chvíli visela nad nezastřeným oknem.
+        transition: `opacity ${visible ? OVERLAY_IN_MS : closeMs}ms var(--ease-in-out)`,
       }}
     >
       <div
@@ -315,8 +375,9 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
           maxWidth: "85%",
           maxHeight: "85%",
           opacity: visible ? 1 : 0,
-          transform: visible ? "scale(1)" : "scale(0.95)",
-          transition: `opacity ${CLOSE_ANIMATION_MS}ms ease, transform ${CLOSE_ANIMATION_MS}ms ease`,
+          transform: visible ? "translate(0px, 0px) scale(1)" : closedTransform,
+          transition: `opacity ${duration}ms ${curve}, transform ${duration}ms ${curve}`,
+          willChange: "transform, opacity",
           boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
         }}
       >
