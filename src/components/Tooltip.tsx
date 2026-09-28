@@ -117,7 +117,7 @@ export function TooltipLayer() {
         visibility: position === null ? "hidden" : "visible",
         background: "var(--bg-toolbar)",
         border: "1px solid var(--border)",
-        boxShadow: "0 4px 14px rgba(0,0,0,0.18)",
+        boxShadow: "var(--shadow-popover)",
         backdropFilter: "blur(20px)",
       }}
     >

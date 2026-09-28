@@ -63,28 +63,18 @@ type TagRowProps = {
 function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
   return (
     <div className="relative" onMouseEnter={onHover}>
-      <div
-        className="flex h-[26px] w-full items-center gap-4 rounded-sm px-3 text-left transition-colors duration-100"
-        style={{
-          color: "var(--text-primary)",
-          background: open ? "var(--hover)" : "transparent",
-        }}
-      >
+      <div className={`fw-menu-item ${open ? "is-highlighted" : ""}`}>
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronRight size={13} strokeWidth={2} className="shrink-0 text-secondary" />
+        <ChevronRight size={13} strokeWidth={2} className="fw-menu-shortcut shrink-0" />
       </div>
 
       {open && (
         <div
-          className="absolute z-10 flex items-center gap-2 rounded-md px-2.5 py-2"
+          className="fw-popover absolute z-10 flex items-center gap-2 rounded-[8px] px-2.5 py-2"
           style={{
             top: -5,
             [flip ? "right" : "left"]: "100%",
             width: PALETTE_WIDTH,
-            background: "var(--bg-toolbar)",
-            border: "1px solid var(--border)",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-            backdropFilter: "blur(20px)",
           }}
         >
           {TAG_COLORS.map((color) => {
@@ -110,7 +100,7 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
                     width: 14,
                     height: 14,
                     backgroundColor: TAG_HEX[color],
-                    boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+                    boxShadow: "var(--swatch-edge)",
                   }}
                 />
               </button>
@@ -124,15 +114,6 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
 
 /* ------------------------------- položky ---------------------------------- */
 
-const ROW_CLASS =
-  "flex h-[26px] w-full items-center gap-4 rounded-sm px-3 text-left transition-colors duration-100";
-
-const PANEL_STYLE: React.CSSProperties = {
-  background: "var(--bg-toolbar)",
-  border: "1px solid var(--border)",
-  boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-  backdropFilter: "blur(20px)",
-};
 
 function ActionRow({
   item,
@@ -157,8 +138,9 @@ function ActionRow({
         item.onSelect();
         onDone();
       }}
-      className={`${ROW_CLASS} ${highlighted ? "bg-hover" : ""} hover:bg-hover disabled:pointer-events-none disabled:opacity-40`}
-      style={{ color: item.danger ? "#ff3b30" : "var(--text-primary)" }}
+      className={`fw-menu-item ${highlighted ? "is-highlighted" : ""} ${
+        item.danger ? "is-danger" : ""
+      } disabled:pointer-events-none`}
     >
       {item.checked !== undefined && (
         <span className="-ml-1 -mr-2 flex w-3.5 shrink-0 justify-center">
@@ -173,12 +155,12 @@ function ActionRow({
             width: 10,
             height: 10,
             background: item.dot,
-            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+            boxShadow: "var(--swatch-edge)",
           }}
         />
       )}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {item.shortcut && <span className="shrink-0 text-[11px] text-secondary">{item.shortcut}</span>}
+      {item.shortcut && <span className="fw-menu-shortcut shrink-0">{item.shortcut}</span>}
     </button>
   );
 }
@@ -219,22 +201,19 @@ function SubmenuRow({
   return (
     <div className="relative" onMouseEnter={disabled ? undefined : onHover}>
       <div
-        className={`${ROW_CLASS} ${disabled ? "opacity-40" : ""}`}
-        style={{
-          color: "var(--text-primary)",
-          background: open || highlighted ? "var(--hover)" : "transparent",
-        }}
+        className={`fw-menu-item ${!disabled && (open || highlighted) ? "is-highlighted" : ""} ${
+          disabled ? "opacity-40" : ""
+        }`}
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <ChevronRight size={13} strokeWidth={2} className="shrink-0 text-secondary" />
+        <ChevronRight size={13} strokeWidth={2} className="fw-menu-shortcut shrink-0" />
       </div>
 
       {open && !disabled && (
         <div
           ref={panelRef}
-          className="absolute z-10 rounded-md p-1"
+          className="fw-popover absolute z-10 rounded-[8px] p-1"
           style={{
-            ...PANEL_STYLE,
             top: -5 - shiftUp,
             [flip ? "right" : "left"]: "100%",
             width: SUBMENU_WIDTH,
@@ -242,10 +221,7 @@ function SubmenuRow({
         >
           {items.map((entry, index) =>
             entry.type === "separator" ? (
-              <div
-                key={`separator-${index}`}
-                style={{ height: 1, margin: "4px 0", background: "var(--border)" }}
-              />
+              <div key={`separator-${index}`} className="fw-menu-separator" />
             ) : (
               <ActionRow key={entry.label} item={entry} onDone={onDone} />
             ),
@@ -407,9 +383,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       // Podle atributu tooltipy poznají, že je otevřené menu, a neukážou se.
       data-fw-menu=""
       role="menu"
-      className={`fixed z-[60] rounded-md p-1 text-[13px] ${closing ? "fw-menu-out" : "fw-menu"}`}
+      className={`fw-popover fixed z-[60] rounded-[8px] p-1 text-[13px] ${
+        closing ? "fw-menu-out" : "fw-menu"
+      }`}
       style={{
-        ...PANEL_STYLE,
         left: position.left,
         top: position.top,
         minWidth: 200,
@@ -418,10 +395,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       {items.map((item, index) => {
         if (item.type === "separator") {
           return (
-            <div
-              key={`separator-${index}`}
-              style={{ height: 1, margin: "4px 0", background: "var(--border)" }}
-            />
+            <div key={`separator-${index}`} className="fw-menu-separator" />
           );
         }
 

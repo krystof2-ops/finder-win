@@ -73,7 +73,7 @@ export function RenameInput({ entry, onSubmit, onCancel, centered = false }: Ren
       }`}
       style={{
         background: "var(--bg-main)",
-        border: `1px solid ${valid ? "var(--accent)" : "#ff3b30"}`,
+        border: `1px solid ${valid ? "var(--accent)" : "var(--danger)"}`,
         userSelect: "text",
       }}
     />

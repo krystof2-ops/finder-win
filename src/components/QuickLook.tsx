@@ -394,7 +394,7 @@ export function QuickLook({
       }}
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{
-        background: "rgba(0,0,0,0.7)",
+        background: "var(--overlay-strong)",
         backdropFilter: "blur(10px)",
         opacity: visible ? 1 : 0,
         // Pozadí stmívá vlastním tempem, ale při zavírání nesmí zmizet dřív
@@ -425,7 +425,7 @@ export function QuickLook({
           transform: visible ? "translate(0px, 0px) scale(1)" : closedTransform,
           transition: `opacity ${duration}ms ${curve}, transform ${duration}ms ${curve}`,
           willChange: "transform, opacity",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.45)",
+          boxShadow: "var(--shadow-dialog)",
         }}
       >
         <header

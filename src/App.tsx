@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { FolderOpen, Search, SearchX, X } from "lucide-react";
+import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -2382,16 +2382,16 @@ export default function App() {
         >
           <div
             role={notice.sticky ? "alert" : "status"}
-            className={`pointer-events-auto flex max-w-[70%] items-center gap-3 rounded-lg px-3 py-2 text-[12px] ${
+            className={`fw-popover pointer-events-auto flex max-w-[70%] items-center gap-2.5 rounded-[8px] px-3 py-2 text-[13px] ${
               noticeClosing ? "fw-toast-out" : "fw-toast-in"
             }`}
-            style={{
-              background: "var(--bg-toolbar)",
-              border: "1px solid var(--border)",
-              boxShadow: "0 6px 24px rgba(0,0,0,0.25)",
-              backdropFilter: "blur(20px)",
-            }}
           >
+            {/* Chyba (zůstává) červeně, informace / úspěch zeleně. */}
+            {notice.sticky ? (
+              <CircleAlert size={16} strokeWidth={2} className="shrink-0" color="var(--danger)" aria-hidden />
+            ) : (
+              <CircleCheck size={16} strokeWidth={2} className="shrink-0" color="var(--success)" aria-hidden />
+            )}
             <span className="min-w-0 flex-1 text-primary">{notice.text}</span>
             <button
               type="button"

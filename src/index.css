@@ -91,6 +91,25 @@
 
   /* Vnitřní světlý lem barevných puntíků (štítky v sidebaru). */
   --dot-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  /* Tenký tmavý okraj barevných vzorků (puntíky tagů v řádcích a v menu). */
+  --swatch-edge: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+
+  /* Stavové barvy: nebezpečná akce / chyba, úspěch. */
+  --danger: #ff3b30;
+  --success: #28a745;
+
+  /* Podklad pod dialogem a pod Quick Look. */
+  --overlay: rgba(0, 0, 0, 0.3);
+  --overlay-strong: rgba(0, 0, 0, 0.7);
+
+  /* Stíny: plovoucí prvky (menu, tooltip, hláška) a dialogy. */
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.25);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.35);
+
+  /* Semafor v titulkovém pruhu — barvy macOS. */
+  --traffic-close: #ff5f57;
+  --traffic-minimize: #febc2e;
+  --traffic-maximize: #28c840;
 
   /* Animační křivky. Nejsou v .dark — na motion nemá téma vliv.
      Pozor: --ease-out a --ease-in-out má i Tailwind ve své @layer theme.
@@ -150,6 +169,20 @@
   --tint-archive: #ac8e68;
 
   --dot-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  --swatch-edge: inset 0 0 0 0.5px rgba(0, 0, 0, 0.3);
+
+  --danger: #ff453a;
+  --success: #32d74b;
+
+  --overlay: rgba(0, 0, 0, 0.45);
+  --overlay-strong: rgba(0, 0, 0, 0.75);
+
+  --shadow-popover: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.6);
+
+  --traffic-close: #ff5f57;
+  --traffic-minimize: #febc2e;
+  --traffic-maximize: #28c840;
 }
 
 html,
@@ -583,9 +616,150 @@ body {
   outline: none;
 }
 
+/* Fokus z klávesnice: 2px prstenec akcentu uvnitř řádku (box-shadow, ne
+   obrys prohlížeče — ten by se u zaoblených řádků kreslil hranatě). */
 .fw-row:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* ------------------------------- dialogy ---------------------------------- */
+
+@keyframes fw-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes fw-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fw-dialog-overlay {
+  background: var(--overlay);
+  backdrop-filter: blur(2px);
+  animation: fw-overlay-in 160ms var(--ease-out);
+}
+
+.fw-dialog {
+  font-size: 13px;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-dialog);
+  animation: fw-dialog-in 160ms var(--ease-out);
+}
+
+/* Tlačítka dialogů: 28 px, zaoblení 6 px. Primární akcent s bílým textem,
+   sekundární na --hover, nebezpečné červené. */
+.fw-button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--hover);
+  transition:
+    opacity 100ms linear,
+    background-color 100ms linear;
+}
+
+.fw-button:hover:not(:disabled) {
+  background: var(--row-selected-inactive);
+}
+
+.fw-button.is-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+.fw-button.is-danger {
+  background: var(--danger);
+  color: var(--on-accent);
+  font-weight: 500;
+}
+
+.fw-button.is-primary:hover:not(:disabled),
+.fw-button.is-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.fw-button:disabled {
+  opacity: 0.4;
+}
+
+.fw-button:focus-visible {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+  outline: none;
+}
+
+/* ---------------------------- kontextové menu ------------------------------ */
+
+/* Řádek 24 px; při najetí (i z klávesnice) akcent s bílým textem jako ve
+   Finderu. Nebezpečná položka je červená jen textem, při najetí bílá na červené. */
+.fw-menu-item {
+  display: flex;
+  height: 24px;
+  width: 100%;
+  align-items: center;
+  gap: 16px;
+  border-radius: 4px;
+  padding: 0 10px;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.fw-menu-item .fw-menu-shortcut {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.fw-menu-item:hover:not(:disabled),
+.fw-menu-item.is-highlighted {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.fw-menu-item:hover:not(:disabled) .fw-menu-shortcut,
+.fw-menu-item.is-highlighted .fw-menu-shortcut {
+  color: var(--on-accent);
+}
+
+.fw-menu-item.is-danger {
+  color: var(--danger);
+}
+
+.fw-menu-item.is-danger:hover:not(:disabled),
+.fw-menu-item.is-danger.is-highlighted {
+  background: var(--danger);
+  color: var(--on-accent);
+}
+
+.fw-menu-item:disabled {
+  opacity: 0.4;
+}
+
+.fw-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border);
+}
+
+.fw-popover {
+  background: var(--bg-toolbar);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-popover);
+  backdrop-filter: blur(20px);
 }
 
 /* Tooltip jen zlehka vybledne — žádný pohyb, ukazuje se pod kurzorem. */

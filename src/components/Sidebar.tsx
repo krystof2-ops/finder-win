@@ -1054,7 +1054,7 @@ export function Sidebar({
               top: pathTip.y + 6,
               background: "var(--bg-toolbar)",
               border: "1px solid var(--border)",
-              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+              boxShadow: "var(--shadow-popover)",
               backdropFilter: "blur(20px)",
             }}
           >

@@ -31,7 +31,7 @@ export function TagDots({ colors, size = 8 }: TagDotsProps) {
             height: size,
             backgroundColor: TAG_HEX[color],
             // Žlutá by na světlém podkladu splynula, proto tenký obrys.
-            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+            boxShadow: "var(--swatch-edge)",
           }}
         />
       ))}

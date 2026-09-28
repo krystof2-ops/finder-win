@@ -1,5 +1,4 @@
-import { useEffect, useRef } from "react";
-import { createPortal } from "react-dom";
+import { Dialog } from "./Dialog";
 
 export type ConfirmRequest = {
   title: string;
@@ -16,8 +15,8 @@ type ConfirmDialogProps = ConfirmRequest & {
 };
 
 /**
- * Potvrzení nevratné akce. Výchozí fokus má Zrušit — Enter omylem stisknutý
- * hned po Delete nesmí nic trvale smazat.
+ * Potvrzení nevratné akce. U nebezpečné akce má fokus Zrušit a Enter ji
+ * nespustí — Enter omylem stisknutý hned po Delete nesmí nic trvale smazat.
  */
 export function ConfirmDialog({
   title,
@@ -27,76 +26,30 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirm = () => {
+    onClose();
+    onConfirm();
+  };
 
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    cancelRef.current?.focus();
-    return () => previous?.focus?.();
-  }, []);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [onClose]);
-
-  return createPortal(
-    <div
-      onMouseDown={onClose}
-      className="fixed inset-0 z-[65] flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.4)" }}
+  return (
+    <Dialog
+      role="alertdialog"
+      labelledBy="fw-confirm-title"
+      describedBy="fw-confirm-message"
+      onClose={onClose}
+      actions={[
+        { label: "Zrušit", onClick: onClose, autoFocus: danger },
+        danger
+          ? { label: confirmLabel, onClick: confirm, kind: "danger" }
+          : { label: confirmLabel, onClick: confirm, kind: "primary", autoFocus: true },
+      ]}
     >
-      <div
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="fw-confirm-title"
-        aria-describedby="fw-confirm-message"
-        onMouseDown={(event) => event.stopPropagation()}
-        className="flex flex-col gap-3 rounded-xl p-5"
-        style={{
-          width: 360,
-          background: "var(--bg-main)",
-          border: "1px solid var(--border)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.35)",
-        }}
-      >
-        <p id="fw-confirm-title" className="text-[14px] font-semibold text-primary">
-          {title}
-        </p>
-        <p id="fw-confirm-message" className="text-[12px] leading-relaxed break-words text-secondary">
-          {message}
-        </p>
-
-        <div className="flex justify-end gap-2 pt-1">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-[13px] text-primary transition-colors duration-100 hover:bg-hover"
-          >
-            Zrušit
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onConfirm();
-            }}
-            className="rounded-md px-3 py-1.5 text-[13px] font-medium text-white transition-opacity duration-100 hover:opacity-90"
-            style={{ background: danger ? "#ff3b30" : "var(--accent)" }}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+      <p id="fw-confirm-title" className="text-[14px] font-semibold">
+        {title}
+      </p>
+      <p id="fw-confirm-message" className="leading-relaxed break-words text-secondary">
+        {message}
+      </p>
+    </Dialog>
   );
 }

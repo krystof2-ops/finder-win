@@ -77,7 +77,7 @@ function PathInput({
       className="min-w-0 flex-1 rounded-sm px-1 text-[11px] text-primary outline-none"
       style={{
         background: "var(--bg-main)",
-        border: `1px solid ${invalid ? "#ff3b30" : "var(--accent)"}`,
+        border: `1px solid ${invalid ? "var(--danger)" : "var(--accent)"}`,
         userSelect: "text",
       }}
     />
@@ -116,6 +116,7 @@ export function StatusBar({
   const crumbs = path ? breadcrumbs(path) : [];
 
   return (
+    // 22 px, 11 px písmo; drobky s › a podtržením při najetí, vpravo počty.
     <footer
       onContextMenu={(event) => {
         // V editaci cesty zůstává menu webview — kvůli Vložit.
@@ -123,7 +124,7 @@ export function StatusBar({
         event.preventDefault();
         onContextMenu(event.clientX, event.clientY);
       }}
-      className="surface flex h-6 shrink-0 items-center justify-between gap-4 border-t border-line bg-toolbar px-3 text-[11px] text-secondary">
+      className="surface flex h-[22px] shrink-0 items-center justify-between gap-4 border-t border-line bg-toolbar px-3 text-[11px] text-secondary">
       {editing ? (
         <PathInput
           initial={path ?? ""}
@@ -138,7 +139,7 @@ export function StatusBar({
               <button
                 type="button"
                 onClick={() => onNavigate(crumb.path)}
-                className="truncate rounded px-0.5 transition-colors duration-100 hover:text-primary"
+                className="truncate rounded px-0.5 underline-offset-2 transition-colors duration-100 hover:text-primary hover:underline"
               >
                 {crumb.label}
               </button>

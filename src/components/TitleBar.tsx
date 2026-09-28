@@ -38,19 +38,19 @@ export function TitleBar() {
     >
       <div className="group flex items-center gap-2">
         <TrafficLight
-          color="#ff5f57"
+          color="var(--traffic-close)"
           label="Zavřít"
           Icon={X}
           onClick={() => void appWindow.close()}
         />
         <TrafficLight
-          color="#febc2e"
+          color="var(--traffic-minimize)"
           label="Minimalizovat"
           Icon={Minus}
           onClick={() => void appWindow.minimize()}
         />
         <TrafficLight
-          color="#28c840"
+          color="var(--traffic-maximize)"
           label="Maximalizovat"
           Icon={Plus}
           onClick={() => void appWindow.toggleMaximize()}
