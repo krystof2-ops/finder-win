@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "A macOS Finder-like file explorer for Windows"
 authors = ["krystof2-ops"]
 license = "MIT"
-repository = "https://github.com/OWNER/finder-win"
+repository = "https://github.com/krystof2-ops/finder-win"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

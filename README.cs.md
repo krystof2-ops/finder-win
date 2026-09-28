@@ -64,7 +64,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 
 ## Instalace
 
-Stáhni nejnovější `Finder-Win_…_x64-setup.exe` ze stránky [Releases](https://github.com/OWNER/finder-win/releases/latest) a spusť ho. Instaluje se jen pro aktuálního uživatele, práva administrátora nejsou potřeba.
+Stáhni nejnovější `Finder-Win_…_x64-setup.exe` ze stránky [Releases](https://github.com/krystof2-ops/finder-win/releases/latest) a spusť ho. Instaluje se jen pro aktuálního uživatele, práva administrátora nejsou potřeba.
 
 ### Varování Windows SmartScreen
 

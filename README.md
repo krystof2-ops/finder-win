@@ -66,7 +66,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 
 ## Install
 
-Download the latest `Finder-Win_…_x64-setup.exe` from the [Releases](https://github.com/OWNER/finder-win/releases/latest) page and run it. It installs for the current user only, no administrator rights needed.
+Download the latest `Finder-Win_…_x64-setup.exe` from the [Releases](https://github.com/krystof2-ops/finder-win/releases/latest) page and run it. It installs for the current user only, no administrator rights needed.
 
 ### Windows SmartScreen warning
 
