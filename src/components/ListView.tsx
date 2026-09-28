@@ -145,8 +145,8 @@ export function ListView({
                 <span className="truncate">{entry.name}</span>
               )}
             </div>
-            <span className="truncate text-secondary">{formatModified(entry.modified)}</span>
-            <span className="truncate text-right text-secondary">
+            <span className="truncate text-secondary tabular-nums">{formatModified(entry.modified)}</span>
+            <span className="truncate text-right text-secondary tabular-nums">
               {formatSize(entry.size, entry.is_dir)}
             </span>
             <span className="truncate text-secondary">{kindLabel(entry)}</span>

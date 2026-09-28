@@ -6,18 +6,6 @@ import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
 import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../lib/rowDnd";
 import { tagsOf } from "../lib/storage";
 
-/**
- * Restartuje "pop" animaci. Pouhé přidání třídy nestačí — když už na prvku
- * visí, prohlížeč animaci nepřehraje znovu, dokud si nevynutíme reflow.
- */
-function playPop(host: HTMLElement): void {
-  const inner = host.querySelector<HTMLElement>(".fw-card-inner");
-  if (inner === null) return;
-
-  inner.classList.remove("fw-pop");
-  void inner.offsetWidth;
-  inner.classList.add("fw-pop");
-}
 import type { FileEntry, SelectMods, TagMap } from "../types";
 
 /** Strop náhledů obrázků v jedné složce. */
@@ -64,21 +52,21 @@ export function IconView({
   );
 
   return (
-    <div
-      className="grid gap-5 p-6"
-      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))" }}
-    >
+    <div className="fw-icon-grid">
       {entries.map((entry) => {
         const isSelected = selectedPaths.has(entry.path);
         const isRenaming = entry.path === renamingPath;
         // Během přejmenování výběr nekreslíme — podbarvení pod inputem ruší.
         const showSelection = isSelected && !isRenaming;
-        // Jedno místo pro odstín výběru: ikona i jméno musí vyjít stejně.
-        const selectionBg = showSelection
+        // Finder: za ikonou neutrální zaoblený obdélník, název na pilulce —
+        // modré s bílým textem jen v aktivním okně, jinak šedé.
+        const tileBg = showSelection ? "var(--icon-selection)" : "transparent";
+        const nameBg = showSelection
           ? windowFocused
-            ? "var(--icon-selection)"
-            : "var(--row-selected-inactive)"
+            ? "var(--accent)"
+            : "var(--name-pill-inactive)"
           : "transparent";
+        const nameColor = showSelection && windowFocused ? "var(--on-accent)" : "var(--text-primary)";
 
         return (
           <div
@@ -98,10 +86,7 @@ export function IconView({
             }
             onDragEnd={endDrag}
             {...dropProps(entry)}
-            onClick={(event) => {
-              playPop(event.currentTarget);
-              onSelect(entry, selectMods(event));
-            }}
+            onClick={(event) => onSelect(entry, selectMods(event))}
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -110,18 +95,14 @@ export function IconView({
               event.stopPropagation();
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className="fw-card fw-row flex h-[118px] w-full flex-col items-center gap-1"
+            className="fw-row flex w-[96px] flex-col items-center gap-1 rounded-[8px]"
             style={{
               opacity: entryOpacity(entry, cutPaths.has(entry.path)),
               ...(dropTarget === entry.path ? DROP_TARGET_STYLE : null),
             }}
           >
-            {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —
-                obojí bere selectionBg, takže se to nemůže rozejít. */}
-            <div
-              className="fw-card-inner rounded-[10px] p-1"
-              style={{ backgroundColor: selectionBg }}
-            >
+            {/* Ikona stojí volně v 64px boxu; výběr je obdélník za ní. */}
+            <div className="fw-icon-tile p-1" style={{ backgroundColor: tileBg }}>
               <LargeEntryIcon entry={entry} thumbnail={thumbnailPaths.has(entry.path)} />
             </div>
 
@@ -136,9 +117,10 @@ export function IconView({
               </div>
             ) : (
               <span
-                className="line-clamp-2 rounded-[5px] px-1.5 text-center text-[12px] text-primary leading-tight transition-colors duration-100"
+                className="fw-icon-name line-clamp-2 max-w-full text-center"
                 style={{
-                  backgroundColor: selectionBg,
+                  backgroundColor: nameBg,
+                  color: nameColor,
                   overflowWrap: "anywhere",
                 }}
               >

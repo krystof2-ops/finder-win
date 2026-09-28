@@ -500,7 +500,7 @@ function Recents({
                 <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
                   {entry.name}
                 </span>
-                <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
+                <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary tabular-nums">
                   {formatRelative(entry.opened_at)}
                 </span>
               </button>
@@ -563,7 +563,7 @@ function TagsSection({
                 }}
               />
               <span className="truncate">{TAG_LABEL[color]}</span>
-              <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
+              <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary tabular-nums">
                 {counts.get(color)}
               </span>
             </button>

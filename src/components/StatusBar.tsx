@@ -147,7 +147,7 @@ export function StatusBar({
         </div>
       )}
 
-      <div className="shrink-0 whitespace-nowrap">
+      <div className="shrink-0 whitespace-nowrap tabular-nums">
         {path &&
           (selectedCount > 0
             ? `Vybráno ${selectedCount} z ${itemCount}`

@@ -51,6 +51,11 @@
      pilulku se jménem, aby to drželo pohromadě jako jeden celek. */
   --icon-selection: rgba(0, 0, 0, 0.1);
 
+  /* Text na akcentní barvě (pilulka vybraného názvu, zvýrazněná položka menu). */
+  --on-accent: #ffffff;
+  /* Pilulka názvu vybrané položky v neaktivním okně (Finder ji zešedne). */
+  --name-pill-inactive: rgba(0, 0, 0, 0.1);
+
   /* Složka ve stylu macOS Sonoma — zadní záložka světlejší, přední deska
      sytější. Glyf speciálních složek (Plocha, Dokumenty…) je bílý. */
   --folder-back: #60a5fa;
@@ -107,6 +112,9 @@
   --paper-border: rgba(0, 0, 0, 0.2);
 
   --icon-selection: rgba(255, 255, 255, 0.14);
+
+  --on-accent: #ffffff;
+  --name-pill-inactive: rgba(255, 255, 255, 0.16);
 
   --folder-back: #60a5fa;
   --folder-front: #3b82f6;
@@ -392,19 +400,6 @@ body {
   }
 }
 
-/* Klikací "pop". Jako animace, ne přepínaný transform — jinak by se
-   při rychlém klikání stavy přebíjely a pop by se občas nepřehrál. */
-@keyframes fw-click-pop {
-  0% {
-    transform: scale(1);
-  }
-  40% {
-    transform: scale(0.96);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
 
 @keyframes fw-toast-in {
   from {
@@ -571,25 +566,31 @@ body {
   pointer-events: none;
 }
 
-.fw-pop {
-  animation: fw-click-pop 80ms var(--ease-out);
+
+/* Icon view jako ve Finderu: ikona stojí volně, bez rámečku a bez hover
+   efektu. Výběr = zaoblený obdélník za ikonou + název na pilulce. */
+.fw-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 96px);
+  column-gap: 16px;
+  row-gap: 24px;
+  padding: 20px;
+  justify-content: start;
 }
 
-/* Karta v icon view: zvedne se pod kurzorem. Transform je na vnitřním
-   obalu, aby scale nezvětšoval i klikací plochu buňky. */
-/* Pozor: transition-property je jediná vlastnost, takže tady musí být
-   vyjmenované všechno včetně barvy výběru — Tailwind utilita transition-colors
-   na témže prvku by celou deklaraci přebila a hover scale by skákal. */
-.fw-card-inner {
+.fw-icon-tile {
+  border-radius: 8px;
+  transition: background-color 100ms linear;
+}
+
+.fw-icon-name {
+  font-size: 12px;
+  line-height: 15px;
+  border-radius: 4px;
+  padding: 0 4px;
   transition:
-    transform 180ms var(--ease-out),
-    filter 180ms var(--ease-out),
-    background-color 100ms linear;
-}
-
-.fw-card:hover .fw-card-inner {
-  transform: scale(1.03);
-  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.18));
+    background-color 100ms linear,
+    color 100ms linear;
 }
 
 /* Řádky v list view. Pořadí pravidel je tu nosné: všechna mají stejnou
