@@ -26,9 +26,10 @@ export function RenameInput({ entry, onSubmit, onCancel, centered = false }: Ren
     if (!input) return;
 
     input.focus();
-    // Jako ve Finderu: vybere se jen tělo názvu, přípona zůstane mimo výběr.
-    input.setSelectionRange(0, stemLength(entry.name));
-  }, [entry.name]);
+    // Jako ve Finderu: u souboru se vybere jen tělo názvu, přípona zůstane
+    // mimo výběr. Složka příponu nemá — "my.folder" se vybere celé.
+    input.setSelectionRange(0, entry.is_dir ? entry.name.length : stemLength(entry.name));
+  }, [entry.name, entry.is_dir]);
 
   function submit() {
     if (finished.current) return;

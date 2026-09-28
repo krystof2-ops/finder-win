@@ -25,6 +25,8 @@ struct FileEntry {
     extension: Option<String>,
     /// Atribut „skrytý" — frontend takové položky kreslí poloprůhledně.
     hidden: bool,
+    /// Symlink nebo junction. `is_dir` a `size` popisují cíl odkazu.
+    is_symlink: bool,
 }
 
 /// Položka v postranním panelu.
@@ -146,6 +148,16 @@ fn to_unix_seconds(time: std::io::Result<std::time::SystemTime>) -> i64 {
 /// Sdílí ji `list_dir`, `stat_paths` i `search_recursive`, ať se tři místa
 /// nerozejdou v tom, co je `extension` u složky nebo `size` u adresáře.
 fn make_entry(path: &Path, metadata: &fs::Metadata) -> FileEntry {
+    // DirEntry::metadata() na Windows odkaz nenásleduje — junction nebo
+    // symlink na složku by se tvářil jako soubor a dvojklik by ho poslal do
+    // Průzkumníka místo navigace. U odkazu se proto dočte cíl. Rozbitý odkaz
+    // (cíl neexistuje) zůstane s vlastními metadaty.
+    let is_symlink = metadata.file_type().is_symlink();
+    // Skrytý je odkaz sám (junction "Application Data"), ne jeho cíl.
+    let hidden = is_hidden(metadata);
+    let followed = if is_symlink { fs::metadata(path).ok() } else { None };
+    let metadata = followed.as_ref().unwrap_or(metadata);
+
     let is_dir = metadata.is_dir();
 
     FileEntry {
@@ -164,7 +176,8 @@ fn make_entry(path: &Path, metadata: &fs::Metadata) -> FileEntry {
         size: if is_dir { 0 } else { metadata.len() },
         modified: to_unix_seconds(metadata.modified()),
         created: to_unix_seconds(metadata.created()),
-        hidden: is_hidden(metadata),
+        hidden,
+        is_symlink,
     }
 }
 
@@ -186,7 +199,7 @@ fn sort_entries(entries: &mut [FileEntry]) {
 fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FileEntry>, String> {
     let show_hidden = show_hidden.unwrap_or(false);
     let dir = PathBuf::from(&path);
-    let reader = fs::read_dir(&dir).map_err(|err| format!("{}: {}", path, err))?;
+    let reader = fs::read_dir(&dir).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
 
     let mut entries = Vec::new();
 
@@ -640,7 +653,7 @@ fn get_favorites() -> Vec<FavoriteSection> {
 
 #[tauri::command(async)]
 fn open_file(path: String) -> Result<(), String> {
-    opener::open(&path).map_err(|err| format!("{}: {}", path, err))
+    opener::open(&path).map_err(|err| format!("{}: {}", path, describe_open(&err)))
 }
 
 /* --------------------------- souborové operace ---------------------------- */
@@ -696,6 +709,9 @@ fn describe_io(err: &std::io::Error) -> String {
         Some(32) => return "položku používá jiná aplikace".to_string(),
         Some(112) => return "na disku není dost místa".to_string(),
         Some(206) => return "cesta je příliš dlouhá".to_string(),
+        Some(21) => return "zařízení není připravené".to_string(),
+        Some(53) | Some(67) => return "síťová cesta není dostupná".to_string(),
+        Some(223) => return "soubor je pro tento disk příliš velký (FAT32 unese max. 4 GB)".to_string(),
         _ => {}
     }
 
@@ -704,6 +720,35 @@ fn describe_io(err: &std::io::Error) -> String {
         std::io::ErrorKind::PermissionDenied => "nemáte oprávnění".to_string(),
         std::io::ErrorKind::AlreadyExists => "cíl už existuje".to_string(),
         _ => err.to_string(),
+    }
+}
+
+/// Chyba z Windows API (HRESULT) → český popis přes describe_io.
+#[cfg(windows)]
+fn describe_win(err: &windows::core::Error) -> String {
+    // HRESULT_FROM_WIN32 má kód Win32 chyby ve spodních 16 bitech.
+    describe_io(&std::io::Error::from_raw_os_error(err.code().0 & 0xFFFF))
+}
+
+/// trash::Error má vlastní varianty; Display z nich dělá anglické
+/// "Error during a `trash` operation: Os { … }".
+fn describe_trash(err: &trash::Error) -> String {
+    match err {
+        trash::Error::Os { code, .. } => describe_io(&std::io::Error::from_raw_os_error(code & 0xFFFF)),
+        trash::Error::TargetedRoot => "kořen disku nejde smazat".to_string(),
+        trash::Error::CouldNotAccess { .. } => "položka není dostupná".to_string(),
+        trash::Error::CanonicalizePath { .. } => "položka neexistuje".to_string(),
+        trash::Error::Unknown { description } => description.clone(),
+        other => format!("{:?}", other),
+    }
+}
+
+/// Chyba otevření výchozí aplikací.
+fn describe_open(err: &opener::OpenError) -> String {
+    match err {
+        opener::OpenError::Io(io) => describe_io(io),
+        opener::OpenError::Spawn { source, .. } => describe_io(source),
+        other => other.to_string(),
     }
 }
 
@@ -944,9 +989,71 @@ fn rename_path(from: String, to_name: String) -> Result<String, String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Celý výběr do koše jedním voláním — shell operaci provede najednou místo
+/// N samostatných (a N dialogů, kdyby nějaký vyskočil).
 #[tauri::command(async)]
-fn move_to_trash(path: String) -> Result<(), String> {
-    trash::delete(&path).map_err(|err| format!("{}: {}", path, err))
+fn move_to_trash(paths: Vec<String>) -> Result<(), String> {
+    trash::delete_all(&paths).map_err(|err| describe_trash(&err))
+}
+
+/// Skončí smazání z těchhle cest v Koši? Jen pevné disky Koš mají — na FAT32 /
+/// exFAT flashce nebo síťové cestě by "do koše" smazalo trvale a bez varování.
+#[tauri::command(async)]
+fn trash_is_permanent(paths: Vec<String>) -> bool {
+    paths.iter().any(|path| !has_recycle_bin(path))
+}
+
+#[cfg(windows)]
+fn has_recycle_bin(path: &str) -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::GetDriveTypeW;
+
+    const DRIVE_FIXED: u32 = 3;
+
+    // UNC cesta (\\server\share) je síťová — Koš tam není.
+    if path.starts_with("\\\\") {
+        return false;
+    }
+    let Some(letter) = path.chars().next().filter(|c| c.is_ascii_alphabetic()) else {
+        return false;
+    };
+
+    let root = HSTRING::from(format!("{}:\\", letter));
+    unsafe { GetDriveTypeW(&root) == DRIVE_FIXED }
+}
+
+#[cfg(not(windows))]
+fn has_recycle_bin(_path: &str) -> bool {
+    true
+}
+
+/// Rozdělaný cíl po selhání kopie (plný disk, soubor > 4 GB na FAT32, zamčený
+/// soubor) — půlka stromu by jinak zůstala v cíli a vypadala jako hotová kopie.
+/// Cíl je vždy nová cesta z unique_destination, mazat ho je bezpečné.
+fn remove_partial(target: &Path) {
+    let _ = if target.is_dir() {
+        fs::remove_dir_all(target)
+    } else {
+        fs::remove_file(target)
+    };
+}
+
+/// copy_tree + úklid rozdělaného cíle, když kopie selže.
+fn copy_or_clean(source: &Path, target: &Path, label: &str) -> Result<u32, String> {
+    copy_tree(source, target).map_err(|err| {
+        remove_partial(target);
+        format!("{}: {}", label, describe_io(&err))
+    })
+}
+
+/// Leží `path` přímo ve složce `dir`? Porovnává kanonické cesty, aby prošly
+/// i rozdíly ve velikosti písmen a koncové lomítko.
+fn is_directly_in(path: &Path, dir: &Path) -> bool {
+    let Some(parent) = path.parent() else { return false };
+    match (parent.canonicalize(), dir.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => parent.to_string_lossy().to_lowercase() == dir.to_string_lossy().to_lowercase(),
+    }
 }
 
 #[tauri::command(async)]
@@ -957,9 +1064,7 @@ fn copy_path(from: String, to_dir: String) -> Result<OpResult, String> {
     ensure_not_inside(&source, destination)?;
 
     let target = unique_destination(destination, &file_name_of(&source)?)?;
-
-    let skipped_links =
-        copy_tree(&source, &target).map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+    let skipped_links = copy_or_clean(&source, &target, &from)?;
 
     Ok(OpResult {
         path: target.to_string_lossy().to_string(),
@@ -971,6 +1076,12 @@ fn copy_path(from: String, to_dir: String) -> Result<OpResult, String> {
 fn move_path(from: String, to_dir: String) -> Result<OpResult, String> {
     let source = PathBuf::from(&from);
     let destination = Path::new(&to_dir);
+
+    // Přesun tam, kde položka už je, nic nedělá. Bez toho by unique_destination
+    // našel kolizi sám se sebou a soubor "přesunul" na "X (kopie)".
+    if is_directly_in(&source, destination) {
+        return Ok(OpResult { path: from, skipped_links: 0 });
+    }
 
     ensure_not_inside(&source, destination)?;
 
@@ -992,8 +1103,19 @@ fn move_path(from: String, to_dir: String) -> Result<OpResult, String> {
         Err(err) => return Err(format!("{}: {}", from, describe_io(&err))),
     }
 
-    let skipped_links =
-        copy_tree(&source, &target).map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+    let skipped_links = copy_or_clean(&source, &target, &from)?;
+
+    // Odkazy (symlinky, junctions) se přes disky přesunout nedají — kopie je
+    // přeskočila. Smazat originál by je nenávratně zahodilo, takže se přesun
+    // vrací zpět: kopie pryč, originál zůstává.
+    if skipped_links > 0 {
+        remove_partial(&target);
+        return Err(format!(
+            "{}: obsahuje {} odkazů (symlinky / junctions), které se na jiný disk přesunout nedají. \
+             Nic se nepřesunulo — zkopírujte položku a odkazy vytvořte znovu.",
+            from, skipped_links
+        ));
+    }
 
     let removed = if source.is_dir() {
         fs::remove_dir_all(&source)
@@ -1019,9 +1141,7 @@ fn duplicate_path(path: String) -> Result<OpResult, String> {
     let source = PathBuf::from(&path);
     let directory = parent_of(&source)?;
     let target = unique_destination(directory, &file_name_of(&source)?)?;
-
-    let skipped_links =
-        copy_tree(&source, &target).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+    let skipped_links = copy_or_clean(&source, &target, &path)?;
 
     Ok(OpResult {
         path: target.to_string_lossy().to_string(),
@@ -1051,7 +1171,7 @@ fn open_in_explorer(path: String) -> Result<(), String> {
     }
 
     // Explorer vrací nenulový exit kód i při úspěchu, proto se status neověřuje.
-    command.spawn().map_err(|err| format!("{}: {}", path, err))?;
+    command.spawn().map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
     Ok(())
 }
 
@@ -1242,12 +1362,31 @@ fn create_file(dir: String, name: String) -> Result<String, String> {
 /// Pozice ve vstupu se zachovávají a "neexistuje" se odlišuje od "nešlo
 /// přečíst". Volající podle `missing` pozná, co má u sebe promazat — a co
 /// naopak nechat být, protože je jen dočasně nedostupné.
+/// Cesta se skutečnou velikostí písmen, jak ji zná souborový systém.
+/// canonicalize ji vrací s prefixem \\?\ (nebo \\?\UNC\), ten se odřízne.
+/// Když cesta neexistuje, vrátí se beze změny.
+fn true_case_path(path: &Path) -> PathBuf {
+    let Ok(real) = path.canonicalize() else {
+        return path.to_path_buf();
+    };
+    let text = real.to_string_lossy();
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        PathBuf::from(format!(r"\\{}", rest))
+    } else if let Some(rest) = text.strip_prefix(r"\\?\") {
+        PathBuf::from(rest)
+    } else {
+        real
+    }
+}
+
 #[tauri::command(async)]
 fn stat_paths(paths: Vec<String>) -> Vec<StatResult> {
     paths
         .into_iter()
         .map(|path| {
-            let entry_path = PathBuf::from(&path);
+            // Klíče tagů jsou normalizované na malá písmena. Pro zobrazení se
+            // vrací cesta tak, jak je na disku ("C:\Users\Jana\Foto.jpg").
+            let entry_path = true_case_path(Path::new(&path));
 
             match fs::metadata(&entry_path) {
                 Ok(metadata) => StatResult {
@@ -1286,7 +1425,7 @@ fn search_recursive(
     let root_path = PathBuf::from(&root);
     // Nepřístupný kořen je chyba pro uživatele; nepřístupné podsložky se níž
     // jen tiše přeskakují, aby jedna zamčená větev nezrušila celé hledání.
-    fs::read_dir(&root_path).map_err(|err| format!("{}: {}", root, err))?;
+    fs::read_dir(&root_path).map_err(|err| format!("{}: {}", root, describe_io(&err)))?;
 
     let walker = WalkDir::new(&root_path)
         .follow_links(false)
@@ -1346,7 +1485,7 @@ fn search_recursive(
 
 #[tauri::command(async)]
 fn get_file_properties(path: String) -> Result<FileProperties, String> {
-    let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, err))?;
+    let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
     let is_dir = metadata.is_dir();
 
     Ok(FileProperties {
@@ -1417,16 +1556,16 @@ fn read_text_file(path: String, max_bytes: u64) -> Result<String, String> {
 
     let limit = max_bytes.min(MAX_PREVIEW_BYTES);
 
-    let file = fs::File::open(&path).map_err(|err| format!("{}: {}", path, err))?;
+    let file = fs::File::open(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
     let size = file
         .metadata()
-        .map_err(|err| format!("{}: {}", path, err))?
+        .map_err(|err| format!("{}: {}", path, describe_io(&err)))?
         .len();
 
     let mut buffer = Vec::with_capacity(limit.min(size) as usize);
     file.take(limit)
         .read_to_end(&mut buffer)
-        .map_err(|err| format!("{}: {}", path, err))?;
+        .map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
 
     let truncated = size > limit;
 
@@ -1453,7 +1592,7 @@ fn get_disk_free_space(path: String) -> Result<u64, String> {
     let directory = HSTRING::from(path.as_str());
 
     unsafe { GetDiskFreeSpaceExW(&directory, Some(&mut available), None, None) }
-        .map_err(|err| format!("{}: {}", path, err))?;
+        .map_err(|err| format!("{}: {}", path, describe_win(&err)))?;
 
     Ok(available)
 }
@@ -1529,7 +1668,8 @@ fn main() {
             create_file,
             watch_dirs,
             open_device,
-            explorer_shows_hidden
+            explorer_shows_hidden,
+            trash_is_permanent
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

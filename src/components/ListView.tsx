@@ -4,6 +4,7 @@ import { SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
+import { tagsOf } from "../lib/storage";
 import {
   entryOpacity,
   formatModified,
@@ -125,7 +126,7 @@ export function ListView({
           >
             {/* Obal drží buňku v gridu i pro netagované řádky, kde TagDots nic nevrátí. */}
             <span className="flex items-center">
-              <TagDots colors={tags[entry.path] ?? []} size={8} />
+              <TagDots colors={tagsOf(tags, entry.path)} size={8} />
             </span>
 
             <div className="flex min-w-0 items-center gap-2">

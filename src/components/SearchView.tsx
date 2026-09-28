@@ -4,6 +4,7 @@ import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
 import { entryOpacity, formatModified } from "../format";
 import { relativeParent, searchRecursive } from "../fileops";
+import { tagsOf } from "../lib/storage";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry } from "../types";
 
@@ -151,7 +152,7 @@ export function SearchView({
             style={{ gridTemplateColumns: GRID_TEMPLATE, opacity: entryOpacity(entry, false) }}
           >
             <span className="flex items-center">
-              <TagDots colors={tags[entry.path] ?? []} size={8} />
+              <TagDots colors={tagsOf(tags, entry.path)} size={8} />
             </span>
 
             <div className="flex min-w-0 items-center gap-2">

@@ -5,6 +5,7 @@ import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
+import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
@@ -127,7 +128,7 @@ function ColumnPane({
               <span className="min-w-0 flex-1 truncate">{entry.name}</span>
             )}
             {!entry.is_dir && !isRenaming && (
-              <TagDots colors={tags[entry.path] ?? []} size={6} />
+              <TagDots colors={tagsOf(tags, entry.path)} size={6} />
             )}
             {entry.is_dir && !isRenaming && (
               <ChevronRight

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { joinPath, splitPath } from "./format";
 import type { FileEntry, FileProperties, OpResult, StatResult } from "./types";
 
 /* Tenké typované obálky nad Tauri commandy.
@@ -9,8 +10,14 @@ export function renamePath(from: string, toName: string): Promise<string> {
   return invoke<string>("rename_path", { from, toName });
 }
 
-export function moveToTrash(path: string): Promise<void> {
-  return invoke<void>("move_to_trash", { path });
+/** Celý výběr do koše jedním voláním. */
+export function moveToTrash(paths: string[]): Promise<void> {
+  return invoke<void>("move_to_trash", { paths });
+}
+
+/** Smaže se některá z cest trvale? (Svazek bez Koše — flashka, síť.) */
+export function trashIsPermanent(paths: string[]): Promise<boolean> {
+  return invoke<boolean>("trash_is_permanent", { paths });
 }
 
 export function copyPath(from: string, toDir: string): Promise<OpResult> {
@@ -70,14 +77,11 @@ export function searchRecursive(
   return invoke<FileEntry[]>("search_recursive", { root, query, maxResults, showHidden });
 }
 
-/** Nadřazená složka, nebo null pro kořen disku. */
+/** Nadřazená složka, nebo null pro kořen disku či síťového share. */
 export function parentPath(path: string): string | null {
-  const parts = path.split("\\").filter(Boolean);
-  if (parts.length <= 1) return null;
-
-  const parent = parts.slice(0, -1);
-  // Kořen disku potřebuje koncové zpětné lomítko ("C:" samo o sobě není cesta).
-  return parent.length === 1 ? `${parent[0]}\\` : parent.join("\\");
+  const { root, parts } = splitPath(path);
+  if (parts.length === 0) return null;
+  return joinPath(root, parts.slice(0, -1));
 }
 
 /**

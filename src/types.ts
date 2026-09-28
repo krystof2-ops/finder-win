@@ -14,6 +14,8 @@ export type FileEntry = {
   extension: string | null;
   /** Atribut skrytý — ve výpisu jen se zapnutým zobrazením skrytých souborů. */
   hidden: boolean;
+  /** Symlink nebo junction; is_dir a size popisují cíl odkazu. */
+  is_symlink: boolean;
 };
 
 export type FavoriteEntry = {

@@ -154,7 +154,7 @@ export function TagView({
             style={{ gridTemplateColumns: GRID_TEMPLATE, opacity: entryOpacity(entry, false) }}
           >
             <span className="flex items-center">
-              <TagDots colors={tags[entry.path] ?? []} size={8} />
+              <TagDots colors={storage.tagsOf(tags, entry.path)} size={8} />
             </span>
 
             <div className="flex min-w-0 items-center gap-2">

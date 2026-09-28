@@ -3,6 +3,7 @@ import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { entryOpacity } from "../format";
 import { endDrag, startDrag } from "../lib/dnd";
+import { tagsOf } from "../lib/storage";
 
 /**
  * Restartuje "pop" animaci. Pouhé přidání třídy nestačí — když už na prvku
@@ -123,7 +124,7 @@ export function IconView({
               </span>
             )}
 
-            {!isRenaming && <TagDots colors={tags[entry.path] ?? []} size={8} />}
+            {!isRenaming && <TagDots colors={tagsOf(tags, entry.path)} size={8} />}
           </div>
         );
       })}

@@ -1,4 +1,5 @@
 import {
+  ArrowUpRight,
   Cloud,
   Disc,
   Download,
@@ -97,8 +98,51 @@ export function fileVisual(entry: FileEntry): FileVisual {
   return { Icon: File, tint: "var(--text-secondary)" };
 }
 
+/**
+ * Odkaz (symlink / junction) dostane v levém dolním rohu šipku jako alias
+ * ve Finderu — jinak by nešlo poznat, že složka ve skutečnosti leží jinde.
+ */
+function WithLinkBadge({
+  entry,
+  size,
+  children,
+}: {
+  entry: FileEntry;
+  size: number;
+  children: React.ReactNode;
+}) {
+  if (!entry.is_symlink) return <>{children}</>;
+
+  const badge = Math.max(8, Math.round(size * 0.4));
+
+  return (
+    <span className="relative inline-flex shrink-0" aria-label="Odkaz">
+      {children}
+      <span
+        className="absolute bottom-0 left-0 flex items-center justify-center rounded-sm"
+        style={{
+          width: badge,
+          height: badge,
+          background: "var(--bg-main)",
+          boxShadow: "0 0 0 0.5px var(--paper-border)",
+        }}
+      >
+        <ArrowUpRight size={badge - 1} strokeWidth={2.5} color="var(--text-primary)" />
+      </span>
+    </span>
+  );
+}
+
 /** Velká ikona pro icon view — soubory dostanou bílý "papírek". */
 export function LargeEntryIcon({ entry }: { entry: FileEntry }) {
+  return (
+    <WithLinkBadge entry={entry} size={64}>
+      <LargeIcon entry={entry} />
+    </WithLinkBadge>
+  );
+}
+
+function LargeIcon({ entry }: { entry: FileEntry }) {
   if (entry.is_dir) return <FolderIcon size={64} />;
 
   const { Icon, tint } = fileVisual(entry);
@@ -121,6 +165,14 @@ export function LargeEntryIcon({ entry }: { entry: FileEntry }) {
 
 /** Malá ikona 16px pro list view. */
 export function SmallEntryIcon({ entry }: { entry: FileEntry }) {
+  return (
+    <WithLinkBadge entry={entry} size={16}>
+      <SmallIcon entry={entry} />
+    </WithLinkBadge>
+  );
+}
+
+function SmallIcon({ entry }: { entry: FileEntry }) {
   if (entry.is_dir) return <FolderIcon size={16} />;
 
   const { Icon, tint } = fileVisual(entry);

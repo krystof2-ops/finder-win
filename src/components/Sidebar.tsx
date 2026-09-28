@@ -40,6 +40,8 @@ type SidebarProps = {
   onReveal: (path: string) => void;
   activeTag: TagColor | null;
   onSelectTag: (color: TagColor) => void;
+  /** Chyby (Průzkumník, Terminál, schránka) — do stejné hlášky jako v App. */
+  onError: (message: string) => void;
 };
 
 /* -------------------------- sdílené stavební díly -------------------------- */
@@ -423,6 +425,7 @@ function EntryIcon({
     created: 0,
     extension,
     hidden: false,
+    is_symlink: false,
   });
 
   return (
@@ -589,8 +592,15 @@ export function Sidebar({
   onReveal,
   activeTag,
   onSelectTag,
+  onError,
 }: SidebarProps) {
   const { favorites, recents, tags } = useStorage();
+
+  function openDeviceOrReport(path: string) {
+    openDevice(path).catch((err: unknown) =>
+      onError(`Zařízení se nepodařilo otevřít — ${String(err)}`),
+    );
+  }
 
   const [menu, setMenu] = useState<SidebarMenu | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
@@ -637,7 +647,9 @@ export function Sidebar({
 
   function activateFavorite(item: CustomFavorite) {
     if (item.type === "folder") onNavigate(item.path);
-    else onOpenFile(item.path, item.label);
+    // Popisek je uživatelův ("Smlouva"), do nedávných patří skutečný název
+    // souboru — a ikona se odvozuje z jeho přípony.
+    else onOpenFile(item.path, storage.lastSegment(item.path));
   }
 
   const menuItems = useMemo((): MenuItem[] => {
@@ -647,7 +659,9 @@ export function Sidebar({
       type: "item",
       label: "Otevřít v Průzkumníku",
       onSelect: () => {
-        void openInExplorer(path).catch(() => undefined);
+        openInExplorer(path).catch((err: unknown) =>
+          onError(`Průzkumníka se nepodařilo otevřít — ${String(err)}`),
+        );
       },
     });
 
@@ -655,7 +669,9 @@ export function Sidebar({
       type: "item",
       label: "Otevřít v Terminálu",
       onSelect: () => {
-        void openTerminal(path).catch(() => undefined);
+        openTerminal(path).catch((err: unknown) =>
+          onError(`Terminál se nepodařilo otevřít — ${String(err)}`),
+        );
       },
     });
 
@@ -663,7 +679,9 @@ export function Sidebar({
       type: "item",
       label: "Kopírovat cestu",
       onSelect: () => {
-        void writeText(path).catch(() => undefined);
+        writeText(path).catch((err: unknown) =>
+          onError(`Cestu se nepodařilo zkopírovat — ${String(err)}`),
+        );
       },
     });
 
@@ -777,7 +795,7 @@ export function Sidebar({
           {
             type: "item",
             label: "Otevřít v Průzkumníku",
-            onSelect: () => void openDevice(item.path).catch(() => undefined),
+            onSelect: () => openDeviceOrReport(item.path),
           },
         ];
       }
@@ -856,7 +874,18 @@ export function Sidebar({
     ];
     // toggleSection jen zapisuje do stavu, jeho identita na výsledek nemá vliv.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menu, favorites, recents, collapsed, currentPath, onNavigate, onReveal, onOpenFile, onSelectTag]);
+  }, [
+    menu,
+    favorites,
+    recents,
+    collapsed,
+    currentPath,
+    onNavigate,
+    onReveal,
+    onOpenFile,
+    onSelectTag,
+    onError,
+  ]);
 
   return (
     <aside
@@ -915,7 +944,7 @@ export function Sidebar({
                       // Shellová cesta telefonu ("::{20D04FE0…}\\?\usb#…") nikomu nic neřekne.
                       data-tooltip={item.external ? "Otevře se v Průzkumníku" : item.path}
                       onClick={() => {
-                        if (item.external) void openDevice(item.path).catch(() => undefined);
+                        if (item.external) openDeviceOrReport(item.path);
                         else onNavigate(item.path);
                       }}
                       onContextMenu={(event) => {

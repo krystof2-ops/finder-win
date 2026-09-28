@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { ColumnView } from "./components/ColumnView";
+import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { IconDefs } from "./components/icons";
 import { AboutDialog } from "./components/AboutDialog";
@@ -33,6 +34,7 @@ import {
   openWith,
   parentPath,
   renamePath,
+  trashIsPermanent,
 } from "./fileops";
 import {
   breadcrumbs,
@@ -97,6 +99,7 @@ function folderEntry(path: string): FileEntry {
     created: 0,
     extension: null,
     hidden: false,
+    is_symlink: false,
   };
 }
 
@@ -139,9 +142,18 @@ export default function App() {
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  /** `sticky` = chyba, visí do kliknutí / Escape. Informace mizí sama — ale
+   *  "nemáte oprávnění" by se za dvě sekundy nedalo dočíst. */
+  const [notice, setNoticeState] = useState<{ text: string; sticky: boolean } | null>(null);
   /** Hláška ještě visí, ale už odjíždí dolů. */
   const [noticeClosing, setNoticeClosing] = useState(false);
+  /** Chybová hláška (zůstává). Stabilní identita — předává se i do useColumns. */
+  const setNotice = useCallback((text: string | null) => {
+    setNoticeState(text === null ? null : { text, sticky: true });
+  }, []);
+  /** Informativní hláška, sama zmizí. */
+  const showInfo = useCallback((text: string) => setNoticeState({ text, sticky: false }), []);
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -278,23 +290,36 @@ export default function App() {
 
   useEffect(() => applyTheme(theme), [theme]);
 
-  // Hláška se sama sveze dolů po dvou sekundách. Oba časovače visí na `notice`,
-  // takže nová hláška ty staré zruší a odpočet začne znovu.
+  // Informace se sama sveze dolů po dvou sekundách, chyba zůstává. Časovač
+  // visí na `notice`, takže nová hláška ten starý zruší a odpočet začne znovu.
   useEffect(() => {
     if (notice === null) return;
 
     setNoticeClosing(false);
-    const startExit = window.setTimeout(() => setNoticeClosing(true), TOAST_VISIBLE_MS);
-    const remove = window.setTimeout(
-      () => setNotice(null),
-      TOAST_VISIBLE_MS + TOAST_EXIT_MS,
-    );
+    if (notice.sticky) return;
 
-    return () => {
-      window.clearTimeout(startExit);
-      window.clearTimeout(remove);
-    };
+    const startExit = window.setTimeout(() => setNoticeClosing(true), TOAST_VISIBLE_MS);
+    return () => window.clearTimeout(startExit);
   }, [notice]);
+
+  // Odjezd (automatický, křížkem i Escapem) dohraje animaci a pak hlášku zahodí.
+  useEffect(() => {
+    if (!noticeClosing) return;
+    const remove = window.setTimeout(() => setNoticeState(null), TOAST_EXIT_MS);
+    return () => window.clearTimeout(remove);
+  }, [noticeClosing]);
+
+  useEffect(() => {
+    if (!notice?.sticky) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setNoticeClosing(true);
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [notice]);
+
+  // Chyby zápisu nastavení (oblíbené, tagy) — jinak by skončily jen v konzoli.
+  useEffect(() => storage.onError(setNotice), [setNotice]);
 
   /*
    * Pravý klik — kde co otevírá (vše přes jednu komponentu ContextMenu):
@@ -577,6 +602,7 @@ export default function App() {
         created: 0,
         extension: null,
         hidden: false,
+        is_symlink: false,
       });
     },
     [openFile],
@@ -673,8 +699,8 @@ export default function App() {
    * uživatel dozvědět — jinak by si myslel, že má úplnou kopii.
    */
   const noteSkippedLinks = useCallback((count: number) => {
-    if (count > 0) setNotice(`Přeskočeno ${count} odkazů (symlinky a junctions).`);
-  }, []);
+    if (count > 0) showInfo(`Přeskočeno ${count} odkazů (symlinky a junctions).`);
+  }, [showInfo]);
 
   /** Společné ošetření chyb + refresh po každé mutující operaci. */
   const runOperation = useCallback(
@@ -734,6 +760,8 @@ export default function App() {
 
       void runOperation("Přejmenování selhalo", async () => {
         const renamed = await renamePath(entry.path, next);
+        // Tagy, oblíbené a nedávné jsou klíčované cestou — musí jít s položkou.
+        await storage.remapPath(entry.path, renamed);
         // Přejmenovaná položka má novou cestu, takže by po refreshi vypadla
         // z výběru. Takhle zůstane označená, jak to dělá Finder i Průzkumník.
         if (dir !== null) requestSelect(dir, renamed);
@@ -744,9 +772,31 @@ export default function App() {
 
   const deleteEntries = useCallback(
     (items: FileEntry[]) => {
-      void runBatch("Smazání selhalo", items, (entry) => moveToTrash(entry.path));
+      const paths = items.map((entry) => entry.path);
+      if (paths.length === 0) return;
+
+      const run = () => void runOperation("Smazání selhalo", () => moveToTrash(paths));
+
+      // Flashka (FAT32 / exFAT) ani síťová cesta Koš nemají — "do koše" by tam
+      // smazalo trvale a bez varování. Když se to nedá zjistit, radši se ptát.
+      trashIsPermanent(paths)
+        .catch(() => true)
+        .then((permanent) => {
+          if (!permanent) return run();
+          setConfirm({
+            title:
+              paths.length === 1
+                ? `Smazat „${items[0].name}" trvale?`
+                : `Smazat ${formatItemCount(paths.length)} trvale?`,
+            message:
+              "Tento disk nemá Koš (flashka nebo síťová složka). Položky budou smazány trvale a nepůjde je obnovit.",
+            confirmLabel: "Smazat trvale",
+            danger: true,
+            onConfirm: run,
+          });
+        });
     },
-    [runBatch],
+    [runOperation],
   );
 
   const deleteTargets = useCallback(() => deleteEntries(targetEntries), [deleteEntries, targetEntries]);
@@ -759,6 +809,7 @@ export default function App() {
 
       void runOperation("Duplikace selhala", async () => {
         const copy = await duplicatePath(entry.path);
+        await storage.copyTags(entry.path, copy.path);
         if (select && dir !== null) requestSelect(dir, copy.path);
         noteSkippedLinks(copy.skipped_links);
       });
@@ -814,13 +865,33 @@ export default function App() {
   const paste = useCallback((into?: string) => {
     const target = into ?? currentDir;
     if (!clipboard || target === null) return;
-    const { paths, mode } = clipboard;
+    const { mode } = clipboard;
+    // Vyjmout a vložit do téže složky nic nedělá — dřív z toho byla "X (kopie)".
+    const paths =
+      mode === "cut"
+        ? clipboard.paths.filter((path) => {
+            const parent = parentPath(path);
+            return parent === null || !storage.samePath(parent, target);
+          })
+        : clipboard.paths;
+
+    if (paths.length === 0) {
+      setClipboard(null);
+      return;
+    }
 
     let skipped = 0;
 
     void runBatch("Vložení selhalo", paths, async (path) => {
-      const result = mode === "copy" ? await copyPath(path, target) : await movePath(path, target);
-      skipped += result.skipped_links;
+      if (mode === "copy") {
+        const result = await copyPath(path, target);
+        await storage.copyTags(path, result.path);
+        skipped += result.skipped_links;
+      } else {
+        const result = await movePath(path, target);
+        await storage.remapPath(path, result.path);
+        skipped += result.skipped_links;
+      }
     }).then(({ ok }) => {
       noteSkippedLinks(skipped);
       // Vyjmuté položky se dají vložit jen jednou. Schránka se ale čistí jen
@@ -846,7 +917,12 @@ export default function App() {
 
   /** Cokoliv, co překrývá hlavní panel a obsluhuje si klávesy samo. */
   const modalOpen =
-    quickLookOpen || overlayPreview !== null || menu !== null || propertiesFor !== null || aboutOpen;
+    quickLookOpen ||
+    overlayPreview !== null ||
+    menu !== null ||
+    propertiesFor !== null ||
+    aboutOpen ||
+    confirm !== null;
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -1297,7 +1373,7 @@ export default function App() {
     // přejmenovat pět souborů jedním inputem nejde a Vlastnosti by ukázaly jedny.
     const single = count <= 1;
     const isFavorite = favorites.some((item) => storage.samePath(item.path, entry.path));
-    const entryTags = tags[entry.path] ?? [];
+    const entryTags = storage.tagsOf(tags, entry.path);
     // Vložit z výsledků hledání míří do té složky (nebo do složky toho souboru),
     // na kterou uživatel klikl — podkladová složka pod výsledky není vidět.
     const pasteTarget = overlay ? (entry.is_dir ? entry.path : parentPath(entry.path)) : undefined;
@@ -1637,6 +1713,7 @@ export default function App() {
           onReveal={reveal}
           activeTag={tagFilter}
           onSelectTag={setTagFilter}
+          onError={setNotice}
         />
 
         <main className="surface flex min-w-0 flex-1 flex-col bg-main">
@@ -1717,7 +1794,7 @@ export default function App() {
               backdropFilter: "blur(20px)",
             }}
           >
-            <span className="min-w-0 flex-1 text-primary">{notice}</span>
+            <span className="min-w-0 flex-1 text-primary">{notice.text}</span>
             <button
               type="button"
               aria-label="Zavřít"
@@ -1733,6 +1810,8 @@ export default function App() {
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
       )}
+
+      {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
 
       {propertiesFor && (
         <PropertiesDialog entry={propertiesFor} onClose={() => setPropertiesFor(null)} />

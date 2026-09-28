@@ -78,15 +78,40 @@ export function formatItemCount(count: number): string {
 
 export type Crumb = { label: string; path: string };
 
-/** "C:\Users\jane\Downloads" → C: › Users › jane › Downloads */
-export function breadcrumbs(path: string): Crumb[] {
-  const parts = path.split("\\").filter(Boolean);
+/**
+ * Kořen a zbytek cesty. Kořen je disk ("C:\") nebo síťový share
+ * ("\\server\share") — share se nedá rozseknout, "\\server" sám o sobě
+ * složka není a navigace do něj by selhala.
+ */
+export function splitPath(path: string): { root: string; parts: string[] } {
+  const normalized = path.replace(/\//g, "\\");
 
-  return parts.map((label, index) => ({
-    label,
-    // Kořen disku potřebuje koncové zpětné lomítko ("C:" samo o sobě není cesta.)
-    path: index === 0 ? `${parts[0]}\\` : parts.slice(0, index + 1).join("\\"),
-  }));
+  if (normalized.startsWith("\\\\")) {
+    const segments = normalized.slice(2).split("\\").filter(Boolean);
+    return { root: `\\\\${segments.slice(0, 2).join("\\")}`, parts: segments.slice(2) };
+  }
+
+  const segments = normalized.split("\\").filter(Boolean);
+  // Kořen disku potřebuje koncové zpětné lomítko ("C:" samo o sobě není cesta).
+  return { root: segments.length > 0 ? `${segments[0]}\\` : normalized, parts: segments.slice(1) };
+}
+
+/** Opak splitPath: kořen + prvních `count` částí. */
+export function joinPath(root: string, parts: string[]): string {
+  if (parts.length === 0) return root;
+  return root.endsWith("\\") ? root + parts.join("\\") : `${root}\\${parts.join("\\")}`;
+}
+
+/** "C:\Users\jane\Downloads" → C: › Users › jane › Downloads;
+ *  "\\nas\fotky\2024" → \\nas\fotky › 2024 */
+export function breadcrumbs(path: string): Crumb[] {
+  const { root, parts } = splitPath(path);
+  const rootLabel = root.endsWith("\\") ? root.slice(0, -1) : root;
+
+  return [
+    { label: rootLabel, path: root },
+    ...parts.map((label, index) => ({ label, path: joinPath(root, parts.slice(0, index + 1)) })),
+  ];
 }
 
 /* ------------------------------ druh souboru ------------------------------ */

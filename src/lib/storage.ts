@@ -56,6 +56,24 @@ function commit(next: Partial<Snapshot>): void {
   for (const listener of listeners) listener();
 }
 
+/* ---------------------------------- chyby ---------------------------------- */
+
+const errorListeners = new Set<(message: string) => void>();
+
+/** Chyby zápisu na disk — App je ukáže v toastu, jinak by zmizely v konzoli
+ *  a uživatel by se o ztracených oblíbených dozvěděl až po restartu. */
+export function onError(listener: (message: string) => void): () => void {
+  errorListeners.add(listener);
+  return () => {
+    errorListeners.delete(listener);
+  };
+}
+
+function reportError(message: string, err: unknown): void {
+  console.error(`storage: ${message}`, err);
+  for (const listener of errorListeners) listener(`${message} — ${String(err)}`);
+}
+
 /* --------------------------------- init ------------------------------------ */
 
 /** settings.json je obyčejný soubor na disku — uživatel do něj může sáhnout. */
@@ -111,7 +129,12 @@ function sanitizeTags(value: unknown): TagMap {
     if (!Array.isArray(colors)) continue;
 
     const valid = colors.filter(isTagColor);
-    if (valid.length > 0) result[path] = orderColors(valid);
+    if (valid.length === 0) continue;
+
+    // Starší verze klíčovaly tagy cestou tak, jak přišla ("C:\Users" i
+    // "c:\users"). Normalizací se můžou dva klíče slít — barvy se sjednotí.
+    const key = pathKey(path);
+    result[key] = orderColors([...(result[key] ?? []), ...valid]);
   }
 
   return result;
@@ -140,7 +163,7 @@ export function init(): Promise<void> {
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
-    console.error("storage: init selhal", err);
+    reportError("Nastavení se nepodařilo načíst, oblíbené a tagy jsou prázdné", err);
   });
 
   return loading;
@@ -155,7 +178,7 @@ async function persist(key: string, value: unknown): Promise<void> {
   try {
     await store.set(key, value);
   } catch (err: unknown) {
-    console.error(`storage: zápis "${key}" selhal`, err);
+    reportError("Nastavení se nepodařilo uložit", err);
   }
 }
 
@@ -257,24 +280,26 @@ export async function setTags(map: TagMap): Promise<void> {
 
 /** Přidá barvu, nebo ji odebere, když už tam je. S posledním tagem mizí i klíč. */
 export async function toggleTag(path: string, color: TagColor): Promise<void> {
-  const current = cache.tags[path] ?? [];
+  const key = pathKey(path);
+  const current = cache.tags[key] ?? [];
   const next = current.includes(color)
     ? current.filter((existing) => existing !== color)
     : orderColors([...current, color]);
 
   const map = { ...cache.tags };
-  if (next.length === 0) delete map[path];
-  else map[path] = next;
+  if (next.length === 0) delete map[key];
+  else map[key] = next;
 
   await setTags(map);
 }
 
 /** Sundá z položky všechny barvy naráz — po jedné by to bylo až sedm kliků. */
 export async function clearTags(path: string): Promise<void> {
-  if (!(path in cache.tags)) return;
+  const key = pathKey(path);
+  if (!(key in cache.tags)) return;
 
   const map = { ...cache.tags };
-  delete map[path];
+  delete map[key];
   await setTags(map);
 }
 
@@ -298,13 +323,87 @@ export async function pruneTags(paths: Iterable<string>): Promise<void> {
   let changed = false;
 
   for (const path of paths) {
-    if (path in map) {
-      delete map[path];
+    const key = pathKey(path);
+    if (key in map) {
+      delete map[key];
       changed = true;
     }
   }
 
   if (changed) await setTags(map);
+}
+
+/* ------------------------ přejmenování a přesuny --------------------------- */
+
+/** `path` je `root` sám, nebo leží pod ním. Vrací zbytek za rootem, jinak null. */
+function relativeTo(path: string, root: string): string | null {
+  // Stejné úpravy jako pathKey, jen bez změny velikosti písmen — zbytek cesty
+  // si tak drží původní podobu ("\Fotky\Léto.jpg").
+  const normalized = path.replace(/\//g, "\\").replace(/\\+$/, "");
+  const key = pathKey(path);
+  const rootKey = pathKey(root);
+  if (key === rootKey) return "";
+
+  const prefix = rootKey.endsWith("\\") ? rootKey : `${rootKey}\\`;
+  if (!key.startsWith(prefix)) return null;
+  return normalized.slice(prefix.length - 1);
+}
+
+/**
+ * Položka `from` se přejmenovala nebo přesunula na `to`. Tagy, oblíbené
+ * i nedávné na ni (a u složky na všechno pod ní) se překlíčují — jinak by tag
+ * tiše zmizel a oblíbená položka ukazovala na neexistující cestu.
+ */
+export async function remapPath(from: string, to: string): Promise<void> {
+  const moved = (path: string): string | null => {
+    const rest = relativeTo(path, from);
+    return rest === null ? null : `${to}${rest}`;
+  };
+
+  // Tagy — klíče jsou normalizované, nová cesta taky.
+  let tagsChanged = false;
+  const tags: TagMap = {};
+  for (const [key, colors] of Object.entries(cache.tags)) {
+    const next = moved(key);
+    if (next !== null) tagsChanged = true;
+    const target = next === null ? key : pathKey(next);
+    tags[target] = orderColors([...(tags[target] ?? []), ...colors]);
+  }
+
+  // Oblíbené — popisek se mění jen když byl automatický (= název položky).
+  let favoritesChanged = false;
+  const favorites = cache.favorites.map((favorite) => {
+    const next = moved(favorite.path);
+    if (next === null) return favorite;
+    favoritesChanged = true;
+    const autoLabel = favorite.label === lastSegment(favorite.path);
+    return { ...favorite, path: next, label: autoLabel ? lastSegment(next) : favorite.label };
+  });
+
+  let recentsChanged = false;
+  const recents = cache.recents.map((recent) => {
+    const next = moved(recent.path);
+    if (next === null) return recent;
+    recentsChanged = true;
+    return { ...recent, path: next, name: lastSegment(next) };
+  });
+
+  if (tagsChanged) await setTags(tags);
+  if (favoritesChanged) await setFavorites(favorites);
+  if (recentsChanged) {
+    commit({ recents });
+    await persist(KEY_RECENTS, recents);
+  }
+}
+
+/** Kopie (duplikace, Kopírovat + Vložit) si nese tagy originálu, jako ve Finderu. */
+export async function copyTags(from: string, to: string): Promise<void> {
+  const additions: TagMap = {};
+  for (const [key, colors] of Object.entries(cache.tags)) {
+    const rest = relativeTo(key, from);
+    if (rest !== null) additions[pathKey(`${to}${rest}`)] = colors;
+  }
+  if (Object.keys(additions).length > 0) await setTags({ ...cache.tags, ...additions });
 }
 
 /* -------------------------------- pomocné ---------------------------------- */
@@ -328,9 +427,26 @@ function orderColors(colors: TagColor[]): TagColor[] {
   return TAG_COLORS.filter((color) => colors.includes(color));
 }
 
-/** Windows cesty nerozlišují velikost písmen, porovnání se tomu musí přizpůsobit. */
+/**
+ * Jednotný klíč cesty: malá písmena, zpětná lomítka, bez lomítka na konci
+ * (kromě kořene disku). Windows velikost písmen nerozlišuje — ručně zadané
+ * "c:\users\…" musí najít tytéž tagy jako "C:\Users\…" z výpisu.
+ */
+export function pathKey(path: string): string {
+  const key = path.replace(/\//g, "\\").toLowerCase();
+  if (/^[a-z]:\\?$/.test(key)) return `${key.slice(0, 2)}\\`;
+  return key.replace(/\\+$/, "");
+}
+
 export function samePath(a: string, b: string): boolean {
-  return a.toLowerCase() === b.toLowerCase();
+  return pathKey(a) === pathKey(b);
+}
+
+const NO_TAGS: TagColor[] = [];
+
+/** Barvy položky. Vždy přes tuhle funkci — mapa je klíčovaná pathKey(). */
+export function tagsOf(tags: TagMap, path: string): TagColor[] {
+  return tags[pathKey(path)] ?? NO_TAGS;
 }
 
 /** "C:\\Users\\jane\\Downloads" → "Downloads"; kořen disku vrátí "C:". */
