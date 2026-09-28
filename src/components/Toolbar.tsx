@@ -32,6 +32,8 @@ type IconButtonProps = {
   /** Vypnuté tlačítko s vysvětlením v tooltipu ("Vyberte soubor"). Obyčejné
    *  `disabled` by tooltip nedovolilo — vypnutý button nedostává myš. */
   unavailable?: string;
+  /** Vedlejší nástroj: menší tlumená ikona (15 px, tah 1.5). */
+  secondary?: boolean;
 };
 
 function IconButton({
@@ -43,6 +45,7 @@ function IconButton({
   onMouseDown,
   iconClassName,
   unavailable,
+  secondary = false,
 }: IconButtonProps) {
   return (
     <button
@@ -58,17 +61,64 @@ function IconButton({
         event.preventDefault();
         if (unavailable === undefined) onMouseDown?.(event);
       }}
-      className={`fw-tool-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary ${
+      className={`fw-tool-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+        secondary ? "fw-tool-secondary" : "text-primary"
+      } ${
         unavailable !== undefined ? "opacity-35" : active ? "bg-selected" : "hover:bg-hover"
       } disabled:pointer-events-none disabled:opacity-35`}
     >
-      <Icon size={16} strokeWidth={1.75} className={iconClassName} />
+      <Icon
+        size={secondary ? 15 : 16}
+        strokeWidth={secondary ? 1.5 : 1.75}
+        className={iconClassName}
+      />
     </button>
+  );
+}
+
+/** Pořadí segmentů přepínače zobrazení. */
+const VIEW_SEGMENTS: { mode: ViewMode; label: string; Icon: LucideIcon }[] = [
+  { mode: "icon", label: "Zobrazit jako ikony", Icon: LayoutGrid },
+  { mode: "list", label: "Zobrazit jako seznam", Icon: List },
+  { mode: "column", label: "Zobrazit jako sloupce", Icon: Columns3 },
+];
+
+/** Jeden segmented control místo tří samostatných tlačítek, jako ve Finderu.
+ *  Vyzdvižený segment se mezi pozicemi posouvá transformací. */
+function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
+  const index = VIEW_SEGMENTS.findIndex((segment) => segment.mode === mode);
+
+  return (
+    <div className="fw-segmented shrink-0" role="radiogroup" aria-label="Zobrazení">
+      <span
+        aria-hidden
+        className="fw-segment-thumb"
+        style={{ width: 30, transform: `translateX(${index * 30}px)` }}
+      />
+      {VIEW_SEGMENTS.map(({ mode: segment, label, Icon }) => (
+        <button
+          key={segment}
+          type="button"
+          role="radio"
+          aria-checked={segment === mode}
+          aria-label={label}
+          data-tooltip={label}
+          // Jako ostatní tlačítka toolbaru si fokus nebere (šipky ve výpisu).
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onChange(segment)}
+          className="fw-segment"
+        >
+          <Icon size={15} strokeWidth={1.75} />
+        </button>
+      ))}
+    </div>
   );
 }
 
 type ToolbarProps = {
   folderName: string;
+  /** Malá ikona před názvem — stejná jako u složky v sidebaru. */
+  folderIcon: React.ReactNode;
   canGoBack: boolean;
   canGoForward: boolean;
   onBack: () => void;
@@ -105,6 +155,7 @@ type ToolbarMenu = "sort" | "share" | "tags" | "more";
 
 export function Toolbar({
   folderName,
+  folderIcon,
   canGoBack,
   canGoForward,
   onBack,
@@ -170,11 +221,10 @@ export function Toolbar({
   ];
 
   return (
-    <header
-      className="surface flex h-10 shrink-0 items-center gap-2 border-b border-line bg-toolbar px-3"
-      style={{ backdropFilter: "blur(20px)" }}
-    >
-      <div className="flex shrink-0 items-center gap-1">
+    // Skupiny s mezerou 12 px: [zpět/vpřed] [název] … [zobrazení] [seřadit]
+    // [sdílet, štítky] [více] [téma] [hledání].
+    <header className="fw-toolbar surface flex h-10 shrink-0 items-center gap-3 px-3">
+      <div className="flex shrink-0 items-center gap-0.5">
         <IconButton Icon={ChevronLeft} label="Zpět" disabled={!canGoBack} onClick={onBack} />
         <IconButton
           Icon={ChevronRight}
@@ -184,53 +234,47 @@ export function Toolbar({
         />
       </div>
 
-      <h1 className="ml-3 truncate text-[15px] font-semibold text-primary">{folderName}</h1>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="flex shrink-0 items-center" aria-hidden>
+          {folderIcon}
+        </span>
+        <h1 className="truncate text-[15px] font-semibold text-primary">{folderName}</h1>
+      </div>
 
       <div className="flex-1" />
 
-      <div className="flex shrink-0 items-center gap-0.5">
-        <IconButton
-          Icon={LayoutGrid}
-          label="Zobrazit jako ikony"
-          active={viewMode === "icon"}
-          onClick={() => onViewModeChange("icon")}
-        />
-        <IconButton
-          Icon={List}
-          label="Zobrazit jako seznam"
-          active={viewMode === "list"}
-          onClick={() => onViewModeChange("list")}
-        />
-        <IconButton
-          Icon={Columns3}
-          label="Zobrazit jako sloupce"
-          active={viewMode === "column"}
-          onClick={() => onViewModeChange("column")}
-        />
-      </div>
+      <ViewSwitcher mode={viewMode} onChange={onViewModeChange} />
 
       <IconButton
         Icon={SlidersHorizontal}
         label="Seřadit"
+        secondary
         active={menu?.kind === "sort"}
         onMouseDown={toggleMenu("sort")}
       />
-      <IconButton
-        Icon={Share}
-        label="Sdílet"
-        active={menu?.kind === "share"}
-        onMouseDown={toggleMenu("share")}
-      />
-      <IconButton
-        Icon={Tag}
-        label="Štítky"
-        active={menu?.kind === "tags"}
-        unavailable={tagItems === null ? "Vyberte soubor" : undefined}
-        onMouseDown={toggleMenu("tags")}
-      />
+
+      <div className="flex shrink-0 items-center gap-0.5">
+        <IconButton
+          Icon={Share}
+          label="Sdílet"
+          secondary
+          active={menu?.kind === "share"}
+          onMouseDown={toggleMenu("share")}
+        />
+        <IconButton
+          Icon={Tag}
+          label="Štítky"
+          secondary
+          active={menu?.kind === "tags"}
+          unavailable={tagItems === null ? "Vyberte soubor" : undefined}
+          onMouseDown={toggleMenu("tags")}
+        />
+      </div>
+
       <IconButton
         Icon={MoreHorizontal}
         label="Více"
+        secondary
         active={menu?.kind === "more"}
         onMouseDown={toggleMenu("more")}
       />
@@ -238,11 +282,12 @@ export function Toolbar({
       <IconButton
         Icon={theme === "dark" ? Sun : Moon}
         label={theme === "dark" ? "Světlý režim" : "Tmavý režim"}
+        secondary
         onClick={onToggleTheme}
         iconClassName="fw-theme-spin"
       />
 
-      <div className="fw-search group flex h-7 w-[180px] shrink-0 items-center gap-1.5 rounded-md bg-hover px-2.5 py-1 focus-within:w-[240px]">
+      <div className="fw-search group flex shrink-0 items-center gap-1.5 bg-hover px-2.5">
         <Search size={14} strokeWidth={2} className="shrink-0 text-secondary" />
         <input
           ref={searchRef}

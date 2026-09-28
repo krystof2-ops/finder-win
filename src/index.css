@@ -53,6 +53,11 @@
 
   /* Text na akcentní barvě (pilulka vybraného názvu, zvýrazněná položka menu). */
   --on-accent: #ffffff;
+  /* Aktivní segment přepínače zobrazení — vyzdvižený nad podkladem. */
+  --segment-active: #ffffff;
+  --segment-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  /* Prstenec fokusu (pole hledání). */
+  --focus-ring: rgba(10, 132, 255, 0.4);
   /* Pilulka názvu vybrané položky v neaktivním okně (Finder ji zešedne). */
   --name-pill-inactive: rgba(0, 0, 0, 0.1);
 
@@ -115,6 +120,9 @@
 
   --on-accent: #ffffff;
   --name-pill-inactive: rgba(255, 255, 255, 0.16);
+  --segment-active: #636366;
+  --segment-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --focus-ring: rgba(10, 132, 255, 0.5);
 
   --folder-back: #60a5fa;
   --folder-front: #3b82f6;
@@ -621,19 +629,77 @@ body {
   filter: brightness(1.08);
 }
 
-/* Pole hledání. Rámeček je průhledný i v klidu, aby se šířka neměnila skokem
-   ve chvíli, kdy naskočí barva — box-sizing drží výšku na 28 px. */
+/* Pole hledání: 28 px, zaoblení 7 px, při fokusu 180 → 260 px a tenký
+   prstenec akcentu. Rámeček je průhledný i v klidu, ať se nic neposouvá. */
 .fw-search {
+  height: 28px;
+  width: 180px;
+  border-radius: 7px;
   border: 1px solid transparent;
   transition:
     width 260ms var(--ease-out),
-    border-color 260ms var(--ease-out),
-    box-shadow 260ms var(--ease-out);
+    border-color 200ms var(--ease-out),
+    box-shadow 200ms var(--ease-out);
 }
 
 .fw-search:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-bg);
+  width: 260px;
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 1px var(--focus-ring);
+}
+
+/* Toolbar jako macOS: průsvitný s rozmazaným a sytějším pozadím. */
+.fw-toolbar {
+  background-color: var(--bg-toolbar);
+  backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Přepínač zobrazení — jeden segmented control. Vyzdvižený segment je
+   samostatný prvek, který se posouvá transformací (160 ms). */
+.fw-segmented {
+  position: relative;
+  display: flex;
+  height: 26px;
+  padding: 2px;
+  border-radius: 7px;
+  background-color: var(--hover);
+}
+
+.fw-segment-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  border-radius: 5px;
+  background-color: var(--segment-active);
+  box-shadow: var(--segment-shadow);
+  transition: transform 160ms var(--ease-out);
+}
+
+.fw-segment {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: color 160ms var(--ease-out);
+}
+
+.fw-segment[aria-checked="true"] {
+  color: var(--text-primary);
+}
+
+/* Méně důležité nástroje (Seřadit, Sdílet, Štítky, Více, téma) — tlumené,
+   ať nemají stejnou váhu jako přepínač zobrazení. */
+.fw-tool-secondary {
+  color: var(--text-secondary);
+}
+
+.fw-tool-secondary:hover {
+  color: var(--text-primary);
 }
 
 /* Hlášky nad status barem. */

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { X } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -22,6 +22,7 @@ import { SearchView } from "./components/SearchView";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TagView } from "./components/TagView";
+import { FolderIcon, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { TooltipLayer } from "./components/Tooltip";
@@ -2092,6 +2093,33 @@ export default function App() {
     });
   }, [targetEntries, tags]);
 
+  // Ikona před názvem v toolbaru: stejná jako u složky v sidebaru, jinak
+  // obecná složka; v tag view puntík barvy, ve výsledcích lupa.
+  const folderIcon = (() => {
+    if (tagFilter !== null) {
+      return (
+        <span
+          className="block rounded-full"
+          style={{ width: 12, height: 12, background: TAG_HEX[tagFilter] }}
+        />
+      );
+    }
+    if (search !== null) return <Search size={16} strokeWidth={1.75} className="text-secondary" />;
+
+    for (const section of sections) {
+      const item = section.items.find(
+        (candidate) => nav.current !== null && storage.samePath(candidate.path, nav.current),
+      );
+      if (item) {
+        const Icon = sidebarIcon(item.icon_name);
+        return (
+          <Icon size={16} strokeWidth={1.75} color={sidebarIconColor(section.label, item.label)} />
+        );
+      }
+    }
+    return <FolderIcon size={16} />;
+  })();
+
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName =
     tagFilter !== null
@@ -2259,6 +2287,7 @@ export default function App() {
         <main className="surface flex min-w-0 flex-1 flex-col bg-main">
           <Toolbar
             folderName={folderName}
+            folderIcon={folderIcon}
             canGoBack={nav.back.length > 0}
             canGoForward={nav.forward.length > 0}
             onBack={goBack}
