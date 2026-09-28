@@ -1,7 +1,15 @@
 {
   "name": "finder-win",
+  "productName": "Finder-Win",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "description": "A macOS Finder-like file explorer for Windows",
+  "author": "krystof2-ops",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OWNER/finder-win.git"
+  },
   "type": "module",
   "scripts": {
     "dev": "vite",

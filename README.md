@@ -1,7 +1,93 @@
-# Tauri + React + Typescript
+# Finder-Win
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+**English** · [Čeština](README.cs.md)
 
-## Recommended IDE Setup
+A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rust.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+> **Note:** the user interface is currently in Czech only.
+
+## Screenshots
+
+![Column view](docs/screenshots/main-column-view.png)
+![Quick Look](docs/screenshots/quick-look.png)
+![Light mode](docs/screenshots/light-mode.png)
+
+## Features
+
+- **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
+- **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
+- **Sidebar**
+  - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos), OneDrive / iCloud Drive when present, drive C: and your home folder,
+  - **custom favorites** – drag any folder onto the sidebar to add it, drag to reorder, right-click to rename or remove; saved between sessions,
+  - **Recents** – recently opened items with relative times,
+  - **Tags** – colors that are in use, with item counts.
+- **Quick Look** (Space) – preview images, PDF, video, audio, text/source code and rendered Markdown; ←/→ to step through files.
+- **File operations** – rename inline, duplicate, move to Recycle Bin, copy / cut / paste within the app, new folder, Open with…, open in Explorer, open in Windows Terminal, copy path / name, properties.
+- **Context menus** on files, empty space and sidebar items, including multi-selection ("Delete 5 items").
+- **Color tags** – 7 Finder colors; click a tag in the sidebar to see every file with that color.
+- **Search** – typing filters the current folder; Enter runs a recursive search by file name.
+- **Navigation** – back / forward history (also mouse buttons 4 / 5), path bar with breadcrumbs and editable path (Ctrl+L), free disk space in the status bar.
+- **Light and dark mode**, smooth macOS-like animations (disabled when Windows "reduce motion" is on).
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+↑` | Go to parent folder |
+| `Ctrl+↓` / `Enter` | Open selected item |
+| `Space` | Quick Look |
+| `Ctrl+L` | Edit path |
+| `Ctrl+F` | Focus search field (`Enter` = recursive search, `Esc` = clear) |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
+| `Ctrl+D` | Duplicate |
+| `Ctrl+A` | Select all (not in Column view) |
+| `Ctrl+Shift+N` | New folder |
+| `F2` | Rename |
+| `Delete` | Move to Recycle Bin |
+| `Ctrl+R` / `F5` | Refresh |
+| `↑` `↓` `←` `→` `Home` `End` | Move within Column view |
+| `←` / `→`, `Esc` | Previous / next file, close (in Quick Look) |
+| Mouse button 4 / 5 | Back / forward |
+
+## Install
+
+Download the latest `.msi` (or `-setup.exe`) installer from the [Releases](https://github.com/OWNER/finder-win/releases/latest) page and run it.
+
+### Windows SmartScreen warning
+
+The installer is not code-signed, so Windows SmartScreen will show *"Windows protected your PC"*. To install anyway, click **More info** and then **Run anyway**.
+
+## Build from source
+
+Prerequisites:
+
+- [Node.js](https://nodejs.org/) 20+
+- [Rust](https://rustup.rs/) (stable)
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++")
+- WebView2 (preinstalled on Windows 10/11)
+
+```powershell
+npm install
+npm run tauri dev     # run in development mode
+npm run tauri build   # build installers
+```
+
+Installers are written to `src-tauri/target/release/bundle/msi/` and `src-tauri/target/release/bundle/nsis/`.
+
+## Known limitations
+
+- **UI is Czech only**, no localization yet.
+- **Windows only.**
+- **No drag & drop of files** between folders or from Windows Explorer. Dragging currently only adds folders to the sidebar.
+- **Copy / cut / paste works only inside the app**, not through the system clipboard (you can't paste into Explorer). "Copy path" does use the system clipboard.
+- The **Sort, Share and Tags buttons in the toolbar do nothing yet**. Sorting works through the List view column headers.
+- **Hidden and system files are always hidden**, there is no toggle.
+- **Only drive C:** is listed in the sidebar; other drives are reachable by typing the path (Ctrl+L).
+- **No image thumbnails**, files show a type icon.
+- Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and `target` folders.
+- No tabs or multiple windows.
+- The installer is **not code-signed** (see SmartScreen above).
+
+## License
+
+[MIT](LICENSE)
