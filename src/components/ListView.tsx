@@ -105,7 +105,9 @@ export function ListView({
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
               event.preventDefault();
-              onSelect(entry);
+              // Nebublat na kontejner — ten má menu volné plochy. Výběr řeší
+              // App: pravý klik do už vybrané skupiny ji nesmí shodit na jednu.
+              event.stopPropagation();
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className={`fw-list-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${stripeClass} ${stateClass}`}

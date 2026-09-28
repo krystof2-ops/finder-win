@@ -102,6 +102,7 @@ function ColumnPane({
             onDoubleClick={() => onOpen(index, entry)}
             onContextMenu={(event) => {
               event.preventDefault();
+              event.stopPropagation();
               onSelect(index, entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
@@ -224,7 +225,6 @@ export function ColumnView({
   const { columns, focusedIndex, select, openInto, focusColumn, move } = api;
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const scrollerRef = useRef<HTMLDivElement>(null);
   /** Živé sloupce bez těch odcházejících — cíl pro doscrollování doprava. */
   const liveRef = useRef<HTMLDivElement>(null);
 
@@ -232,6 +232,7 @@ export function ColumnView({
   // useColumns je zahazuje okamžitě, o odchod se proto musí postarat view.
   const [exiting, setExiting] = useState<Column[]>([]);
   const previousColumns = useRef<Column[]>(columns);
+  const exitTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const previous = previousColumns.current;
@@ -251,9 +252,17 @@ export function ColumnView({
     if (changed < 0) return;
 
     setExiting(previous.slice(changed));
-    const timer = window.setTimeout(() => setExiting([]), 180);
-    return () => window.clearTimeout(timer);
+
+    // Časovač visí v refu, ne v cleanupu efektu. React pouští cleanup před
+    // každým dalším během, a běh, který skončí na `changed < 0` (což dělá každé
+    // select() — mění jen selectedPath, cesty zůstanou), by nový časovač
+    // nenastavil. Odcházející sloupce by tak zůstaly navždy: fw-column-out je
+    // forwards na opacity 0, takže neviditelné, ale pořád zabírají 240 px.
+    window.clearTimeout(exitTimer.current);
+    exitTimer.current = window.setTimeout(() => setExiting([]), 180);
   }, [columns]);
+
+  useEffect(() => () => window.clearTimeout(exitTimer.current), []);
 
   const needle = query.trim().toLowerCase();
   const filterEntries = (entries: FileEntry[]) =>
@@ -331,7 +340,7 @@ export function ColumnView({
       onKeyDown={handleKeyDown}
       className="flex h-full outline-none"
     >
-      <div ref={scrollerRef} className="flex min-w-0 flex-1 overflow-x-auto">
+      <div className="flex min-w-0 flex-1 overflow-x-auto">
         <div ref={liveRef} className="flex shrink-0">
           {columns.map((column, index) => (
             <ColumnPane

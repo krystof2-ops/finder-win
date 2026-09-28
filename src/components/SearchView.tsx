@@ -1,109 +1,95 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
 import { formatModified } from "../format";
-import { parentPath, statPaths } from "../fileops";
-import * as storage from "../lib/storage";
-import { TAG_LABEL } from "../lib/tags";
+import { relativeParent, searchRecursive } from "../fileops";
 import { useStorage } from "../lib/useStorage";
-import type { FileEntry, TagColor } from "../types";
+import type { FileEntry } from "../types";
 
-/** Sloupec s puntíky, Název, Kde je, Datum úpravy. */
+/** Strop pro jedno hledání. Víc řádků stejně nikdo neprojde a průchod by rostl. */
+export const MAX_RESULTS = 500;
+
+/** Sloupec s puntíky, Název, Kde je, Datum úpravy — stejné rozvržení jako tag view. */
 const GRID_TEMPLATE = "24px minmax(0, 1fr) minmax(0, 1.2fr) 140px";
 
-type TagViewProps = {
-  color: TagColor;
+type SearchViewProps = {
+  /** Složka, od které se prohledává dolů. */
+  root: string;
+  query: string;
   windowFocused: boolean;
   /** Naviguje do rodičovské složky a označí tam položku. */
   onReveal: (path: string) => void;
   onOpen: (entry: FileEntry) => void;
-  /** Ať status bar hlásí počet z tag view, ne z podkladové složky. */
+  /** Ať status bar hlásí počet výsledků, ne obsah podkladové složky. */
   onCountChange: (count: number) => void;
 };
 
-export function TagView({
-  color,
+export function SearchView({
+  root,
+  query,
   windowFocused,
   onReveal,
   onOpen,
   onCountChange,
-}: TagViewProps) {
+}: SearchViewProps) {
   const { tags } = useStorage();
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
 
   const requestId = useRef(0);
 
-  /**
-   * Disk se kvůli tag view neprochází — mapa cesta→barvy má všechno, co je
-   * potřeba, takže stačí vyfiltrovat klíče. Jediné, co se ověřuje na disku,
-   * je existence, a to jedním hromadným voláním.
-   */
-  const paths = useMemo(
-    () => Object.keys(tags).filter((path) => tags[path].includes(color)),
-    [tags, color],
-  );
-
-  // Klíč místo pole v závislostech — jinak by nová identita pole po každém
-  // překreslení storu spustila zbytečné načtení.
-  const pathsKey = paths.join("\0");
-
+  // Průchod velkého stromu trvá; bez tohohle by pomalejší odpověď na starší
+  // dotaz přepsala výsledky toho, co uživatel mezitím napsal.
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true);
+    setError(null);
+    setSelected(null);
 
-    statPaths(paths)
-      .then((results) => {
+    searchRecursive(root, query, MAX_RESULTS)
+      .then((found) => {
         if (requestId.current !== id) return;
-
-        const found: FileEntry[] = [];
-        const gone: string[] = [];
-
-        // Pozice odpovídají vstupu, takže se dá rozlišit "smazáno" od
-        // "nedostupné". Promazává se **jen** to první — jinak by odpojený
-        // síťový disk nebo chybějící oprávnění nenávratně smazaly tagy.
-        results.forEach((result, index) => {
-          if (result.entry !== null) found.push(result.entry);
-          else if (result.missing) gone.push(paths[index]);
-        });
 
         setEntries(found);
         setLoading(false);
-
-        if (gone.length > 0) void storage.pruneTags(gone);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (requestId.current !== id) return;
+
         setEntries([]);
+        setError(String(err));
         setLoading(false);
       });
-    // paths je odvozené z pathsKey; závislost na klíči drží efekt stabilní.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathsKey]);
-
-  const sorted = useMemo(
-    () => [...entries].sort((a, b) => a.name.localeCompare(b.name, "cs", { sensitivity: "base" })),
-    [entries],
-  );
+  }, [root, query]);
 
   useEffect(() => {
-    onCountChange(sorted.length);
-  }, [sorted.length, onCountChange]);
+    onCountChange(entries.length);
+  }, [entries.length, onCountChange]);
 
-  if (loading && entries.length === 0) {
+  if (loading) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-[13px] text-secondary">
-        Načítám…
+        Hledám…
       </div>
     );
   }
 
-  if (sorted.length === 0) {
+  if (error !== null) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
-        Nic není označené barvou {TAG_LABEL[color].toLowerCase()}.
+        Hledání se nepodařilo — {error}
+      </div>
+    );
+  }
+
+  if (entries.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
+        Nic neodpovídá „{query}".
       </div>
     );
   }
@@ -120,9 +106,10 @@ export function TagView({
         <span className="truncate">Datum úpravy</span>
       </div>
 
-      {sorted.map((entry) => {
+      {entries.map((entry) => {
         const isSelected = entry.path === selected;
         const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
+        const where = relativeParent(entry.path, root);
 
         return (
           <div
@@ -130,7 +117,7 @@ export function TagView({
             role="button"
             tabIndex={0}
             title={entry.path}
-            // Jeden klik odkrývá — tag view je rozcestník, ne obsah složky.
+            // Jeden klik odkrývá — výsledky jsou rozcestník, ne obsah složky.
             onClick={() => {
               setSelected(entry.path);
               onReveal(entry.path);
@@ -150,11 +137,18 @@ export function TagView({
               <span className="truncate">{entry.name}</span>
             </div>
 
-            <span className="truncate text-secondary">{parentPath(entry.path) ?? entry.path}</span>
+            {/* Prázdné "kde" znamená přímo v prohledávané složce. */}
+            <span className="truncate text-secondary">{where === "" ? "—" : where}</span>
             <span className="truncate text-secondary">{formatModified(entry.modified)}</span>
           </div>
         );
       })}
+
+      {entries.length === MAX_RESULTS && (
+        <div className="px-3 py-2 text-[11px] text-secondary">
+          Zobrazeno prvních {MAX_RESULTS} výsledků.
+        </div>
+      )}
     </div>
   );
 }

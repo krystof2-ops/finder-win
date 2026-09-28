@@ -1,15 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Folder } from "lucide-react";
 
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { fileVisual, sidebarIcon, sidebarIconColor } from "./icons";
-import { openInExplorer, parentPath } from "../fileops";
+import { openInExplorer, openTerminal, parentPath } from "../fileops";
 import { formatRelative } from "../format";
+import { isTypingTarget } from "../lib/dom";
 import { endDrag, getDrag, startDrag, useDrag } from "../lib/dnd";
 import * as storage from "../lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
-import type { CustomFavorite, FavoriteSection, RecentEntry, TagColor } from "../types";
+import type {
+  CustomFavorite,
+  FavoriteEntry,
+  FavoriteSection,
+  RecentEntry,
+  RecentKind,
+  TagColor,
+} from "../types";
 
 /** Nedávných se ukládá 20, ale sidebar by z nich neúměrně narostl. */
 const RECENTS_SHOWN = 10;
@@ -144,7 +154,7 @@ type CustomFavoritesProps = {
   items: CustomFavorite[];
   currentPath: string | null;
   windowFocused: boolean;
-  onNavigate: (path: string) => void;
+  onActivate: (item: CustomFavorite) => void;
   onContextMenu: (item: CustomFavorite, index: number, x: number, y: number) => void;
   renamingPath: string | null;
   onRenameSubmit: (path: string, label: string) => void;
@@ -155,7 +165,7 @@ function CustomFavorites({
   items,
   currentPath,
   windowFocused,
-  onNavigate,
+  onActivate,
   onContextMenu,
   renamingPath,
   onRenameSubmit,
@@ -164,11 +174,11 @@ function CustomFavorites({
   const drag = useDrag();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
-  // Soubory sem nepatří; složka, která už v seznamu je, taky ne.
+  // Soubor i složka sem smí, ale co už v seznamu je, se podruhé nepřidává.
   const accepts =
     drag !== null &&
     (drag.kind === "favorite" ||
-      (drag.isDir && !items.some((item) => storage.samePath(item.path, drag.path))));
+      !items.some((item) => storage.samePath(item.path, drag.path)));
 
   // Prázdná sekce se odhalí jen na dobu tažení, aby bylo kam pustit první složku.
   const visible = items.length > 0 || (accepts && drag?.kind === "entry");
@@ -212,9 +222,13 @@ function CustomFavorites({
       return;
     }
 
-    if (!payload.isDir) return;
     void storage.addFavorite(
-      { label: payload.name, path: payload.path, icon: "Folder" },
+      {
+        label: payload.name,
+        path: payload.path,
+        icon: "Folder",
+        type: payload.isDir ? "folder" : "file",
+      },
       target,
     );
   }
@@ -232,8 +246,11 @@ function CustomFavorites({
 
       <nav className="flex flex-col pb-0.5">
         {items.map((item, index) => {
-          const Icon = sidebarIcon(item.icon);
-          const isActive = item.path === currentPath;
+          // Soubor v sidebaru nikdy "nejsme uvnitř" — zvýrazňují se jen složky.
+          const isActive =
+            item.type === "folder" &&
+            currentPath !== null &&
+            storage.samePath(item.path, currentPath);
           const isRenaming = item.path === renamingPath;
 
           return (
@@ -255,18 +272,21 @@ function CustomFavorites({
                   endDrag();
                 }}
                 onDragOver={(event) => allowAtRow(event, positionFor(event, index))}
-                onClick={() => !isRenaming && onNavigate(item.path)}
+                onClick={() => !isRenaming && onActivate(item)}
                 onContextMenu={(event) => {
+                  if (isTypingTarget(event.target)) return;
                   event.preventDefault();
+                  event.stopPropagation();
                   onContextMenu(item, index, event.clientX, event.clientY);
                 }}
                 className={`${ROW_CLASS} ${rowStateClass(isActive && !isRenaming, windowFocused)}`}
               >
-                <Icon
-                  size={16}
-                  strokeWidth={1.75}
-                  className="fw-sidebar-icon shrink-0"
-                  color={iconColor("var(--accent)", isActive)}
+                <EntryIcon
+                  name={item.label}
+                  path={item.path}
+                  type={item.type}
+                  active={isActive}
+                  folderIcon={item.icon}
                 />
 
                 {isRenaming ? (
@@ -287,7 +307,7 @@ function CustomFavorites({
 
         {items.length === 0 && (
           <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
-            Přetáhni sem složku
+            Přetáhni sem složku nebo soubor
           </div>
         )}
       </nav>
@@ -297,10 +317,29 @@ function CustomFavorites({
 
 /* ------------------------------- NEDÁVNÉ ---------------------------------- */
 
-function RecentIcon({ entry, active }: { entry: RecentEntry; active: boolean }) {
-  if (entry.type === "folder") {
+/**
+ * Ikona řádku, který může být soubor i složka — tak vypadají nedávné
+ * i oblíbené. `folderIcon` nechává vlastní oblíbené použít ikonu ze
+ * settings.json, nedávné vždycky kreslí prostou složku.
+ */
+function EntryIcon({
+  name,
+  path,
+  type,
+  active,
+  folderIcon,
+}: {
+  name: string;
+  path: string;
+  type: RecentKind;
+  active: boolean;
+  folderIcon?: string;
+}) {
+  if (type === "folder") {
+    const Icon = folderIcon === undefined ? Folder : sidebarIcon(folderIcon);
+
     return (
-      <Folder
+      <Icon
         size={16}
         strokeWidth={1.75}
         className="fw-sidebar-icon shrink-0"
@@ -309,13 +348,13 @@ function RecentIcon({ entry, active }: { entry: RecentEntry; active: boolean }) 
     );
   }
 
-  const extension = entry.name.includes(".")
-    ? entry.name.slice(entry.name.lastIndexOf(".") + 1).toLowerCase()
+  const extension = name.includes(".")
+    ? name.slice(name.lastIndexOf(".") + 1).toLowerCase()
     : null;
 
   const { Icon, tint } = fileVisual({
-    name: entry.name,
-    path: entry.path,
+    name,
+    path,
     is_dir: false,
     size: 0,
     modified: 0,
@@ -354,7 +393,10 @@ function Recents({ items, currentPath, windowFocused, onActivate, onContextMenu 
         )}
 
         {shown.map((entry) => {
-          const isActive = entry.type === "folder" && entry.path === currentPath;
+          const isActive =
+            entry.type === "folder" &&
+            currentPath !== null &&
+            storage.samePath(entry.path, currentPath);
 
           return (
             <button
@@ -364,11 +406,17 @@ function Recents({ items, currentPath, windowFocused, onActivate, onContextMenu 
               onClick={() => onActivate(entry)}
               onContextMenu={(event) => {
                 event.preventDefault();
+                event.stopPropagation();
                 onContextMenu(entry, event.clientX, event.clientY);
               }}
               className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
             >
-              <RecentIcon entry={entry} active={isActive} />
+              <EntryIcon
+                name={entry.name}
+                path={entry.path}
+                type={entry.type}
+                active={isActive}
+              />
               {/* min-w-0 musí být, jinak se flex položka odmítne zkrátit pod obsah. */}
               <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
                 {entry.name}
@@ -391,9 +439,16 @@ type TagsSectionProps = {
   activeTag: TagColor | null;
   windowFocused: boolean;
   onSelectTag: (color: TagColor) => void;
+  onContextMenu: (color: TagColor, x: number, y: number) => void;
 };
 
-function TagsSection({ counts, activeTag, windowFocused, onSelectTag }: TagsSectionProps) {
+function TagsSection({
+  counts,
+  activeTag,
+  windowFocused,
+  onSelectTag,
+  onContextMenu,
+}: TagsSectionProps) {
   // Jen barvy, které se opravdu používají — prázdná sekce se schová celá.
   const used = TAG_COLORS.filter((color) => (counts.get(color) ?? 0) > 0);
   if (used.length === 0) return null;
@@ -408,6 +463,11 @@ function TagsSection({ counts, activeTag, windowFocused, onSelectTag }: TagsSect
             key={color}
             type="button"
             onClick={() => onSelectTag(color)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onContextMenu(color, event.clientX, event.clientY);
+            }}
             className={`${ROW_CLASS} ${rowStateClass(activeTag === color, windowFocused)}`}
           >
             <span
@@ -434,7 +494,12 @@ function TagsSection({ counts, activeTag, windowFocused, onSelectTag }: TagsSect
 
 type SidebarMenu =
   | { kind: "favorite"; x: number; y: number; item: CustomFavorite; index: number }
-  | { kind: "recent"; x: number; y: number; entry: RecentEntry };
+  | { kind: "recent"; x: number; y: number; entry: RecentEntry }
+  /** Položka ze sekcí od backendu (Downloads, iCloud, Zařízení …). */
+  | { kind: "section"; x: number; y: number; item: FavoriteEntry }
+  | { kind: "tag"; x: number; y: number; color: TagColor }
+  /** Nadpis sekce, prázdný stav nebo volná plocha pod poslední sekcí. */
+  | { kind: "background"; x: number; y: number };
 
 export function Sidebar({
   sections,
@@ -472,6 +537,11 @@ export function Sidebar({
     else onOpenFile(entry.path, entry.name);
   }
 
+  function activateFavorite(item: CustomFavorite) {
+    if (item.type === "folder") onNavigate(item.path);
+    else onOpenFile(item.path, item.label);
+  }
+
   const menuItems = useMemo((): MenuItem[] => {
     if (menu === null) return [];
 
@@ -483,11 +553,116 @@ export function Sidebar({
       },
     });
 
-    if (menu.kind === "favorite") {
+    const terminal = (path: string): MenuItem => ({
+      type: "item",
+      label: "Otevřít v Terminálu",
+      onSelect: () => {
+        void openTerminal(path).catch(() => undefined);
+      },
+    });
+
+    const copyPathItem = (path: string): MenuItem => ({
+      type: "item",
+      label: "Kopírovat cestu",
+      onSelect: () => {
+        void writeText(path).catch(() => undefined);
+      },
+    });
+
+    const showPath = (path: string): MenuItem => ({
+      type: "item",
+      label: "Zobrazit cestu",
+      onSelect: () => setPathTip({ x: menu.x, y: menu.y, path }),
+    });
+
+    const isFavorite = (path: string): boolean =>
+      favorites.some((favorite) => storage.samePath(favorite.path, path));
+
+    /** Přepínač "Přidat / Odebrat z oblíbených" — stejný text i chování všude. */
+    const toggleFavorite = (path: string, label: string, kind: RecentKind): MenuItem => {
+      const present = isFavorite(path);
+
+      return {
+        type: "item",
+        label: present ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+        onSelect: () => {
+          if (present) void storage.removeFavorite(path);
+          else void storage.addFavorite({ label, path, icon: "Folder", type: kind });
+        },
+      };
+    };
+
+    // Nadpisy sekcí, prázdné stavy a plocha pod poslední sekcí. Bez tohohle
+    // tam pravý klik neudělal vůbec nic — menu webview je globálně potlačené.
+    if (menu.kind === "background") {
+      const canAdd = currentPath !== null && !isFavorite(currentPath);
+
+      return [
+        {
+          type: "item",
+          label: canAdd
+            ? "Přidat aktuální složku do oblíbených"
+            : "Aktuální složka už je v oblíbených",
+          disabled: !canAdd,
+          onSelect: () => {
+            if (currentPath === null) return;
+            void storage.addFavorite({
+              label: storage.lastSegment(currentPath),
+              path: currentPath,
+              icon: "Folder",
+              type: "folder",
+            });
+          },
+        },
+        { type: "separator" },
+        {
+          type: "item",
+          label: "Vymazat všechny nedávné",
+          disabled: recents.length === 0,
+          danger: true,
+          onSelect: () => void storage.clearRecents(),
+        },
+      ];
+    }
+
+    if (menu.kind === "tag") {
+      const { color } = menu;
+
+      return [
+        { type: "item", label: "Otevřít", onSelect: () => onSelectTag(color) },
+        { type: "separator" },
+        {
+          type: "item",
+          label: `Odebrat štítek ${TAG_LABEL[color].toLowerCase()} ze všech položek`,
+          danger: true,
+          onSelect: () => void storage.removeTagEverywhere(color),
+        },
+      ];
+    }
+
+    // Sekce od backendu se nedají přejmenovat ani odebrat — nejsou naše. Zbytek
+    // nabídky ale smí být stejný jako u vlastních oblíbených; bez toho na nich
+    // pravý klik vytáhl menu webview.
+    if (menu.kind === "section") {
       const { item } = menu;
 
       return [
         { type: "item", label: "Otevřít", onSelect: () => onNavigate(item.path) },
+        { type: "separator" },
+        reveal(item.path),
+        terminal(item.path),
+        { type: "separator" },
+        toggleFavorite(item.path, item.label, "folder"),
+        copyPathItem(item.path),
+        showPath(item.path),
+      ];
+    }
+
+    if (menu.kind === "favorite") {
+      const { item } = menu;
+
+      return [
+        { type: "item", label: "Otevřít", onSelect: () => activateFavorite(item) },
         { type: "separator" },
         {
           type: "item",
@@ -504,9 +679,15 @@ export function Sidebar({
         reveal(item.path),
         {
           type: "item",
-          label: "Zobrazit cestu",
-          onSelect: () => setPathTip({ x: menu.x, y: menu.y, path: item.path }),
+          label: "Zobrazit ve složce",
+          // U kořene disku není kam odkrývat.
+          disabled: parentPath(item.path) === null,
+          onSelect: () => onReveal(item.path),
         },
+        // U souboru by terminál otevřel jeho složku — matoucí, radši ho vynech.
+        ...(item.type === "folder" ? [terminal(item.path)] : []),
+        copyPathItem(item.path),
+        showPath(item.path),
       ];
     }
 
@@ -522,7 +703,9 @@ export function Sidebar({
         disabled: parentPath(entry.path) === null,
         onSelect: () => onReveal(entry.path),
       },
+      copyPathItem(entry.path),
       { type: "separator" },
+      toggleFavorite(entry.path, entry.name, entry.type),
       {
         type: "item",
         label: "Odebrat z nedávných",
@@ -535,10 +718,17 @@ export function Sidebar({
         onSelect: () => void storage.clearRecents(),
       },
     ];
-  }, [menu, onNavigate, onReveal, onOpenFile]);
+  }, [menu, favorites, recents, currentPath, onNavigate, onReveal, onOpenFile, onSelectTag]);
 
   return (
     <aside
+      // Menu volné plochy visí na celém sloupci: nadpisy sekcí, prázdné stavy
+      // i prostor pod poslední sekcí patří jemu. Řádky si událost zastaví samy.
+      onContextMenu={(event) => {
+        if (isTypingTarget(event.target)) return;
+        event.preventDefault();
+        setMenu({ kind: "background", x: event.clientX, y: event.clientY });
+      }}
       className="surface flex w-[220px] shrink-0 flex-col overflow-y-auto bg-sidebar pt-2"
       style={{ backdropFilter: "blur(20px)" }}
     >
@@ -546,7 +736,7 @@ export function Sidebar({
         items={favorites}
         currentPath={currentPath}
         windowFocused={windowFocused}
-        onNavigate={onNavigate}
+        onActivate={activateFavorite}
         onContextMenu={(item, index, x, y) => setMenu({ kind: "favorite", item, index, x, y })}
         renamingPath={renamingPath}
         onRenameSubmit={(path, label) => {
@@ -571,7 +761,7 @@ export function Sidebar({
           <nav className="flex flex-col pb-0.5">
             {section.items.map((item) => {
               const Icon = sidebarIcon(item.icon_name);
-              const isActive = item.path === currentPath;
+              const isActive = currentPath !== null && storage.samePath(item.path, currentPath);
 
               return (
                 <button
@@ -579,6 +769,11 @@ export function Sidebar({
                   type="button"
                   title={item.path}
                   onClick={() => onNavigate(item.path)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
+                  }}
                   className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
                 >
                   <Icon
@@ -600,9 +795,12 @@ export function Sidebar({
         activeTag={activeTag}
         windowFocused={windowFocused}
         onSelectTag={onSelectTag}
+        onContextMenu={(color, x, y) => setMenu({ kind: "tag", color, x, y })}
       />
 
-      <div className="h-2 shrink-0" />
+      {/* Roztáhne se přes zbytek sloupce, aby pravý klik dole padl do sidebaru
+          a ne mimo něj. */}
+      <div className="min-h-[8px] flex-1 shrink-0" />
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />

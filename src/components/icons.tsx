@@ -7,11 +7,9 @@ import {
   FileText,
   FileVideo,
   Folder,
-  GraduationCap,
   HardDrive,
   Home,
   Image as ImageIcon,
-  LayoutDashboard,
   Monitor,
   Music,
   Video,
@@ -136,8 +134,6 @@ const SIDEBAR_ICONS: Record<string, LucideIcon> = {
   Video,
   Cloud,
   Folder,
-  LayoutDashboard,
-  GraduationCap,
   HardDrive,
   Home,
 };
@@ -156,10 +152,6 @@ export function sidebarIconColor(sectionLabel: string, itemLabel: string): strin
       return "var(--accent)";
     case "iCloud":
       return itemLabel === "iCloud Photos" ? "#af52de" : "#5eb5f0";
-    case "Dev":
-      return "#ff9500";
-    case "Projekty":
-      return "#30d158";
     default:
       return "var(--text-secondary)";
   }

@@ -576,6 +576,32 @@ body {
   pointer-events: none;
 }
 
+/* Tenký proužek pod toolbarem, když se přenačítá už zobrazená složka. Obsah
+   při refreshi zůstává na místě, takže bez něj by nebylo poznat, že se něco
+   děje. Nekonečná animace je tu schválně — délka operace se nedá odhadnout. */
+.fw-busy-line {
+  height: 2px;
+  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent) 50%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: fw-busy-slide 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes fw-busy-slide {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
 /* --------------------------- respekt k nastavení -------------------------- */
 
 /* Windows: Nastavení → Přizpůsobení → Vizuální efekty → Efekty animace. */

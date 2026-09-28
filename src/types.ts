@@ -25,6 +25,20 @@ export type FavoriteSection = {
   items: FavoriteEntry[];
 };
 
+export type OpResult = {
+  /** Cesta, která operací vznikla. */
+  path: string;
+  /** Kolik symlinků a junctions se při kopii přeskočilo. */
+  skipped_links: number;
+};
+
+export type StatResult = {
+  entry: FileEntry | null;
+  /** True jen když položka prokazatelně neexistuje. Nedostupný disk dá false —
+   *  volající pak nesmí nic promazávat. */
+  missing: boolean;
+};
+
 export type FileProperties = {
   size: number;
   created: number;
@@ -51,6 +65,11 @@ export type CustomFavorite = {
   path: string;
   /** Klíč do SIDEBAR_ICONS, prakticky vždy "Folder". */
   icon: string;
+  /**
+   * Soubor se z oblíbených otevírá, složka se do ní naviguje. Starší
+   * settings.json tohle pole nemá — pak se položka bere jako složka.
+   */
+  type: RecentKind;
 };
 
 export type RecentKind = "file" | "folder";

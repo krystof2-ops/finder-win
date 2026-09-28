@@ -16,7 +16,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { AboutDialog } from "./AboutDialog";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { Theme, ViewMode } from "../types";
 
@@ -70,10 +69,15 @@ type ToolbarProps = {
   onToggleTheme: () => void;
   query: string;
   onQueryChange: (query: string) => void;
+  /** Enter v poli — filtr aktuální složky se povýší na rekurzivní hledání. */
+  onSearchSubmit: () => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
   onRefresh: () => void;
   onGoToParent: () => void;
   canGoToParent: boolean;
+  /** About dialog drží App, aby byl stav modálů na jednom místě — globální
+   *  zkratky se pod otevřeným dialogem musí vypnout. */
+  onShowAbout: () => void;
 };
 
 export function Toolbar({
@@ -88,14 +92,15 @@ export function Toolbar({
   onToggleTheme,
   query,
   onQueryChange,
+  onSearchSubmit,
   searchRef,
   onRefresh,
   onGoToParent,
   canGoToParent,
+  onShowAbout,
 }: ToolbarProps) {
   // Menu se otevírá pod tlačítkem, proto se pozice bere z jeho rámečku.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
-  const [aboutOpen, setAboutOpen] = useState(false);
 
   const moreItems: MenuItem[] = [
     { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: onRefresh },
@@ -107,7 +112,7 @@ export function Toolbar({
       onSelect: onGoToParent,
     },
     { type: "separator" },
-    { type: "item", label: "O aplikaci Finder-Win", onSelect: () => setAboutOpen(true) },
+    { type: "item", label: "O aplikaci Finder-Win", onSelect: onShowAbout },
   ];
 
   return (
@@ -190,6 +195,10 @@ export function Toolbar({
               onQueryChange("");
               event.currentTarget.blur();
             }
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSearchSubmit();
+            }
           }}
           placeholder="Hledat"
           className="min-w-0 flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-secondary"
@@ -219,8 +228,6 @@ export function Toolbar({
           onClose={() => setMoreMenu(null)}
         />
       )}
-
-      {aboutOpen && <AboutDialog onClose={() => setAboutOpen(false)} />}
     </header>
   );
 }

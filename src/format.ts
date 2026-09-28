@@ -78,7 +78,7 @@ export function formatItemCount(count: number): string {
 
 export type Crumb = { label: string; path: string };
 
-/** "C:\Users\Krystof\Downloads" → C: › Users › Krystof › Downloads */
+/** "C:\Users\jane\Downloads" → C: › Users › jane › Downloads */
 export function breadcrumbs(path: string): Crumb[] {
   const parts = path.split("\\").filter(Boolean);
 

@@ -65,7 +65,7 @@ function sanitizeFavorites(value: unknown): CustomFavorite[] {
   return value.flatMap((item): CustomFavorite[] => {
     if (typeof item !== "object" || item === null) return [];
 
-    const { label, path, icon } = item as Record<string, unknown>;
+    const { label, path, icon, type } = item as Record<string, unknown>;
     if (typeof path !== "string" || path === "") return [];
 
     return [
@@ -73,6 +73,8 @@ function sanitizeFavorites(value: unknown): CustomFavorite[] {
         path,
         label: typeof label === "string" && label !== "" ? label : lastSegment(path),
         icon: typeof icon === "string" && icon !== "" ? icon : "Folder",
+        // Chybějící pole = zápis od starší verze, kdy sem směly jen složky.
+        type: type === "file" ? "file" : "folder",
       },
     ];
   });
@@ -267,6 +269,29 @@ export async function toggleTag(path: string, color: TagColor): Promise<void> {
   await setTags(map);
 }
 
+/** Sundá z položky všechny barvy naráz — po jedné by to bylo až sedm kliků. */
+export async function clearTags(path: string): Promise<void> {
+  if (!(path in cache.tags)) return;
+
+  const map = { ...cache.tags };
+  delete map[path];
+  await setTags(map);
+}
+
+/** Sundá jednu barvu ze všech položek — z menu sekce TAGY v sidebaru. */
+export async function removeTagEverywhere(color: TagColor): Promise<void> {
+  const map: TagMap = {};
+  let changed = false;
+
+  for (const [path, colors] of Object.entries(cache.tags)) {
+    const next = colors.filter((existing) => existing !== color);
+    if (next.length !== colors.length) changed = true;
+    if (next.length > 0) map[path] = next;
+  }
+
+  if (changed) await setTags(map);
+}
+
 /** Tyhle cesty zmizely mimo naši aplikaci — zahodit, ať tag view nelže. */
 export async function pruneTags(paths: Iterable<string>): Promise<void> {
   const map = { ...cache.tags };
@@ -308,7 +333,7 @@ export function samePath(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
 }
 
-/** "C:\\Users\\Krystof\\Downloads" → "Downloads"; kořen disku vrátí "C:". */
+/** "C:\\Users\\jane\\Downloads" → "Downloads"; kořen disku vrátí "C:". */
 export function lastSegment(path: string): string {
   const parts = path.split("\\").filter(Boolean);
   return parts[parts.length - 1] ?? path;

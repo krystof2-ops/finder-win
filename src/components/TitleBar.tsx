@@ -1,8 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Plus, X, type LucideIcon } from "lucide-react";
 
-import iconSrc from "../assets/icon.png";
-
 type TrafficLightProps = {
   color: string;
   label: string;
@@ -36,20 +34,8 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="surface flex h-[38px] shrink-0 items-center gap-2 bg-window pl-3"
+      className="surface flex h-[38px] shrink-0 items-center gap-2 bg-window pl-[13px]"
     >
-      {/* Ikona musí sama nést drag-region, jinak by na ní okno nešlo chytit. */}
-      <img
-        data-tauri-drag-region
-        src={iconSrc}
-        alt=""
-        width={16}
-        height={16}
-        draggable={false}
-        className="shrink-0"
-        style={{ width: 16, height: 16 }}
-      />
-
       <div className="group flex items-center gap-2">
         <TrafficLight
           color="#ff5f57"

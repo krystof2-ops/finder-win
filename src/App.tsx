@@ -7,10 +7,12 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ColumnView } from "./components/ColumnView";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { IconDefs } from "./components/icons";
+import { AboutDialog } from "./components/AboutDialog";
 import { PropertiesDialog } from "./components/PropertiesDialog";
 import { IconView } from "./components/IconView";
 import { ListView } from "./components/ListView";
 import { QuickLook } from "./components/QuickLook";
+import { SearchView } from "./components/SearchView";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TagView } from "./components/TagView";
@@ -19,14 +21,24 @@ import { Toolbar } from "./components/Toolbar";
 import { useColumns } from "./columns";
 import {
   copyPath,
+  createFolder,
   duplicatePath,
   movePath,
   moveToTrash,
   openInExplorer,
+  openTerminal,
+  openWith,
   parentPath,
   renamePath,
 } from "./fileops";
-import { breadcrumbs, sortEntries, type SortDirection, type SortKey } from "./format";
+import {
+  breadcrumbs,
+  formatItemCount,
+  sortEntries,
+  type SortDirection,
+  type SortKey,
+} from "./format";
+import { isTypingTarget } from "./lib/dom";
 import * as storage from "./lib/storage";
 import { TAG_LABEL } from "./lib/tags";
 import { useStorage } from "./lib/useStorage";
@@ -38,20 +50,38 @@ import type { Clipboard, FavoriteSection, FileEntry, TagColor, Theme, ViewMode }
 const TOAST_VISIBLE_MS = 2000;
 const TOAST_EXIT_MS = 240;
 
+/**
+ * Kontextové menu hlavního panelu. Pravý klik na položku a pravý klik na
+ * volnou plochu nabízejí jiné věci, ale otevírají se stejnou komponentou.
+ */
+type MainMenu =
+  | { kind: "entry"; x: number; y: number; entry: FileEntry }
+  | { kind: "background"; x: number; y: number; dir: string };
+
+/** Výchozí název nové složky. Windows i Finder nechají uživatele hned přepsat. */
+const NEW_FOLDER_NAME = "Nová složka";
+
+/**
+ * Syntetická položka pro složku, ve které uživatel stojí. Vlastnosti si stejně
+ * všechno dotáhnou z backendu podle cesty, potřebují jen název a `is_dir`.
+ */
+function folderEntry(path: string): FileEntry {
+  return {
+    name: storage.lastSegment(path),
+    path,
+    is_dir: true,
+    size: 0,
+    modified: 0,
+    created: 0,
+    extension: null,
+  };
+}
+
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
       {children}
     </div>
-  );
-}
-
-/** Zkratky se nesmí spouštět, když uživatel píše do pole. */
-function isTypingTarget(target: EventTarget | null): boolean {
-  const element = target as HTMLElement | null;
-  if (element === null) return false;
-  return (
-    element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable
   );
 }
 
@@ -79,20 +109,39 @@ export default function App() {
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [pathEditing, setPathEditing] = useState(false);
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: FileEntry } | null>(null);
+  const [menu, setMenu] = useState<MainMenu | null>(null);
   const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   // Tag view je samostatný režim hlavního panelu — nesouvisí s nav.current,
   // proto vlastní stav a ne další ViewMode.
   const [tagFilter, setTagFilter] = useState<TagColor | null>(null);
   const [tagCount, setTagCount] = useState(0);
-  /** Co má "Zobrazit ve složce" označit, až dorazí výpis složky `dir`. */
-  const [pendingSelect, setPendingSelect] = useState<{ dir: string; path: string } | null>(null);
-  /** Složka, ke které patří obsah `entries`. Ne totéž co nav.current — ten se
-   *  změní hned, kdežto entries dojedou až po odpovědi backendu. */
-  const [loadedPath, setLoadedPath] = useState<string | null>(null);
 
-  const { tags } = useStorage();
+  // Rekurzivní hledání je stejně jako tag view samostatný režim panelu. Kořen
+  // se drží spolu s dotazem, aby výsledky nezůstaly viset na jiné složce, než
+  // ve které se opravdu hledalo.
+  const [search, setSearch] = useState<{ root: string; query: string } | null>(null);
+  const [searchCount, setSearchCount] = useState(0);
+  /** Co se má označit, až dorazí výpis složky `dir`. `seq` je stav načítacího
+   *  čítače v okamžiku požadavku — čeká se, až se posune. Bez toho by se
+   *  požadavek po přejmenování zahodil hned proti ještě starému výpisu, ve
+   *  kterém nová cesta pochopitelně není. */
+  const [pendingSelect, setPendingSelect] = useState<{
+    dir: string;
+    path: string;
+    seq: number;
+  } | null>(null);
+  /** Složka, ke které patří obsah `entries`, a pořadí jejího načtení. Cesta
+   *  není totéž co nav.current — ten se změní hned, kdežto entries dojedou až
+   *  po odpovědi backendu. */
+  const [loaded, setLoaded] = useState<{ path: string | null; seq: number }>({
+    path: null,
+    seq: 0,
+  });
+  const loadedPath = loaded.path;
+
+  const { tags, favorites } = useStorage();
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
   /** Krátká fáze, kdy starý obsah dohasíná, než se vymění za nový. */
@@ -103,25 +152,43 @@ export default function App() {
   const [quickLookOpen, setQuickLookOpen] = useState(false);
 
   const requestId = useRef(0);
+  /** Roste s každým dokončeným výpisem. V refu, aby si ho requestSelect mohl
+   *  přečíst bez závislosti na renderu. */
+  const loadSeq = useRef(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const viewSwapTimer = useRef<number | null>(null);
 
-  // Každý přechod do složky opouští tag view — jinak by sidebar zvýrazňoval
-  // barvu, jejíž výsledky už nikdo nevidí.
-  const navigate = useCallback((path: string) => {
+  /**
+   * Opustí režimy, které překrývají obsah složky (tag view, výsledky hledání).
+   * Každý přechod do složky je musí zavřít — jinak by sidebar zvýrazňoval
+   * barvu, jejíž výsledky už nikdo nevidí, a hledání by viselo nad jinou cestou.
+   */
+  const leaveOverlays = useCallback(() => {
     setTagFilter(null);
-    dispatch({ type: "go", path });
-  }, []);
+    // Odchod z výsledků bere s sebou i dotaz. Bez toho by cílová složka zůstala
+    // zafiltrovaná textem, kterým uživatel jen hledal, a chyběla by v ní půlka
+    // souborů. Mimo hledání se filtr při navigaci nemaže — to je staré chování.
+    if (search !== null) setQuery("");
+    setSearch(null);
+  }, [search]);
+
+  const navigate = useCallback(
+    (path: string) => {
+      leaveOverlays();
+      dispatch({ type: "go", path });
+    },
+    [leaveOverlays],
+  );
 
   const goBack = useCallback(() => {
-    setTagFilter(null);
+    leaveOverlays();
     dispatch({ type: "back" });
-  }, []);
+  }, [leaveOverlays]);
 
   const goForward = useCallback(() => {
-    setTagFilter(null);
+    leaveOverlays();
     dispatch({ type: "forward" });
-  }, []);
+  }, [leaveOverlays]);
 
   const columnsApi = useColumns(nav.current, viewMode === "column");
 
@@ -149,6 +216,20 @@ export default function App() {
       window.clearTimeout(remove);
     };
   }, [notice]);
+
+  // Kdekoliv, kde si pravý klik neobslouží komponenta sama, by webview vytáhlo
+  // vlastní menu prohlížeče (Zpět, Aktualizovat, Uložit jako, Tisk). V souborovém
+  // manažeru nemá co dělat. Textová pole jsou výjimka — tam je to jediná cesta,
+  // jak se myší dostat ke kopírování a vložení.
+  useEffect(() => {
+    function onContextMenu(event: MouseEvent) {
+      if (isTypingTarget(event.target)) return;
+      event.preventDefault();
+    }
+
+    window.addEventListener("contextmenu", onContextMenu);
+    return () => window.removeEventListener("contextmenu", onContextMenu);
+  }, []);
 
   useEffect(() => {
     const onFocus = () => setWindowFocused(true);
@@ -195,13 +276,13 @@ export default function App() {
       .then((result) => {
         if (requestId.current !== id) return;
         setEntries(result);
-        setLoadedPath(path);
+        setLoaded({ path, seq: (loadSeq.current += 1) });
       })
       .catch((err: unknown) => {
         if (requestId.current !== id) return;
         setEntries([]);
         // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
-        setLoadedPath(path);
+        setLoaded({ path, seq: (loadSeq.current += 1) });
         setError(String(err));
       })
       .finally(() => {
@@ -216,6 +297,26 @@ export default function App() {
         if (requestId.current === id) setFreeSpace(null);
       });
   }, [nav.current, refreshToken]);
+
+  // Po každé změně výpisu se výběr musí sesouhlasit se skutečností. Reset výše
+  // visí na nav.current, takže po smazání nebo přejmenování by `active` dál
+  // ukazoval na neexistující cestu — mezerník by otevřel náhled smazaného
+  // souboru, Ctrl+D by hlásil chybu a F2 by tiše nic neudělalo. Musí to běžet
+  // před efektem pendingSelect, který výběr naopak nastavuje.
+  useEffect(() => {
+    setActive((current) =>
+      current === null ? null : (entries.find((entry) => entry.path === current.path) ?? null),
+    );
+
+    setSelection((current) => {
+      if (current.size === 0) return current;
+      const alive = new Set<string>();
+      for (const entry of entries) if (current.has(entry.path)) alive.add(entry.path);
+      // Stejná identita, dokud se opravdu nic nezměnilo — jinak by každý výpis
+      // zbytečně překreslil všechny řádky.
+      return alive.size === current.size ? current : alive;
+    });
+  }, [entries]);
 
   const sortedEntries = useMemo(
     () => sortEntries(entries, sortKey, sortDirection),
@@ -236,6 +337,24 @@ export default function App() {
 
   const isColumnView = viewMode === "column";
   const currentDir = isColumnView ? columnsApi.activePath : nav.current;
+
+  /**
+   * Enter v poli hledání. Filtr aktuálního výpisu se povýší na průchod stromem
+   * od složky, ve které uživatel právě je — v column view od té nejhlubší.
+   */
+  const submitSearch = useCallback(() => {
+    const needle = query.trim();
+    if (needle === "" || currentDir === null) return;
+
+    setTagFilter(null);
+    setSearch({ root: currentDir, query: needle });
+  }, [query, currentDir]);
+
+  // Vyprázdněné pole (křížek, Escape, smazání textu) zavírá výsledky —
+  // jinak by nad panelem visel výsledek dotazu, který už nikde není vidět.
+  useEffect(() => {
+    if (query.trim() === "") setSearch(null);
+  }, [query]);
 
   const selectEntry = useCallback((entry: FileEntry) => {
     setActive(entry);
@@ -259,11 +378,11 @@ export default function App() {
 
   /** Jediná cesta k otevření souboru — proto se nedávné zapisují právě tady. */
   const openFile = useCallback((entry: FileEntry) => {
-    void storage.addRecent(entry.path, entry.name, "file");
-
-    invoke("open_file", { path: entry.path }).catch((err: unknown) =>
-      setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`),
-    );
+    invoke("open_file", { path: entry.path })
+      // Zapisuje se až po úspěchu — jinak by se do nedávných dostaly i soubory,
+      // které se otevřít nepodařilo.
+      .then(() => storage.addRecent(entry.path, entry.name, "file"))
+      .catch((err: unknown) => setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`));
   }, []);
 
   const open = useCallback(
@@ -296,6 +415,11 @@ export default function App() {
     [openFile],
   );
 
+  /** Označí `path` ve složce `dir`, jakmile dorazí čerstvý výpis té složky. */
+  const requestSelect = useCallback((dir: string, path: string) => {
+    setPendingSelect({ dir, path, seq: loadSeq.current });
+  }, []);
+
   /** Skočí do nadřazené složky a označí v ní danou položku. */
   const reveal = useCallback(
     (path: string) => {
@@ -303,15 +427,22 @@ export default function App() {
       if (parent === null) return;
 
       navigate(parent);
-      setPendingSelect({ dir: parent, path });
+      requestSelect(parent, path);
     },
-    [navigate],
+    [navigate, requestSelect],
   );
 
-  // Čeká se na výpis *té* složky, do které se odkrývá. Na `loading` se spolehnout
-  // nedá — v prvním průchodu efektů je ještě false z předchozí složky.
+  // Čeká se na *čerstvý* výpis té složky, do které se odkrývá. Na `loading` se
+  // spolehnout nedá — v prvním průchodu efektů je ještě false z předchozí
+  // složky. Porovnání seq navíc pokrývá odkrytí v už otevřené složce (po
+  // přejmenování), kde by samotná shoda cesty prošla hned proti starým datům.
   useEffect(() => {
-    if (pendingSelect === null || loadedPath !== pendingSelect.dir) return;
+    if (
+      pendingSelect === null ||
+      loaded.path !== pendingSelect.dir ||
+      loaded.seq <= pendingSelect.seq
+    )
+      return;
 
     const found = entries.find((entry) => entry.path === pendingSelect.path);
     if (found) {
@@ -329,18 +460,60 @@ export default function App() {
     }
     // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
     setPendingSelect(null);
-  }, [entries, loadedPath, pendingSelect]);
+  }, [entries, loaded, pendingSelect]);
+
+  /**
+   * Kopie nenásleduje symlinky a junctions. Když nějaké přeskočila, musí se to
+   * uživatel dozvědět — jinak by si myslel, že má úplnou kopii.
+   */
+  const noteSkippedLinks = useCallback((count: number) => {
+    if (count > 0) setNotice(`Přeskočeno ${count} odkazů (symlinky a junctions).`);
+  }, []);
 
   /** Společné ošetření chyb + refresh po každé mutující operaci. */
   const runOperation = useCallback(
     async (label: string, action: () => Promise<unknown>) => {
+      setNotice(null);
       try {
-        setNotice(null);
         await action();
-        refresh();
       } catch (err: unknown) {
         setNotice(`${label} — ${String(err)}`);
+      } finally {
+        // Refresh patří i k neúspěchu. Operace mohla část práce stihnout a
+        // zastaralý výpis, který ukazuje smazané soubory, je horší než chyba.
+        refresh();
       }
+    },
+    [refresh],
+  );
+
+  /**
+   * Hromadná operace nad výběrem. Nezastaví se na první chybě — jeden zamčený
+   * soubor by jinak nechal zbytek výběru nedotčený a uživatel by se dozvěděl
+   * jen o něm. Vrací, kolik položek prošlo.
+   */
+  const runBatch = useCallback(
+    async <T,>(label: string, items: T[], action: (item: T) => Promise<unknown>) => {
+      if (items.length === 0) return { ok: 0, failed: 0 };
+      setNotice(null);
+
+      let first: string | null = null;
+      let failed = 0;
+
+      for (const item of items) {
+        try {
+          await action(item);
+        } catch (err: unknown) {
+          failed += 1;
+          if (first === null) first = String(err);
+        }
+      }
+
+      if (failed === 1) setNotice(`${label} — ${first}`);
+      else if (failed > 1) setNotice(`${label} u ${failed} z ${items.length} položek — ${first}`);
+
+      refresh();
+      return { ok: items.length - failed, failed };
     },
     [refresh],
   );
@@ -348,23 +521,57 @@ export default function App() {
   const submitRename = useCallback(
     (entry: FileEntry, name: string) => {
       setRenamingPath(null);
-      if (name.trim() === entry.name) return;
-      void runOperation("Přejmenování selhalo", () => renamePath(entry.path, name.trim()));
+      const next = name.trim();
+      if (next === entry.name) return;
+
+      const dir = parentPath(entry.path);
+
+      void runOperation("Přejmenování selhalo", async () => {
+        const renamed = await renamePath(entry.path, next);
+        // Přejmenovaná položka má novou cestu, takže by po refreshi vypadla
+        // z výběru. Takhle zůstane označená, jak to dělá Finder i Průzkumník.
+        if (dir !== null) requestSelect(dir, renamed);
+      });
     },
-    [runOperation],
+    [runOperation, requestSelect],
   );
 
   const deleteTargets = useCallback(() => {
-    if (targetEntries.length === 0) return;
-    void runOperation("Smazání selhalo", async () => {
-      for (const entry of targetEntries) await moveToTrash(entry.path);
-    });
-  }, [targetEntries, runOperation]);
+    void runBatch("Smazání selhalo", targetEntries, (entry) => moveToTrash(entry.path));
+  }, [targetEntries, runBatch]);
 
   const duplicateActive = useCallback(() => {
     if (!activeEntry) return;
-    void runOperation("Duplikace selhala", () => duplicatePath(activeEntry.path));
-  }, [activeEntry, runOperation]);
+    const dir = parentPath(activeEntry.path);
+
+    void runOperation("Duplikace selhala", async () => {
+      const copy = await duplicatePath(activeEntry.path);
+      // Kopie se rovnou označí, ať je vidět, co vzniklo.
+      if (dir !== null) requestSelect(dir, copy.path);
+      noteSkippedLinks(copy.skipped_links);
+    });
+  }, [activeEntry, runOperation, requestSelect, noteSkippedLinks]);
+
+  /**
+   * Vytvoří složku a nechá uživatele hned psát název, jako Finder i Průzkumník.
+   * Kolizi názvu řeší backend číslem, takže druhá složka vznikne taky.
+   */
+  const newFolder = useCallback(() => {
+    if (currentDir === null) return;
+    const dir = currentDir;
+
+    void runOperation("Složku se nepodařilo vytvořit", async () => {
+      const created = await createFolder(dir, NEW_FOLDER_NAME);
+      requestSelect(dir, created);
+      setRenamingPath(created);
+    });
+  }, [currentDir, runOperation, requestSelect]);
+
+  const copyText = useCallback((text: string, label: string) => {
+    writeText(text).catch((err: unknown) =>
+      setNotice(`${label} se nepodařilo zkopírovat — ${String(err)}`),
+    );
+  }, []);
 
   const copyToClipboard = useCallback(
     (mode: "copy" | "cut") => {
@@ -379,15 +586,19 @@ export default function App() {
     const target = currentDir;
     const { paths, mode } = clipboard;
 
-    void runOperation("Vložení selhalo", async () => {
-      for (const path of paths) {
-        if (mode === "copy") await copyPath(path, target);
-        else await movePath(path, target);
-      }
-      // Vyjmuté položky se dají vložit jen jednou.
-      if (mode === "cut") setClipboard(null);
+    let skipped = 0;
+
+    void runBatch("Vložení selhalo", paths, async (path) => {
+      const result = mode === "copy" ? await copyPath(path, target) : await movePath(path, target);
+      skipped += result.skipped_links;
+    }).then(({ ok }) => {
+      noteSkippedLinks(skipped);
+      // Vyjmuté položky se dají vložit jen jednou. Schránka se ale čistí jen
+      // když se aspoň něco přesunulo — po úplném selhání by uživatel jinak
+      // přišel i o to, co měl vyjmuté.
+      if (mode === "cut" && ok > 0) setClipboard(null);
     });
-  }, [clipboard, currentDir, runOperation]);
+  }, [clipboard, currentDir, runBatch, noteSkippedLinks]);
 
   const goToParent = useCallback(() => {
     if (currentDir === null) return;
@@ -403,13 +614,19 @@ export default function App() {
 
   /* --------------------------- klávesové zkratky -------------------------- */
 
+  /** Cokoliv, co překrývá hlavní panel a obsluhuje si klávesy samo. */
+  const modalOpen = quickLookOpen || menu !== null || propertiesFor !== null || aboutOpen;
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      // Modal si klávesy obsluhuje sám.
-      if (quickLookOpen) return;
-      // Tag view nemá výběr v hlavním panelu — zkratky by mířily na položky
-      // podkladové složky, které uživatel nevidí. Nejnebezpečnější je Delete.
-      if (tagFilter !== null) return;
+      // Modal si klávesy obsluhuje sám. Platí to pro všechny, ne jen Quick Look:
+      // pod otevřenými Vlastnostmi šel dřív stisknout Delete a smazat výběr,
+      // který uživatel za dialogem ani neviděl.
+      if (modalOpen) return;
+      // Tag view ani výsledky hledání nemají výběr v hlavním panelu — zkratky
+      // by mířily na položky podkladové složky, které uživatel nevidí.
+      // Nejnebezpečnější je Delete.
+      if (tagFilter !== null || search !== null) return;
       if (isTypingTarget(event.target)) return;
 
       const ctrl = event.ctrlKey || event.metaKey;
@@ -453,6 +670,12 @@ export default function App() {
             event.preventDefault();
             selectAll();
             return;
+          case "n":
+            // Samotné Ctrl+N nemá co dělat — nové okno aplikace neumí.
+            if (!event.shiftKey) return;
+            event.preventDefault();
+            newFolder();
+            return;
           case "r":
             event.preventDefault();
             refresh();
@@ -493,8 +716,9 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [
-    quickLookOpen,
+    modalOpen,
     tagFilter,
+    search,
     isColumnView,
     activeEntry,
     goToParent,
@@ -505,6 +729,7 @@ export default function App() {
     selectAll,
     refresh,
     deleteTargets,
+    newFolder,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -544,13 +769,19 @@ export default function App() {
 
   /* ----------------------------- view mode -------------------------------- */
 
+  // Výměna view běží až za 120 ms, takže hodnoty zachycené při vytvoření
+  // callbacku můžou být do té doby neplatné — navigace uvnitř toho okna by
+  // uživatele poslala na cestu, ze které už odešel. Čte se proto z refu.
+  const latestPaths = useRef({ navPath: nav.current, activePath: columnsApi.activePath });
+  latestPaths.current = { navPath: nav.current, activePath: columnsApi.activePath };
+
   const changeViewMode = useCallback(
     (mode: ViewMode) => {
       if (mode === viewMode) return;
 
-      const { activePath } = columnsApi;
       const swap = () => {
-        if (viewMode === "column" && mode !== "column" && activePath && activePath !== nav.current) {
+        const { navPath, activePath } = latestPaths.current;
+        if (viewMode === "column" && mode !== "column" && activePath && activePath !== navPath) {
           navigate(activePath);
         }
         setViewMode(mode);
@@ -563,7 +794,7 @@ export default function App() {
       if (viewSwapTimer.current !== null) window.clearTimeout(viewSwapTimer.current);
       viewSwapTimer.current = window.setTimeout(swap, 120);
     },
-    [viewMode, columnsApi, nav.current, navigate],
+    [viewMode, navigate],
   );
 
   useEffect(
@@ -590,22 +821,170 @@ export default function App() {
   /* ---------------------------- context menu ------------------------------ */
 
   const openContextMenu = useCallback((entry: FileEntry, x: number, y: number) => {
-    setMenu({ x, y, entry });
+    // Pravý klik na položku, která už ve výběru je, výběr nezahazuje — jinak by
+    // ze "Smazat 5 položek" zbyla jedna. Aktivní se stane ta, na které je menu
+    // otevřené, aby operace pro jednu položku mířily tam, kam uživatel klikl.
+    setSelection((current) => (current.has(entry.path) ? current : new Set([entry.path])));
+    setActive(entry);
+    setMenu({ kind: "entry", x, y, entry });
   }, []);
+
+  /** Pravý klik do volné plochy panelu — menu složky, ve které uživatel stojí. */
+  const openBackgroundMenu = useCallback(
+    (event: React.MouseEvent) => {
+      // Tag view ani výsledky hledání nejsou složka, takže "Nová složka" ani
+      // "Vložit" by neměly kam mířit.
+      if (tagFilter !== null || search !== null || currentDir === null) return;
+      // V rozepsaném přejmenování má pravý klik nechat projít menu webview —
+      // jinak by přes input vyskočilo menu složky a uživatel se nedostal
+      // k vložení názvu ze schránky.
+      if (isTypingTarget(event.target)) return;
+
+      event.preventDefault();
+      setMenu({ kind: "background", x: event.clientX, y: event.clientY, dir: currentDir });
+    },
+    [tagFilter, search, currentDir],
+  );
+
+  const previewEntry = useCallback(
+    (entry: FileEntry) => {
+      // Náhled patří k jedné položce — výběr se proto scvrkne na ni.
+      selectEntry(entry);
+      setQuickLookOpen(true);
+    },
+    [selectEntry],
+  );
+
+  const revealInExplorer = useCallback(
+    (path: string) => {
+      void runOperation("Průzkumníka se nepodařilo otevřít", () => openInExplorer(path));
+    },
+    [runOperation],
+  );
+
+  const openTerminalAt = useCallback(
+    (path: string) => {
+      void runOperation("Terminál se nepodařilo otevřít", () => openTerminal(path));
+    },
+    [runOperation],
+  );
 
   const menuItems = useMemo((): MenuItem[] => {
     if (menu === null) return [];
-    const { entry } = menu;
-    const single = targetEntries.length <= 1;
 
-    return [
+    if (menu.kind === "background") {
+      const { dir } = menu;
+      const dirIsFavorite = favorites.some((item) => storage.samePath(item.path, dir));
+
+      return [
+        { type: "item", label: "Nová složka", shortcut: "Ctrl+Shift+N", onSelect: newFolder },
+        { type: "separator" },
+        {
+          type: "item",
+          label: "Vložit",
+          shortcut: "Ctrl+V",
+          disabled: clipboard === null,
+          onSelect: paste,
+        },
+        {
+          type: "item",
+          label: "Vybrat vše",
+          shortcut: "Ctrl+A",
+          // V column view výběr celé složky neexistuje, řádky jsou po jednom.
+          disabled: isColumnView || visibleEntries.length === 0,
+          onSelect: selectAll,
+        },
+        { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: refresh },
+        { type: "separator" },
+        {
+          type: "item",
+          label: "Otevřít v Průzkumníku",
+          onSelect: () => revealInExplorer(dir),
+        },
+        { type: "item", label: "Otevřít v Terminálu", onSelect: () => openTerminalAt(dir) },
+        // Bez tohohle šlo do sidebaru dostat jen složku, kterou uživatel vidí
+        // ve výpisu — tu, ve které zrovna stojí, nijak.
+        {
+          type: "item",
+          label: dirIsFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+          onSelect: () => {
+            if (dirIsFavorite) void storage.removeFavorite(dir);
+            else
+              void storage.addFavorite({
+                label: storage.lastSegment(dir),
+                path: dir,
+                icon: "Folder",
+                type: "folder",
+              });
+          },
+        },
+        { type: "separator" },
+        {
+          type: "item",
+          label: "Vlastnosti složky",
+          onSelect: () => setPropertiesFor(folderEntry(dir)),
+        },
+      ];
+    }
+
+    const { entry } = menu;
+    const count = targetEntries.length;
+    // Operace pro jednu položku nemají u víceřádkového výběru co dělat —
+    // přejmenovat pět souborů jedním inputem nejde a Vlastnosti by ukázaly jedny.
+    const single = count <= 1;
+    const isFavorite = favorites.some((item) => storage.samePath(item.path, entry.path));
+    const entryTags = tags[entry.path] ?? [];
+
+    // null = položka, která se v tomhle menu nehodí (náhled u složky, oblíbené
+    // u souboru). Vyfiltruje se až nakonec, aby se seznam dal psát lineárně.
+    const items: (MenuItem | null)[] = [
       { type: "item", label: "Otevřít", shortcut: "Enter", onSelect: () => open(entry) },
+      entry.is_dir
+        ? null
+        : {
+            type: "item",
+            label: "Náhled",
+            shortcut: "Space",
+            onSelect: () => previewEntry(entry),
+          },
+      entry.is_dir
+        ? null
+        : {
+            type: "item",
+            label: "Otevřít v aplikaci…",
+            disabled: !single,
+            onSelect: () => {
+              void runOperation("Dialog se nepodařilo otevřít", () => openWith(entry.path));
+            },
+          },
+      { type: "separator" },
       {
         type: "item",
         label: "Otevřít v Průzkumníku",
         disabled: !single,
+        onSelect: () => revealInExplorer(entry.path),
+      },
+      {
+        type: "item",
+        label: "Otevřít v Terminálu",
+        disabled: !single,
+        onSelect: () => openTerminalAt(entry.path),
+      },
+      // Do "Moje oblíbené" smí složka i soubor: klik na složku tam naviguje,
+      // klik na soubor ho otevře v systémové aplikaci.
+      {
+        type: "item",
+        label: isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+        disabled: !single,
         onSelect: () => {
-          void runOperation("Průzkumníka se nepodařilo otevřít", () => openInExplorer(entry.path));
+          if (isFavorite) void storage.removeFavorite(entry.path);
+          else
+            void storage.addFavorite({
+              label: entry.name,
+              path: entry.path,
+              icon: "Folder",
+              type: entry.is_dir ? "folder" : "file",
+            });
         },
       },
       { type: "separator" },
@@ -613,26 +992,29 @@ export default function App() {
         type: "item",
         label: "Přejmenovat",
         shortcut: "F2",
+        disabled: !single,
         onSelect: () => setRenamingPath(entry.path),
       },
-      { type: "item", label: "Duplikovat", shortcut: "Ctrl+D", onSelect: duplicateActive },
       {
         type: "item",
-        label: "Kopírovat cestu",
-        onSelect: () => {
-          writeText(entry.path).catch((err: unknown) =>
-            setNotice(`Cestu se nepodařilo zkopírovat — ${String(err)}`),
-          );
-        },
+        label: "Duplikovat",
+        shortcut: "Ctrl+D",
+        disabled: !single,
+        onSelect: duplicateActive,
       },
       { type: "separator" },
       {
         type: "item",
-        label: "Kopírovat",
+        label: single ? "Kopírovat" : `Kopírovat ${formatItemCount(count)}`,
         shortcut: "Ctrl+C",
         onSelect: () => copyToClipboard("copy"),
       },
-      { type: "item", label: "Vyjmout", shortcut: "Ctrl+X", onSelect: () => copyToClipboard("cut") },
+      {
+        type: "item",
+        label: single ? "Vyjmout" : `Vyjmout ${formatItemCount(count)}`,
+        shortcut: "Ctrl+X",
+        onSelect: () => copyToClipboard("cut"),
+      },
       {
         type: "item",
         label: "Vložit",
@@ -643,7 +1025,27 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: "Smazat",
+        label: single ? "Kopírovat cestu" : "Kopírovat cesty",
+        // U výběru se kopírují všechny cesty po řádcích — tak je vezme každý editor.
+        onSelect: () =>
+          copyText(
+            single ? entry.path : targetEntries.map((item) => item.path).join("\r\n"),
+            single ? "Cestu" : "Cesty",
+          ),
+      },
+      {
+        type: "item",
+        label: single ? "Kopírovat název" : "Kopírovat názvy",
+        onSelect: () =>
+          copyText(
+            single ? entry.name : targetEntries.map((item) => item.name).join("\r\n"),
+            single ? "Název" : "Názvy",
+          ),
+      },
+      { type: "separator" },
+      {
+        type: "item",
+        label: single ? "Smazat" : `Smazat ${formatItemCount(count)}`,
         shortcut: "Delete",
         danger: true,
         onSelect: deleteTargets,
@@ -652,32 +1054,58 @@ export default function App() {
       {
         type: "tags",
         label: "Tagy",
-        active: tags[entry.path] ?? [],
+        active: entryTags,
         onToggle: (color) => void storage.toggleTag(entry.path, color),
       },
+      entryTags.length === 0
+        ? null
+        : {
+            type: "item",
+            label: "Odebrat tagy",
+            onSelect: () => void storage.clearTags(entry.path),
+          },
       { type: "separator" },
-      { type: "item", label: "Vlastnosti", onSelect: () => setPropertiesFor(entry) },
+      {
+        type: "item",
+        label: "Vlastnosti",
+        disabled: !single,
+        onSelect: () => setPropertiesFor(entry),
+      },
     ];
+
+    return items.filter((item): item is MenuItem => item !== null);
   }, [
     menu,
     tags,
-    targetEntries.length,
+    favorites,
+    targetEntries,
     clipboard,
+    isColumnView,
+    visibleEntries.length,
     open,
+    previewEntry,
+    revealInExplorer,
+    openTerminalAt,
     runOperation,
     duplicateActive,
     copyToClipboard,
+    copyText,
     paste,
     deleteTargets,
+    newFolder,
+    refresh,
+    selectAll,
   ]);
 
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName =
     tagFilter !== null
       ? TAG_LABEL[tagFilter]
-      : crumbs.length > 0
-        ? crumbs[crumbs.length - 1].label
-        : "Finder";
+      : search !== null
+        ? "Výsledky hledání"
+        : crumbs.length > 0
+          ? crumbs[crumbs.length - 1].label
+          : "Finder";
 
   // Status bar i Quick Look musí počítat s tím, co je opravdu vidět —
   // v column view tedy se zaměřeným sloupcem, ne s obsahem nav.current.
@@ -691,16 +1119,24 @@ export default function App() {
   const previewEntries = isColumnView ? visibleColumnEntries : visibleEntries;
 
   const inTagView = tagFilter !== null;
-  const statusVisibleCount = inTagView
-    ? tagCount
-    : isColumnView
-      ? visibleColumnEntries.length
-      : visibleEntries.length;
-  const statusTotalCount = inTagView
-    ? tagCount
-    : isColumnView
-      ? columnEntries.length
-      : sortedEntries.length;
+  const inSearch = search !== null;
+
+  // Ve výsledcích hledání není "z kolika" — počet nálezů je zároveň celek,
+  // jinak by status bar hlásil zavádějící "N z M (filtr)".
+  const statusVisibleCount = inSearch
+    ? searchCount
+    : inTagView
+      ? tagCount
+      : isColumnView
+        ? visibleColumnEntries.length
+        : visibleEntries.length;
+  const statusTotalCount = inSearch
+    ? searchCount
+    : inTagView
+      ? tagCount
+      : isColumnView
+        ? columnEntries.length
+        : sortedEntries.length;
 
   function renderContent() {
     if (tagFilter !== null) {
@@ -711,6 +1147,19 @@ export default function App() {
           onReveal={reveal}
           onOpen={openFile}
           onCountChange={setTagCount}
+        />
+      );
+    }
+
+    if (search !== null) {
+      return (
+        <SearchView
+          root={search.root}
+          query={search.query}
+          windowFocused={windowFocused}
+          onReveal={reveal}
+          onOpen={openFile}
+          onCountChange={setSearchCount}
         />
       );
     }
@@ -734,7 +1183,12 @@ export default function App() {
       );
     }
 
-    if (loading) return <Placeholder>Načítám…</Placeholder>;
+    // Placeholder patří jen k navigaci do *jiné* složky. Při přenačtení té
+    // stejné (po přejmenování, smazání, vložení, F5) zůstanou řádky namontované
+    // — jinak se pokaždé resetoval scroll a uživatel ztratil místo ve složce.
+    // Podmínka zároveň brání tomu, aby se během navigace na okamžik ukázal
+    // obsah předchozí složky pod už novým nadpisem.
+    if (loadedPath !== nav.current) return <Placeholder>Načítám…</Placeholder>;
     if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
     if (visibleEntries.length === 0) {
       return (
@@ -802,17 +1256,29 @@ export default function App() {
             onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
             query={query}
             onQueryChange={setQuery}
+            onSearchSubmit={submitSearch}
             searchRef={searchRef}
             onRefresh={refresh}
             onGoToParent={goToParent}
             canGoToParent={currentDir !== null && parentPath(currentDir) !== null}
+            onShowAbout={() => setAboutOpen(true)}
           />
+
+          {/* Přenačtení už zobrazené složky obsah nevyhazuje (viz renderContent),
+              takže by jinak nebylo nijak poznat, že se něco děje. */}
+          {loading && loadedPath === nav.current && (
+            <div className="fw-busy-line" aria-hidden />
+          )}
 
           {/* key vynutí remount při změně view, čímž se přehraje fw-view-swap.
               Během dohasínání key ještě drží starou hodnotu. */}
+          {/* Menu volné plochy visí až tady, ne ve views — prázdno pod řádky
+              patří tomuhle scroll kontejneru, takže by ho mřížka IconView
+              nezachytila. Řádky si událost zastaví u sebe. */}
           <div
             key={viewMode}
             data-view={viewMode}
+            onContextMenu={openBackgroundMenu}
             className={`min-h-0 flex-1 overflow-auto ${
               viewSwapping ? "fw-view-out" : "fw-view-swap"
             }`}
@@ -870,6 +1336,10 @@ export default function App() {
 
       {propertiesFor && (
         <PropertiesDialog entry={propertiesFor} onClose={() => setPropertiesFor(null)} />
+      )}
+
+      {aboutOpen && (
+        <AboutDialog onClose={() => setAboutOpen(false)} />
       )}
 
       {quickLookOpen && activeEntry && !activeEntry.is_dir && (

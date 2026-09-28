@@ -84,7 +84,9 @@ export function IconView({
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
               event.preventDefault();
-              onSelect(entry);
+              // Nebublat na kontejner — ten má menu volné plochy. Výběr řeší
+              // App: pravý klik do už vybrané skupiny ji nesmí shodit na jednu.
+              event.stopPropagation();
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className="fw-card flex h-[118px] w-full flex-col items-center gap-1 outline-none"
