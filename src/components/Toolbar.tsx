@@ -81,6 +81,8 @@ type ToolbarProps = {
   onQueryChange: (query: string) => void;
   /** Enter v poli — filtr aktuální složky se povýší na rekurzivní hledání. */
   onSearchSubmit: () => void;
+  /** ↓ v poli hledání — přesun do výsledků. */
+  onSearchArrowDown: () => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
   onRefresh: () => void;
   onGoToParent: () => void;
@@ -114,6 +116,7 @@ export function Toolbar({
   query,
   onQueryChange,
   onSearchSubmit,
+  onSearchArrowDown,
   searchRef,
   onRefresh,
   onGoToParent,
@@ -256,6 +259,10 @@ export function Toolbar({
             if (event.key === "Enter") {
               event.preventDefault();
               onSearchSubmit();
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              onSearchArrowDown();
             }
           }}
           placeholder="Hledat"

@@ -138,10 +138,13 @@ function ActionRow({
   item,
   onDone,
   onHover,
+  highlighted = false,
 }: {
   item: ActionItem;
   onDone: () => void;
   onHover?: () => void;
+  /** Kurzor klávesnice stojí na téhle položce. */
+  highlighted?: boolean;
 }) {
   return (
     <button
@@ -154,7 +157,7 @@ function ActionRow({
         item.onSelect();
         onDone();
       }}
-      className={`${ROW_CLASS} hover:bg-hover disabled:pointer-events-none disabled:opacity-40`}
+      className={`${ROW_CLASS} ${highlighted ? "bg-hover" : ""} hover:bg-hover disabled:pointer-events-none disabled:opacity-40`}
       style={{ color: item.danger ? "#ff3b30" : "var(--text-primary)" }}
     >
       {item.checked !== undefined && (
@@ -186,11 +189,21 @@ type SubmenuRowProps = {
   items: SubmenuEntry[];
   flip: boolean;
   open: boolean;
+  highlighted?: boolean;
   onHover: () => void;
   onDone: () => void;
 };
 
-function SubmenuRow({ label, disabled, items, flip, open, onHover, onDone }: SubmenuRowProps) {
+function SubmenuRow({
+  label,
+  disabled,
+  items,
+  flip,
+  open,
+  highlighted = false,
+  onHover,
+  onDone,
+}: SubmenuRowProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const [shiftUp, setShiftUp] = useState(0);
 
@@ -209,7 +222,7 @@ function SubmenuRow({ label, disabled, items, flip, open, onHover, onDone }: Sub
         className={`${ROW_CLASS} ${disabled ? "opacity-40" : ""}`}
         style={{
           color: "var(--text-primary)",
-          background: open ? "var(--hover)" : "transparent",
+          background: open || highlighted ? "var(--hover)" : "transparent",
         }}
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -251,6 +264,15 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const [flip, setFlip] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
+  /** Kurzor klávesnice (index v `items`), -1 = nikde. */
+  const [cursor, setCursor] = useState(-1);
+
+  // Klávesový posluchač je jeden po celou dobu života menu — položky
+  // a kurzor si čte z refů, ať se kvůli každému posunu nepřevěšuje.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const cursorRef = useRef(cursor);
+  cursorRef.current = cursor;
 
   // Menu si odchod dohraje samo a teprve pak řekne rodiči, ať ho odmountuje.
   // Volající tak dál píše jen {menu && <ContextMenu onClose={...} />}.
@@ -278,6 +300,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     closeTimer.current = null;
     setClosing(false);
     setOpenSubmenu(null);
+    setCursor(-1);
   }, [x, y, items]);
 
   // Po vykreslení se menu posune dovnitř okna, kdyby přetékalo.
@@ -298,12 +321,63 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       if (!menuRef.current?.contains(event.target as Node)) requestClose();
     }
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
+      const list = itemsRef.current;
+      // Na co se dá kurzorem stoupnout: akce, podmenu, paleta tagů.
+      const reachable = list
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) =>
+          item.type === "tags" || ((item.type === "item" || item.type === "submenu") && !item.disabled),
+        )
+        .map(({ index }) => index);
+      const position = reachable.indexOf(cursorRef.current);
+
+      let handled = true;
+      switch (event.key) {
+        case "Escape":
+          // Escape patří menu, ne tomu, co je pod ním — jinak by s menu
+          // zavřel i Quick Look nebo zrušil rozepsané přejmenování.
+          requestClose();
+          break;
+        case "ArrowDown":
+          setCursor(reachable[position < 0 ? 0 : (position + 1) % reachable.length] ?? -1);
+          setOpenSubmenu(null);
+          break;
+        case "ArrowUp":
+          setCursor(
+            reachable[position < 0 ? reachable.length - 1 : (position - 1 + reachable.length) % reachable.length] ?? -1,
+          );
+          setOpenSubmenu(null);
+          break;
+        case "Home":
+          setCursor(reachable[0] ?? -1);
+          break;
+        case "End":
+          setCursor(reachable[reachable.length - 1] ?? -1);
+          break;
+        case "Enter":
+        case "ArrowRight": {
+          const item = list[cursorRef.current];
+          if (!item) break;
+          if (item.type === "item" && event.key === "Enter") {
+            item.onSelect();
+            requestClose();
+          } else if (item.type === "submenu" || item.type === "tags") {
+            setOpenSubmenu(cursorRef.current);
+          }
+          break;
+        }
+        case "ArrowLeft":
+          setOpenSubmenu(null);
+          break;
+        default:
+          handled = false;
+      }
+
+      // Klávesy menu nesmí propadnout dolů (šipky by posouvaly výběr ve
+      // výpisu, Enter by otevřel soubor).
+      if (handled) {
         event.preventDefault();
-        // Escape patří menu, ne tomu, co je pod ním — jinak by s menu zavřel
-        // i Quick Look nebo zrušil rozepsané přejmenování.
         event.stopPropagation();
-        requestClose();
       }
     }
     function onScroll(event: Event) {
@@ -372,7 +446,10 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
               onToggle={item.onToggle}
               flip={flip}
               open={openSubmenu === index}
-              onHover={() => setOpenSubmenu(index)}
+              onHover={() => {
+                setOpenSubmenu(index);
+                setCursor(index);
+              }}
             />
           );
         }
@@ -386,7 +463,11 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
               items={item.items}
               flip={flip}
               open={openSubmenu === index}
-              onHover={() => setOpenSubmenu(index)}
+              highlighted={cursor === index}
+              onHover={() => {
+                setOpenSubmenu(index);
+                setCursor(index);
+              }}
               onDone={requestClose}
             />
           );
@@ -397,8 +478,12 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             key={item.label}
             item={item}
             onDone={requestClose}
+            highlighted={cursor === index}
             // Přejezd na obyčejnou položku zavře rozbalené podmenu.
-            onHover={() => setOpenSubmenu(null)}
+            onHover={() => {
+              setOpenSubmenu(null);
+              setCursor(index);
+            }}
           />
         );
       })}

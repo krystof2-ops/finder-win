@@ -354,6 +354,9 @@ export function ColumnView({
       .visibleEntries(focusedIndex)
       .find((entry) => entry.path === focusedColumn?.selectedPath) ?? null;
 
+  // Type-ahead v zaměřeném sloupci — stejně jako v Icon / List View.
+  const typeAhead = useRef({ text: "", at: 0 });
+
   /** Dvojklik i Enter: složka se otevře do dalšího sloupce, soubor v systému. */
   function activate(columnIndex: number, entry: FileEntry) {
     if (entry.is_dir) openInto(columnIndex, entry);
@@ -400,6 +403,23 @@ export function ColumnView({
         event.preventDefault();
         if (focusedEntry) activate(focusedIndex, focusedEntry);
         break;
+      default: {
+        // Mezerník je Quick Look, ostatní tisknutelné znaky skáčou na položku.
+        if (event.key.length !== 1 || event.key === " ") break;
+        const now = Date.now();
+        const state = typeAhead.current;
+        state.text = now - state.at > 1000 ? event.key : state.text + event.key;
+        state.at = now;
+
+        const prefix = state.text.toLocaleLowerCase("cs");
+        const found = api
+          .visibleEntries(focusedIndex)
+          .find((entry) => entry.name.toLocaleLowerCase("cs").startsWith(prefix));
+        if (found) {
+          event.preventDefault();
+          select(focusedIndex, found);
+        }
+      }
     }
   }
 

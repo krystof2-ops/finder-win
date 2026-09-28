@@ -10,6 +10,8 @@ import type { FileEntry, TagColor } from "../types";
 type TagViewProps = {
   color: TagColor;
   windowFocused: boolean;
+  selectedPath: string | null;
+  onSelectionChange: (entry: FileEntry | null) => void;
   onOpen: (entry: FileEntry) => void;
   /** Pravý klik — stejné menu jako u běžné položky. */
   onContextMenu: (entry: FileEntry, x: number, y: number) => void;
@@ -23,6 +25,8 @@ type TagViewProps = {
 export function TagView({
   color,
   windowFocused,
+  selectedPath,
+  onSelectionChange,
   onOpen,
   onContextMenu,
   refreshToken,
@@ -90,6 +94,8 @@ export function TagView({
       error={null}
       emptyMessage={`Nic není označené barvou ${TAG_LABEL[color].toLowerCase()}.`}
       windowFocused={windowFocused}
+      selectedPath={selectedPath}
+      onSelectionChange={onSelectionChange}
       onOpen={onOpen}
       onContextMenu={onContextMenu}
       onCountChange={onCountChange}

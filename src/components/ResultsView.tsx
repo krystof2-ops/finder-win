@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
@@ -23,6 +23,9 @@ type ResultsViewProps = {
   /** Patička pod výsledky ("Zobrazeno prvních 500 výsledků."). */
   footer?: React.ReactNode;
   windowFocused: boolean;
+  /** Výběr drží App — potřebuje ho pro Ctrl+C a kontextové menu. */
+  selectedPath: string | null;
+  onSelectionChange: (entry: FileEntry | null) => void;
   /** Dvojklik — složka se otevře, soubor spustí výchozí aplikací. */
   onOpen: (entry: FileEntry) => void;
   /** Pravý klik — stejné menu jako u běžné položky (včetně Zobrazit ve složce). */
@@ -45,12 +48,14 @@ export function ResultsView({
   root,
   footer,
   windowFocused,
+  selectedPath,
+  onSelectionChange,
   onOpen,
   onContextMenu,
   onCountChange,
 }: ResultsViewProps) {
   const { tags } = useStorage();
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = selectedPath;
 
   // Stejné řazení jako hlavní výpis — složky první, pak přirozeně podle názvu.
   const sorted = useMemo(() => sortEntries(entries, "name", "asc"), [entries]);
@@ -85,8 +90,39 @@ export function ResultsView({
 
   const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
 
+  /** ↑↓ Home End: posun výběru s fokusem, řádek se vždy doscrolluje do obrazu. */
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
+
+    const current = sorted.findIndex((entry) => entry.path === selected);
+    let index: number;
+    switch (event.key) {
+      case "ArrowDown":
+        index = current < 0 ? 0 : current + 1;
+        break;
+      case "ArrowUp":
+        index = current < 0 ? sorted.length - 1 : current - 1;
+        break;
+      case "Home":
+        index = 0;
+        break;
+      case "End":
+        index = sorted.length - 1;
+        break;
+      default:
+        return;
+    }
+
+    event.preventDefault();
+    const next = sorted[Math.min(Math.max(index, 0), sorted.length - 1)];
+    onSelectionChange(next);
+    const row = event.currentTarget.querySelector<HTMLElement>(`[data-path="${CSS.escape(next.path)}"]`);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: "nearest" });
+  }
+
   return (
-    <div className="min-w-0" role="listbox" aria-label="Výsledky">
+    <div className="min-w-0" role="listbox" aria-label="Výsledky" onKeyDown={handleKeyDown}>
       <div
         className="surface sticky top-0 z-10 grid h-6 items-center gap-3 border-b border-line bg-toolbar px-3 text-[11px] font-medium text-secondary"
         style={{ gridTemplateColumns: GRID_TEMPLATE, backdropFilter: "blur(20px)" }}
@@ -110,7 +146,9 @@ export function ResultsView({
             tabIndex={0}
             data-path={entry.path}
             data-tooltip={entry.path}
-            onClick={() => setSelected(entry.path)}
+            onClick={() => onSelectionChange(entry)}
+            // Fokus z klávesnice (Tab, šipka z pole hledání) vybírá taky.
+            onFocus={() => onSelectionChange(entry)}
             onDoubleClick={() => onOpen(entry)}
             onKeyDown={(event) => {
               if (event.key === "Enter") onOpen(entry);
@@ -118,7 +156,7 @@ export function ResultsView({
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              setSelected(entry.path);
+              onSelectionChange(entry);
               onContextMenu(entry, event.clientX, event.clientY);
             }}
             className={`fw-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary transition-colors duration-100 ${

@@ -113,6 +113,34 @@ function folderEntry(path: string): FileEntry {
 }
 
 
+/**
+ * Rozměry výpisu pro klávesnici, změřené z DOM (ne z konstant — mřížka Icon
+ * View má auto-fill, počet sloupců záleží na šířce okna). `columns` = kolik
+ * položek je v jednom řádku, `rowsPerPage` = kolik řádků se vejde na obrazovku.
+ */
+function listMetrics(viewMode: ViewMode): { columns: number; rowsPerPage: number } {
+  const container = document.querySelector<HTMLElement>(`[data-view="${viewMode}"]`);
+  const items = container?.querySelectorAll<HTMLElement>("[data-path]");
+  if (!container || !items || items.length === 0) return { columns: 1, rowsPerPage: 1 };
+
+  const firstTop = items[0].offsetTop;
+  let columns = 0;
+  for (const item of items) {
+    if (item.offsetTop !== firstTop) break;
+    columns += 1;
+  }
+
+  const nextRow = items[columns];
+  const pitch = nextRow ? nextRow.offsetTop - firstTop : items[0].offsetHeight;
+  return {
+    columns: Math.max(1, columns),
+    rowsPerPage: Math.max(1, Math.floor(container.clientHeight / Math.max(1, pitch)) - 1),
+  };
+}
+
+/** Psaní písmen skáče na položku; po téhle pauze začíná nové slovo. */
+const TYPE_AHEAD_RESET_MS = 1000;
+
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
@@ -208,6 +236,8 @@ export default function App() {
   /** Náhled položky z výsledků hledání nebo z tag view — ty nejsou ve výpisu
    *  složky, takže běžný Quick Look nad `activeEntry` je neuvidí. */
   const [overlayPreview, setOverlayPreview] = useState<FileEntry | null>(null);
+  /** Vybraná položka ve výsledcích hledání / tag view (Ctrl+C, Enter). */
+  const [overlaySelected, setOverlaySelected] = useState<FileEntry | null>(null);
 
   const requestId = useRef(0);
   /** Roste s každým dokončeným výpisem. V refu, aby si ho requestSelect mohl
@@ -225,6 +255,7 @@ export default function App() {
     // Čekající výběr patří složce, ze které se odchází. Kdyby zůstal, vystřelil
     // by při příštím refreshi — třeba nečekaně otevřeným přejmenováním.
     setPendingSelect(null);
+    setOverlaySelected(null);
     setTagFilter(null);
     // Odchod z výsledků bere s sebou i dotaz. Bez toho by cílová složka zůstala
     // zafiltrovaná textem, kterým uživatel jen hledal, a chyběla by v ní půlka
@@ -497,6 +528,7 @@ export default function App() {
     if (needle === "" || currentDir === null) return;
 
     setTagFilter(null);
+    setOverlaySelected(null);
     setSearch({ root: currentDir, query: needle });
   }, [query, currentDir]);
 
@@ -560,21 +592,13 @@ export default function App() {
   );
 
   /**
-   * Posun výběru klávesnicí o `delta` položek (Icon / List View). S Shiftem
-   * rozšiřuje od kotvy. Nová aktivní položka se vždy doscrolluje do obrazu.
+   * Výběr položky na indexu `index` (Icon / List View). S Shiftem rozšiřuje
+   * od kotvy. Nová aktivní položka se vždy doscrolluje do obrazu.
    */
-  const moveSelection = useCallback(
-    (delta: number, extend: boolean) => {
+  const selectIndex = useCallback(
+    (index: number, extend: boolean) => {
       if (visibleEntries.length === 0) return;
-
-      const current = active ? visibleEntries.findIndex((entry) => entry.path === active.path) : -1;
-      const index =
-        current < 0
-          ? delta > 0
-            ? 0
-            : visibleEntries.length - 1
-          : Math.min(Math.max(current + delta, 0), visibleEntries.length - 1);
-      const next = visibleEntries[index];
+      const next = visibleEntries[Math.min(Math.max(index, 0), visibleEntries.length - 1)];
 
       if (extend) {
         if (anchorRef.current === null && active) anchorRef.current = active.path;
@@ -592,6 +616,29 @@ export default function App() {
     },
     [visibleEntries, active, rangeTo, selectEntry],
   );
+
+  /** Posun o `delta` položek od aktivní; bez aktivní začíná od kraje. */
+  const moveSelection = useCallback(
+    (delta: number, extend: boolean) => {
+      const current = active ? visibleEntries.findIndex((entry) => entry.path === active.path) : -1;
+      if (current < 0) selectIndex(delta > 0 ? 0 : visibleEntries.length - 1, extend);
+      else selectIndex(current + delta, extend);
+    },
+    [active, visibleEntries, selectIndex],
+  );
+
+  // Type-ahead: písmena psaná rychle za sebou tvoří slovo a výběr skočí na
+  // první položku, která jím začíná.
+  const typeAhead = useRef({ text: "", at: 0 });
+  const findByPrefix = useCallback((key: string, entries: FileEntry[]): FileEntry | null => {
+    const now = Date.now();
+    const state = typeAhead.current;
+    state.text = now - state.at > TYPE_AHEAD_RESET_MS ? key : state.text + key;
+    state.at = now;
+
+    const prefix = state.text.toLocaleLowerCase("cs");
+    return entries.find((entry) => entry.name.toLocaleLowerCase("cs").startsWith(prefix)) ?? null;
+  }, []);
 
   /**
    * Položky, na které míří operace — výběr v Icon / List View, v column view
@@ -1114,12 +1161,52 @@ export default function App() {
         return;
       }
 
-      // Tag view ani výsledky hledání nemají výběr v hlavním panelu — zkratky
-      // by mířily na položky podkladové složky, které uživatel nevidí.
-      // Nejnebezpečnější je Delete.
-      if (tagFilter !== null || search !== null) return;
-
       const ctrl = event.ctrlKey || event.metaKey;
+
+      // Historie a rodič fungují všude — i ve výsledcích hledání a v tag view
+      // (odchod z nich je zavře).
+      if (event.altKey && !ctrl) {
+        const action =
+          event.key === "ArrowLeft"
+            ? goBack
+            : event.key === "ArrowRight"
+              ? goForward
+              : event.key === "ArrowUp"
+                ? goToParent
+                : null;
+        if (action) {
+          event.preventDefault();
+          action();
+          return;
+        }
+      }
+      if (event.key === "Backspace" && !ctrl && !event.altKey) {
+        event.preventDefault();
+        goBack();
+        return;
+      }
+
+      // Tag view a výsledky hledání nemají výběr v hlavním panelu — zkratky
+      // by mířily na položky podkladové složky, které uživatel nevidí
+      // (nejnebezpečnější je Delete). Projdou jen ty bezpečné.
+      if (tagFilter !== null || search !== null) {
+        const key = event.key.toLowerCase();
+        if (ctrl && key === "f") {
+          event.preventDefault();
+          searchRef.current?.focus();
+          searchRef.current?.select();
+        } else if (ctrl && key === "l") {
+          event.preventDefault();
+          setPathEditing(true);
+        } else if (event.key === "F5" || (ctrl && key === "r")) {
+          event.preventDefault();
+          refresh();
+        } else if (ctrl && key === "c" && overlaySelected) {
+          event.preventDefault();
+          setClipboard({ paths: [overlaySelected.path], mode: "copy" });
+        }
+        return;
+      }
 
       // Ctrl+Shift+. (jako Cmd+Shift+. ve Finderu) — podle fyzické klávesy,
       // tečka je na české klávese jinde než na anglické.
@@ -1202,18 +1289,46 @@ export default function App() {
             setQuickLookOpen(true);
           }
           break;
-        case "ArrowDown":
+        // Column view si šipky, Home/End a psaní obsluhuje sám na svém
+        // kontejneru — tady jen Icon a List View.
         case "ArrowRight":
-          // Column view si šipky obsluhuje sám na svém kontejneru.
-          if (isColumnView) break;
-          event.preventDefault();
-          moveSelection(1, event.shiftKey);
-          break;
-        case "ArrowUp":
         case "ArrowLeft":
+          // V seznamu vodorovný pohyb nemá kam jít.
+          if (viewMode !== "icon") break;
+          event.preventDefault();
+          moveSelection(event.key === "ArrowRight" ? 1 : -1, event.shiftKey);
+          break;
+        case "ArrowDown":
+        case "ArrowUp": {
           if (isColumnView) break;
           event.preventDefault();
-          moveSelection(-1, event.shiftKey);
+          // V mřížce o celý řádek — počet sloupců podle skutečné šířky okna.
+          const step = viewMode === "icon" ? listMetrics("icon").columns : 1;
+          moveSelection(event.key === "ArrowDown" ? step : -step, event.shiftKey);
+          break;
+        }
+        case "Home":
+        case "End":
+          if (isColumnView) break;
+          event.preventDefault();
+          selectIndex(event.key === "Home" ? 0 : visibleEntries.length - 1, event.shiftKey);
+          break;
+        case "PageDown":
+        case "PageUp": {
+          if (isColumnView) break;
+          event.preventDefault();
+          const { columns, rowsPerPage } = listMetrics(viewMode);
+          const page = columns * rowsPerPage;
+          moveSelection(event.key === "PageDown" ? page : -page, event.shiftKey);
+          break;
+        }
+        default:
+          // Type-ahead: písmena a číslice skáčou na položku (mezerník je Quick Look).
+          if (isColumnView || ctrl || event.altKey || event.key.length !== 1 || event.key === " ") break;
+          {
+            const found = findByPrefix(event.key, visibleEntries);
+            if (found) selectIndex(visibleEntries.indexOf(found), false);
+          }
           break;
         case "Escape":
           // Zrušit výběr jako ve Finderu i Průzkumníku. Column view si Escape
@@ -1249,6 +1364,13 @@ export default function App() {
     deleteTargets,
     newFolder,
     moveSelection,
+    selectIndex,
+    findByPrefix,
+    visibleEntries,
+    viewMode,
+    goBack,
+    goForward,
+    overlaySelected,
     toggleHidden,
   ]);
 
@@ -1395,6 +1517,7 @@ export default function App() {
     (color: TagColor) => {
       if (search !== null) setQuery("");
       setSearch(null);
+      setOverlaySelected(null);
       setTagFilter(color);
     },
     [search],
@@ -1948,6 +2071,8 @@ export default function App() {
         <TagView
           color={tagFilter}
           windowFocused={windowFocused}
+          selectedPath={overlaySelected?.path ?? null}
+          onSelectionChange={setOverlaySelected}
           onOpen={openFromResults}
           onContextMenu={openOverlayMenu}
           refreshToken={refreshToken}
@@ -1962,6 +2087,8 @@ export default function App() {
           root={search.root}
           query={search.query}
           windowFocused={windowFocused}
+          selectedPath={overlaySelected?.path ?? null}
+          onSelectionChange={setOverlaySelected}
           onOpen={openFromResults}
           onContextMenu={openOverlayMenu}
           refreshToken={refreshToken}
@@ -2072,6 +2199,10 @@ export default function App() {
             query={query}
             onQueryChange={setQuery}
             onSearchSubmit={submitSearch}
+            onSearchArrowDown={() =>
+              // Z pole hledání šipkou dolů rovnou do výsledků.
+              document.querySelector<HTMLElement>('[role="listbox"] [role="option"]')?.focus()
+            }
             searchRef={searchRef}
             onRefresh={refresh}
             onGoToParent={goToParent}

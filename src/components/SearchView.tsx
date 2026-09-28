@@ -15,6 +15,8 @@ type SearchViewProps = {
   root: string;
   query: string;
   windowFocused: boolean;
+  selectedPath: string | null;
+  onSelectionChange: (entry: FileEntry | null) => void;
   onOpen: (entry: FileEntry) => void;
   /** Pravý klik — stejné menu jako u běžné položky. */
   onContextMenu: (entry: FileEntry, x: number, y: number) => void;
@@ -30,6 +32,8 @@ export function SearchView({
   root,
   query,
   windowFocused,
+  selectedPath,
+  onSelectionChange,
   onOpen,
   onContextMenu,
   refreshToken,
@@ -95,6 +99,8 @@ export function SearchView({
         )
       }
       windowFocused={windowFocused}
+      selectedPath={selectedPath}
+      onSelectionChange={onSelectionChange}
       onOpen={onOpen}
       onContextMenu={onContextMenu}
       onCountChange={onCountChange}
