@@ -57,6 +57,7 @@ import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
 import { setSpecialFolders } from "./lib/specialFolders";
 import { useStorage } from "./lib/useStorage";
+import type { ViewHandle } from "./lib/viewHandle";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
 import type {
@@ -123,30 +124,12 @@ function folderEntry(path: string): FileEntry {
 }
 
 
-/**
- * Rozměry výpisu pro klávesnici, změřené z DOM (ne z konstant — mřížka Icon
- * View má auto-fill, počet sloupců záleží na šířce okna). `columns` = kolik
- * položek je v jednom řádku, `rowsPerPage` = kolik řádků se vejde na obrazovku.
- */
-function listMetrics(viewMode: ViewMode): { columns: number; rowsPerPage: number } {
-  const container = document.querySelector<HTMLElement>(`[data-view="${viewMode}"]`);
-  const items = container?.querySelectorAll<HTMLElement>("[data-path]");
-  if (!container || !items || items.length === 0) return { columns: 1, rowsPerPage: 1 };
+/** Odpověď `list_dir_stream` a jeho dávky (`dir-chunk`). */
+type DirListing = { entries: FileEntry[]; more: boolean };
+type DirChunk = { token: number; entries: FileEntry[]; done: boolean };
 
-  const firstTop = items[0].offsetTop;
-  let columns = 0;
-  for (const item of items) {
-    if (item.offsetTop !== firstTop) break;
-    columns += 1;
-  }
-
-  const nextRow = items[columns];
-  const pitch = nextRow ? nextRow.offsetTop - firstTop : items[0].offsetHeight;
-  return {
-    columns: Math.max(1, columns),
-    rowsPerPage: Math.max(1, Math.floor(container.clientHeight / Math.max(1, pitch)) - 1),
-  };
-}
+/** Zpoždění filtru výpisu za psaním do pole hledání. */
+const FILTER_DEBOUNCE_MS = 100;
 
 /** Psaní písmen skáče na položku; po téhle pauze začíná nové slovo. */
 const TYPE_AHEAD_RESET_MS = 1000;
@@ -173,6 +156,8 @@ export default function App() {
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  /** Velká složka se dočítá po dávkách — kolik položek už dorazilo, jinak null. */
+  const [streamingCount, setStreamingCount] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** `sticky` = chyba, visí do kliknutí / Escape. Informace mizí sama — ale
    *  "nemáte oprávnění" by se za dvě sekundy nedalo dočíst. */
@@ -256,6 +241,17 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [query, setQuery] = useState("");
+  // Filtr výpisu jede se zpožděním 100 ms — v tisícové složce by každý úhoz
+  // přefiltroval a překreslil všechno. Smazání pole platí hned.
+  const [filterQuery, setFilterQuery] = useState("");
+  useEffect(() => {
+    if (query.trim() === "") {
+      setFilterQuery("");
+      return;
+    }
+    const timer = window.setTimeout(() => setFilterQuery(query), FILTER_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [query]);
   const [quickLookOpen, setQuickLookOpen] = useState(false);
   /** Přepínač skrytých souborů. null = ještě se neví (čeká se na settings.json
    *  a případně na nastavení Průzkumníku) — výpis se do té doby nenačítá. */
@@ -270,6 +266,8 @@ export default function App() {
   /** Roste s každým dokončeným výpisem. V refu, aby si ho requestSelect mohl
    *  přečíst bez závislosti na renderu. */
   const loadSeq = useRef(0);
+  /** Složka, jejíž výpis je právě v `entries` — pozná přenačtení od navigace. */
+  const loadedPathRef = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const viewSwapTimer = useRef<number | null>(null);
 
@@ -314,7 +312,7 @@ export default function App() {
     viewMode === "column",
     { key: sortKey, direction: sortDirection },
     showHidden ?? false,
-    query,
+    filterQuery,
     setNotice,
   );
 
@@ -483,14 +481,62 @@ export default function App() {
     setLoading(true);
     setError(null);
 
-    invoke<FileEntry[]>("list_dir", { path, showHidden })
-      .then((result) => {
-        if (requestId.current !== id) return;
-        setEntries(result);
+    // Velká složka chodí po dávkách: prvních 300 v odpovědi, zbytek událostmi
+    // dir-chunk. Při navigaci se ukazuje hned, co dorazilo; při přenačtení té
+    // samé složky (hlídač, operace) až celek — jinak by výpis na okamžik
+    // spadl na 300 položek a zase narostl.
+    const refresh = loadedPathRef.current !== null && storage.samePath(loadedPathRef.current, path);
+    const collected: FileEntry[] = [];
+    let first = true;
+    let done = false;
+    let frame = 0;
+
+    const publish = () => {
+      frame = 0;
+      if (requestId.current !== id) return;
+      setEntries(collected.slice());
+      setStreamingCount(done ? null : collected.length);
+      if (first || done) {
+        first = false;
+        loadedPathRef.current = path;
         setLoaded({ path, seq: (loadSeq.current += 1) });
+      }
+    };
+    const received = (batch: FileEntry[], last: boolean) => {
+      if (requestId.current !== id) return;
+      collected.push(...batch);
+      done = last;
+      if (refresh && !done) return;
+      // První obsah hned; další dávky přicházejí v rychlém sledu —
+      // překreslí se jednou za snímek.
+      if (done || first) {
+        cancelAnimationFrame(frame);
+        publish();
+      } else if (frame === 0) {
+        frame = requestAnimationFrame(publish);
+      }
+    };
+
+    // Dávky můžou předběhnout odpověď — posluchač se musí registrovat první.
+    const pendingChunks: DirChunk[] = [];
+    let listed = false;
+    const unlisten = listen<DirChunk>("dir-chunk", ({ payload }) => {
+      if (payload.token !== id) return;
+      if (!listed) pendingChunks.push(payload);
+      else received(payload.entries, payload.done);
+    });
+
+    unlisten
+      .then(() => invoke<DirListing>("list_dir_stream", { path, showHidden, token: id }))
+      .then((result) => {
+        listed = true;
+        received(result.entries, !result.more);
+        for (const chunk of pendingChunks) received(chunk.entries, chunk.done);
       })
       .catch((err: unknown) => {
         if (requestId.current !== id) return;
+        done = true;
+        setStreamingCount(null);
         setEntries([]);
         // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
         setLoaded({ path, seq: (loadSeq.current += 1) });
@@ -499,6 +545,12 @@ export default function App() {
       .finally(() => {
         if (requestId.current === id) setLoading(false);
       });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      void unlisten.then((stop) => stop());
+      if (!done) setStreamingCount(null);
+    };
   }, [nav.current, refreshToken, showHidden, viewMode]);
 
   const sortedEntries = useMemo(
@@ -507,10 +559,10 @@ export default function App() {
   );
 
   const visibleEntries = useMemo(() => {
-    const needle = query.trim().toLowerCase();
+    const needle = filterQuery.trim().toLowerCase();
     if (!needle) return sortedEntries;
     return sortedEntries.filter((entry) => entry.name.toLowerCase().includes(needle));
-  }, [sortedEntries, query]);
+  }, [sortedEntries, filterQuery]);
 
   // Po každé změně výpisu i filtru se výběr musí sesouhlasit s tím, co je
   // vidět. Po smazání nebo přejmenování by `active` jinak dál ukazoval na
@@ -622,6 +674,33 @@ export default function App() {
    * Výběr položky na indexu `index` (Icon / List View). S Shiftem rozšiřuje
    * od kotvy. Nová aktivní položka se vždy doscrolluje do obrazu.
    */
+  // Posouvaný kontejner výpisu a ovládání virtualizovaného view. Kontejner se
+  // s view mode přemountuje (key); stav navíc vynutí překreslení, aby si
+  // virtualizace nový prvek převzala — v době jejího layout efektu ještě
+  // ref rodiče připojený není.
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [, setScrollElement] = useState<HTMLDivElement | null>(null);
+  const attachScroll = useCallback((element: HTMLDivElement | null) => {
+    scrollRef.current = element;
+    setScrollElement(element);
+  }, []);
+  const viewHandle = useRef<ViewHandle | null>(null);
+
+  /** Doscrolluje na položku i když zrovna není vykreslená. Column view
+   *  virtualizaci nevystavuje — tam si výběr hlídá každý sloupec sám. */
+  const scrollToPath = useCallback((path: string, behavior: "auto" | "smooth" = "auto") => {
+    if (viewHandle.current) {
+      viewHandle.current.scrollToPath(path, behavior);
+      return;
+    }
+    requestAnimationFrame(() => {
+      document.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
+    });
+  }, []);
+
+  /** Kolik položek je v řádku a kolik řádků na obrazovce (pro šipky, PgUp/PgDn). */
+  const viewMetrics = () => viewHandle.current?.metrics() ?? { columns: 1, rowsPerPage: 1 };
+
   const selectIndex = useCallback(
     (index: number, extend: boolean) => {
       if (visibleEntries.length === 0) return;
@@ -635,13 +714,9 @@ export default function App() {
         selectEntry(next);
       }
 
-      requestAnimationFrame(() => {
-        document
-          .querySelector(`[data-path="${CSS.escape(next.path)}"]`)
-          ?.scrollIntoView({ block: "nearest" });
-      });
+      scrollToPath(next.path);
     },
-    [visibleEntries, active, rangeTo, selectEntry],
+    [visibleEntries, active, rangeTo, selectEntry, scrollToPath],
   );
 
   /** Posun o `delta` položek od aktivní; bez aktivní začíná od kraje. */
@@ -849,12 +924,7 @@ export default function App() {
     const finish = (found: FileEntry | undefined) => {
       if (found) {
         if (pendingSelect.rename) setRenamingPath(found.path);
-        const target = found.path;
-        requestAnimationFrame(() => {
-          document
-            .querySelector(`[data-path="${CSS.escape(target)}"]`)
-            ?.scrollIntoView({ block: "nearest" });
-        });
+        scrollToPath(found.path);
       }
       // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
       setPendingSelect(null);
@@ -1195,6 +1265,8 @@ export default function App() {
     onStart: (additive) => {
       bandBase.current = additive ? new Set(selection) : new Set();
     },
+    // Řádky mimo obrazovku nejsou v DOM — zásah spočítá výpis z geometrie.
+    hitTest: (box) => viewHandle.current?.hitTest(box) ?? [],
     onChange: (paths) => {
       setSelection(new Set([...bandBase.current, ...paths]));
       const first = visibleEntries.find((entry) => paths.includes(entry.path)) ?? null;
@@ -1377,7 +1449,7 @@ export default function App() {
           if (isColumnView) break;
           event.preventDefault();
           // V mřížce o celý řádek — počet sloupců podle skutečné šířky okna.
-          const step = viewMode === "icon" ? listMetrics("icon").columns : 1;
+          const step = viewMode === "icon" ? viewMetrics().columns : 1;
           moveSelection(event.key === "ArrowDown" ? step : -step, event.shiftKey);
           break;
         }
@@ -1391,7 +1463,7 @@ export default function App() {
         case "PageUp": {
           if (isColumnView) break;
           event.preventDefault();
-          const { columns, rowsPerPage } = listMetrics(viewMode);
+          const { columns, rowsPerPage } = viewMetrics();
           const page = columns * rowsPerPage;
           moveSelection(event.key === "PageDown" ? page : -page, event.shiftKey);
           break;
@@ -2133,7 +2205,7 @@ export default function App() {
 
   // Status bar i Quick Look musí počítat s tím, co je opravdu vidět —
   // v column view tedy se zaměřeným sloupcem, ne s obsahem nav.current.
-  const needle = query.trim().toLowerCase();
+  const needle = filterQuery.trim().toLowerCase();
 
   const columnEntries = focusedColumn?.entries ?? [];
   const visibleColumnEntries = needle
@@ -2259,6 +2331,8 @@ export default function App() {
       onOpen: open,
       onContextMenu: openContextMenu,
       tags,
+      scrollRef,
+      handleRef: viewHandle,
     };
 
     if (viewMode === "list") {
@@ -2340,6 +2414,7 @@ export default function App() {
               nezachytila. Řádky si událost zastaví u sebe. */}
           <div
             key={viewMode}
+            ref={attachScroll}
             data-view={viewMode}
             onContextMenu={openBackgroundMenu}
             onClick={clearSelectionOnBackground}
@@ -2361,6 +2436,7 @@ export default function App() {
       <StatusBar
         path={currentDir}
         itemCount={statusVisibleCount}
+        streamingCount={isColumnView || inSearch || inTagView ? null : streamingCount}
         totalCount={statusTotalCount}
         // Ve výsledcích hledání a v tag view je dotaz celek, ne filtr —
         // jinak by status hlásil "12 z 12 (filtr)".

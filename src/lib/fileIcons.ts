@@ -20,9 +20,18 @@ type Cached = string | "none";
 
 /** LRU přes pořadí vložení v Map: přístup položku přesune na konec. */
 const cache = new Map<string, Cached>();
-const pending = new Map<string, Promise<Cached>>();
 const queue: (() => void)[] = [];
 let inFlight = 0;
+
+/** Rozjetý požadavek na jednu ikonu. Sdílí ho všechny řádky se stejným klíčem;
+ *  když všichni odejdou dřív, než se dostal na řadu, z fronty se vyřadí. */
+type Pending = {
+  promise: Promise<Cached | null>;
+  subscribers: number;
+  /** Vyřadí požadavek z fronty; false = už běží (dojede a uloží se). */
+  cancel: () => boolean;
+};
+const pending = new Map<string, Pending>();
 
 function cacheKey(entry: FileEntry, size: IconSize): string {
   const extension = entry.extension ?? "";
@@ -35,9 +44,14 @@ function remember(key: string, value: Cached): void {
   if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
 }
 
-function runQueued<T>(task: () => Promise<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const start = () => {
+/** Úloha ve frontě s omezeným souběhem. `null` = zrušeno dřív, než začala. */
+function runQueued<T>(task: () => Promise<T>): { promise: Promise<T | null>; cancel: () => boolean } {
+  let start: (() => void) | null = null;
+  let settle: (value: T | null) => void = () => {};
+  const promise = new Promise<T | null>((resolve, reject) => {
+    settle = resolve;
+    start = () => {
+      start = null;
       inFlight += 1;
       task()
         .then(resolve, reject)
@@ -46,31 +60,62 @@ function runQueued<T>(task: () => Promise<T>): Promise<T> {
           queue.shift()?.();
         });
     };
-    if (inFlight < MAX_IN_FLIGHT) start();
-    else queue.push(start);
   });
+  const run = start as unknown as () => void;
+  if (inFlight < MAX_IN_FLIGHT) run();
+  else queue.push(run);
+
+  return {
+    promise,
+    cancel: () => {
+      const index = queue.indexOf(run);
+      if (index < 0) return false;
+      queue.splice(index, 1);
+      settle(null);
+      return true;
+    },
+  };
 }
 
-function loadIcon(entry: FileEntry, size: IconSize): Promise<Cached> {
+/** Ikona pro řádek. `release` řekne, že ji řádek už nechce (odjel z obrazovky). */
+function loadIcon(entry: FileEntry, size: IconSize): { promise: Promise<Cached | null>; release: () => void } {
   const key = cacheKey(entry, size);
   const hit = cache.get(key);
   if (hit !== undefined) {
     remember(key, hit);
-    return Promise.resolve(hit);
+    return { promise: Promise.resolve(hit), release: () => {} };
   }
 
-  const running = pending.get(key);
-  if (running) return running;
+  let request = pending.get(key);
+  if (!request) {
+    const queued = runQueued(() => invoke<string>("get_file_icon", { path: entry.path, size }));
+    const created: Pending = {
+      subscribers: 0,
+      cancel: queued.cancel,
+      promise: queued.promise
+        .catch((): Cached => "none")
+        .then((value) => {
+          if (pending.get(key) === created) pending.delete(key);
+          if (value !== null) remember(key, value);
+          return value;
+        }),
+    };
+    request = created;
+    pending.set(key, request);
+  }
 
-  const request = runQueued(() => invoke<string>("get_file_icon", { path: entry.path, size }))
-    .catch((): Cached => "none")
-    .then((value) => {
-      remember(key, value);
-      pending.delete(key);
-      return value;
-    });
-  pending.set(key, request);
-  return request;
+  const shared = request;
+  shared.subscribers += 1;
+  let released = false;
+  return {
+    promise: shared.promise,
+    release: () => {
+      if (released) return;
+      released = true;
+      shared.subscribers -= 1;
+      if (shared.subscribers === 0 && shared.cancel() && pending.get(key) === shared) pending.delete(key);
+    },
+  };
 }
 
 /* ----------------------------- viditelnost -------------------------------- */
@@ -134,11 +179,15 @@ export function useFileIcon(entry: FileEntry, size: IconSize, enabled = true) {
   useEffect(() => {
     if (!enabled || !visible) return;
     let active = true;
-    void loadIcon(entry, size).then((value) => {
-      if (active) setUrl(value === "none" ? null : value);
+    const request = loadIcon(entry, size);
+    void request.promise.then((value) => {
+      if (active && value !== null) setUrl(value === "none" ? null : value);
     });
+    // Řádek odjel z obrazovky (virtualizace ho odmountovala) — požadavek,
+    // který ještě čeká ve frontě, se zruší, ať fronta patří viditelným.
     return () => {
       active = false;
+      request.release();
     };
     // entry.path + extension jsou v klíči; celý objekt by efekt pouštěl při každém výpisu.
     // eslint-disable-next-line react-hooks/exhaustive-deps

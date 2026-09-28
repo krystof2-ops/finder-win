@@ -15,6 +15,9 @@ type RubberBandOptions = {
   onStart?: (additive: boolean) => void;
   /** Cesty položek pod obdélníkem, průběžně při každém pohybu. */
   onChange: (paths: string[], additive: boolean) => void;
+  /** Zásah počítaný z geometrie (virtualizované výpisy — řádky mimo
+   *  obrazovku nejsou v DOM). Bez něj se hledá v DOM podle `data-path`. */
+  hitTest?: (box: { left: number; top: number; right: number; bottom: number }) => string[];
 };
 
 /**
@@ -22,10 +25,10 @@ type RubberBandOptions = {
  * `onMouseDown`, musí obsahovat řádky s `data-path`. Souřadnice se drží
  * v obsahu kontejneru, takže výběr sedí i když se během tažení posune.
  */
-export function useRubberBand({ onStart, onChange }: RubberBandOptions) {
+export function useRubberBand({ onStart, onChange, hitTest }: RubberBandOptions) {
   const [rect, setRect] = useState<Rect | null>(null);
-  const callbacks = useRef({ onStart, onChange });
-  callbacks.current = { onStart, onChange };
+  const callbacks = useRef({ onStart, onChange, hitTest });
+  callbacks.current = { onStart, onChange, hitTest };
 
   const onMouseDown = useCallback((event: React.MouseEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -59,6 +62,11 @@ export function useRubberBand({ onStart, onChange }: RubberBandOptions) {
       // obrazovku do výběru patří taky.
       const spanTop = Math.min(startY, clientY);
       const spanBottom = Math.max(startY, clientY);
+      const geometry = callbacks.current.hitTest;
+      if (geometry) {
+        callbacks.current.onChange(geometry({ left, top: spanTop, right, bottom: spanBottom }), additive);
+        return;
+      }
       const hit: string[] = [];
       container.querySelectorAll<HTMLElement>("[data-path]").forEach((row) => {
         const r = row.getBoundingClientRect();

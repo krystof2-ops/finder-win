@@ -39,7 +39,7 @@ function PathInput({
 
     // Navigovat se dá jen tam, kam jde vypsat obsah — jinak zůstane input otevřený.
     try {
-      await invoke("list_dir", { path: target });
+      await invoke("can_list_dir", { path: target });
       finished.current = true;
       onDone();
       onNavigate(target);
@@ -90,6 +90,8 @@ type StatusBarProps = {
   itemCount: number;
   /** Počet ve složce bez filtru. */
   totalCount: number;
+  /** Velká složka se ještě dočítá — kolik položek zatím dorazilo. */
+  streamingCount?: number | null;
   filtered: boolean;
   /** Kolik položek je vybraných; 0 = ukazuje se jen počet. */
   selectedCount: number;
@@ -105,6 +107,7 @@ export function StatusBar({
   path,
   itemCount,
   totalCount,
+  streamingCount = null,
   filtered,
   selectedCount,
   freeSpace,
@@ -150,7 +153,9 @@ export function StatusBar({
 
       <div className="shrink-0 whitespace-nowrap tabular-nums">
         {path &&
-          (selectedCount > 0
+          (streamingCount !== null
+            ? `načítám… ${streamingCount.toLocaleString("cs-CZ")} položek`
+            : selectedCount > 0
             ? `Vybráno ${selectedCount} z ${itemCount}`
             : filtered
               ? `${itemCount} z ${totalCount} (filtr)`

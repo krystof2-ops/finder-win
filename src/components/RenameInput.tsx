@@ -7,11 +7,12 @@ type RenameInputProps = {
   entry: FileEntry;
   onSubmit: (entry: FileEntry, name: string) => void;
   onCancel: () => void;
-  /** Icon view potřebuje víceřádkový, na střed zarovnaný input. */
-  centered?: boolean;
+  /** row = řádek seznamu a sloupce, icon = název pod ikonou (na střed). */
+  variant?: "row" | "icon";
 };
 
-export function RenameInput({ entry, onSubmit, onCancel, centered = false }: RenameInputProps) {
+export function RenameInput({ entry, onSubmit, onCancel, variant = "row" }: RenameInputProps) {
+  const centered = variant === "icon";
   const [value, setValue] = useState(entry.name);
   const inputRef = useRef<HTMLInputElement>(null);
 

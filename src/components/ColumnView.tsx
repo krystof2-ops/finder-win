@@ -1,11 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight } from "lucide-react";
 
 import { EntryIcon, SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
-import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../lib/rowDnd";
+import {
+  dropPropsFor,
+  selectMods,
+  useFolderDrop,
+  useStableCallback,
+  type DropInto,
+  type FolderDropHandlers,
+} from "../lib/rowDnd";
+import { sameEntry } from "../lib/rows";
 import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
@@ -13,7 +22,103 @@ import { TAG_HEX, TAG_LABEL } from "../lib/tags";
 import { getFileProperties } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
-import type { FileEntry, FileProperties, SelectMods, TagMap } from "../types";
+import type { FileEntry, FileProperties, SelectMods, TagColor, TagMap } from "../types";
+
+/** Výška řádku a horní okraj sloupce (py-1) — virtualizace i gumička z nich počítají. */
+const ROW_HEIGHT = 24;
+const PANE_PADDING = 4;
+
+/* ---------------------------------- řádek ---------------------------------- */
+
+type RowHandlers = {
+  select: (entry: FileEntry, mods?: SelectMods) => void;
+  open: (entry: FileEntry) => void;
+  contextMenu: (entry: FileEntry, selected: boolean, x: number, y: number) => void;
+  dragItems: (entry: FileEntry) => ReturnType<typeof dragItemsFor>;
+  renameSubmit: (entry: FileEntry, name: string) => void;
+  renameCancel: () => void;
+  drop: FolderDropHandlers;
+};
+
+type RowProps = {
+  entry: FileEntry;
+  top: number;
+  selected: boolean;
+  cut: boolean;
+  renaming: boolean;
+  dropTarget: boolean;
+  windowFocused: boolean;
+  tags: TagColor[];
+  handlers: RowHandlers;
+};
+
+/** Řádek sloupce. Memoizovaný — klik překreslí jen starý a nový výběr. */
+const ColumnRow = memo(
+  function ColumnRow({
+    entry,
+    top,
+    selected,
+    cut,
+    renaming,
+    dropTarget,
+    windowFocused,
+    tags,
+    handlers,
+  }: RowProps) {
+    const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
+
+    return (
+      <div
+        data-path={entry.path}
+        role="option"
+        aria-selected={selected}
+        data-tooltip={entry.name}
+        draggable={!renaming}
+        onDragStart={(event) =>
+          startDrag({ kind: "entry", items: handlers.dragItems(entry) }, event.dataTransfer)
+        }
+        onDragEnd={endDrag}
+        {...dropPropsFor(entry, handlers.drop)}
+        onClick={(event) => handlers.select(entry, selectMods(event))}
+        onDoubleClick={() => handlers.open(entry)}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          handlers.contextMenu(entry, selected, event.clientX, event.clientY);
+        }}
+        className={`fw-col-row fw-row absolute right-0 left-0 flex h-6 items-center gap-2 px-2.5 text-[13px] text-primary ${
+          selected && !renaming ? selectedClass : "hover:bg-hover"
+        } ${dropTarget ? "fw-drop-target" : ""}`}
+        style={{ top: 0, transform: `translateY(${top}px)`, opacity: entryOpacity(entry, cut) }}
+      >
+        <SmallEntryIcon entry={entry} />
+        {renaming ? (
+          <RenameInput
+            entry={entry}
+            onSubmit={handlers.renameSubmit}
+            onCancel={handlers.renameCancel}
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+        )}
+        {!entry.is_dir && !renaming && <TagDots colors={tags} size={6} />}
+        {entry.is_dir && !renaming && (
+          <ChevronRight size={13} strokeWidth={2} className="fw-chevron shrink-0 text-secondary" />
+        )}
+      </div>
+    );
+  },
+  (a, b) =>
+    sameEntry(a.entry, b.entry) &&
+    a.top === b.top &&
+    a.selected === b.selected &&
+    a.cut === b.cut &&
+    a.renaming === b.renaming &&
+    a.dropTarget === b.dropTarget &&
+    a.windowFocused === b.windowFocused &&
+    a.tags === b.tags &&
+    a.handlers === b.handlers,
+);
 
 /* --------------------------------- sloupec -------------------------------- */
 
@@ -62,27 +167,72 @@ function ColumnPane({
   onBandSelect,
   exiting = false,
 }: ColumnPaneProps) {
-  const selectedRef = useRef<HTMLDivElement>(null);
-  const { dropTarget, dropProps } = useFolderDrop(onDropInto);
-  const band = useRubberBand({
-    onStart: (additive) => onBandStart(index, additive),
-    onChange: (paths) => onBandSelect(index, paths),
+  const paneRef = useRef<HTMLDivElement>(null);
+  const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
+
+  // Každý sloupec má vlastní virtualizaci — posouvá se nezávisle.
+  const virtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => paneRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+    scrollMargin: PANE_PADDING,
   });
 
   const multi = column.selectedPaths;
   const isInSelection = (path: string) =>
     multi.length > 0 ? multi.includes(path) : path === column.selectedPath;
-  const selectedEntries = entries.filter((entry) => isInSelection(entry.path));
 
-  // Když se výběr posune klávesnicí, musí zůstat vidět. Odcházející sloupec
-  // by tím ale přetáhl scroll zpátky doprava, proto ne u něj.
+  // Gumička přes geometrii — řádky mimo obrazovku nejsou v DOM.
+  const band = useRubberBand({
+    onStart: (additive) => onBandStart(index, additive),
+    onChange: (paths) => onBandSelect(index, paths),
+    hitTest: (box) => {
+      const element = paneRef.current;
+      if (!element) return [];
+      const rect = element.getBoundingClientRect();
+      if (box.right < rect.left || box.left > rect.right) return [];
+      const top = box.top - rect.top + element.scrollTop - PANE_PADDING;
+      const bottom = box.bottom - rect.top + element.scrollTop - PANE_PADDING;
+      const first = Math.max(0, Math.floor(top / ROW_HEIGHT));
+      const last = Math.min(entries.length - 1, Math.floor(bottom / ROW_HEIGHT));
+      return entries.slice(first, last + 1).map((entry) => entry.path);
+    },
+  });
+
+  // Když se výběr posune klávesnicí, musí zůstat vidět — i když řádek zrovna
+  // není vykreslený. Odcházející sloupec by tím přetáhl scroll, proto ne u něj.
   useEffect(() => {
-    if (exiting) return;
-    selectedRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (exiting || column.selectedPath === null) return;
+    const selected = entries.findIndex((entry) => entry.path === column.selectedPath);
+    if (selected >= 0) virtualizer.scrollToIndex(selected, { align: "auto" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [column.selectedPath, exiting]);
+
+  const select = useStableCallback((entry: FileEntry, mods?: SelectMods) => onSelect(index, entry, mods));
+  const open = useStableCallback((entry: FileEntry) => onOpen(index, entry));
+  const contextMenu = useStableCallback((entry: FileEntry, selected: boolean, x: number, y: number) => {
+    // Pravý klik do vícenásobného výběru ho nezahazuje — menu pak míří na
+    // všechny vybrané položky.
+    if (!selected) onSelect(index, entry);
+    onContextMenu?.(entry, x, y);
+  });
+  const dragItems = useStableCallback((entry: FileEntry) =>
+    dragItemsFor(
+      entry,
+      entries.filter((item) => isInSelection(item.path)),
+    ),
+  );
+  const renameSubmit = useStableCallback(onRenameSubmit);
+  const renameCancel = useStableCallback(onRenameCancel);
+  const handlers = useMemo<RowHandlers>(
+    () => ({ select, open, contextMenu, dragItems, renameSubmit, renameCancel, drop }),
+    [select, open, contextMenu, dragItems, renameSubmit, renameCancel, drop],
+  );
 
   return (
     <div
+      ref={paneRef}
       // Podle tohohle App pozná, ve kterém sloupci padl pravý klik do volné plochy.
       data-column-path={column.path}
       onMouseDown={(event) => {
@@ -93,7 +243,7 @@ function ColumnPane({
       onClick={(event) => {
         if (!(event.target as Element).closest("[data-path]")) onClearSelection(index);
       }}
-      className={`surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
+      className={`fw-scroll surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
         exiting ? "fw-column-out" : "fw-column-in"
       }`}
       style={{ backgroundColor: isFocused ? "var(--bg-toolbar)" : "var(--bg-main)" }}
@@ -114,69 +264,28 @@ function ColumnPane({
         </div>
       )}
 
-      {entries.map((entry) => {
-        const isSelected = isInSelection(entry.path);
-        const isRenaming = entry.path === renamingPath;
-        const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
-
-        return (
-          <div
-            key={entry.path}
-            ref={entry.path === column.selectedPath ? selectedRef : undefined}
-            data-path={entry.path}
-            role="option"
-            aria-selected={isSelected}
-            data-tooltip={entry.name}
-            draggable={!isRenaming}
-            onDragStart={(event) =>
-              startDrag(
-                { kind: "entry", items: dragItemsFor(entry, selectedEntries) },
-                event.dataTransfer,
-              )
-            }
-            onDragEnd={endDrag}
-            {...dropProps(entry)}
-            onClick={(event) => onSelect(index, entry, selectMods(event))}
-            onDoubleClick={() => onOpen(index, entry)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              // Pravý klik do vícenásobného výběru ho nezahazuje — menu pak
-              // míří na všechny vybrané položky.
-              if (!isSelected) onSelect(index, entry);
-              onContextMenu?.(entry, event.clientX, event.clientY);
-            }}
-            className={`fw-col-row fw-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
-              isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
-            }`}
-            style={{
-              opacity: entryOpacity(entry, cutPaths.has(entry.path)),
-              ...(dropTarget === entry.path ? DROP_TARGET_STYLE : null),
-            }}
-          >
-            <SmallEntryIcon entry={entry} />
-            {isRenaming ? (
-              <RenameInput entry={entry} onSubmit={onRenameSubmit} onCancel={onRenameCancel} />
-            ) : (
-              <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-            )}
-            {!entry.is_dir && !isRenaming && (
-              <TagDots colors={tagsOf(tags, entry.path)} size={6} />
-            )}
-            {entry.is_dir && !isRenaming && (
-              <ChevronRight
-                size={13}
-                strokeWidth={2}
-                className="fw-chevron shrink-0 text-secondary"
-              />
-            )}
-          </div>
-        );
-      })}
+      <div className="relative shrink-0" style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((item) => {
+          const entry = entries[item.index];
+          return (
+            <ColumnRow
+              key={entry.path}
+              entry={entry}
+              top={item.start - PANE_PADDING}
+              selected={isInSelection(entry.path)}
+              cut={cutPaths.has(entry.path)}
+              renaming={entry.path === renamingPath}
+              dropTarget={dropTarget === entry.path}
+              windowFocused={windowFocused}
+              tags={tagsOf(tags, entry.path)}
+              handlers={handlers}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
-
 /* ------------------------------ náhled souboru ----------------------------- */
 
 function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {

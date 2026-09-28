@@ -8,3 +8,4 @@
 
 # Oddělený build pro tauri dev (CARGO_TARGET_DIR), ať ho nezamyká spuštěný exe
 /target-dev/
+/target-perf/

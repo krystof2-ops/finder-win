@@ -635,6 +635,13 @@ body {
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
+/* Složka, nad kterou visí tažení. Třída, ne inline styl — memoizovaný řádek
+   se tak překreslí jen při změně cíle. */
+.fw-drop-target {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 6px;
+}
+
 /* ------------------------------- dialogy ---------------------------------- */
 
 @keyframes fw-dialog-in {

@@ -10,7 +10,7 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 /// Jedna položka ve výpisu složky.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct FileEntry {
     name: String,
     path: String,
@@ -284,6 +284,83 @@ fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FileEntry>, S
     sort_entries(&mut entries);
 
     Ok(entries)
+}
+
+/// Jde složku vypsat? Levná kontrola pro zadání cesty — bez čtení obsahu.
+#[tauri::command(async)]
+fn can_list_dir(path: String) -> Result<(), String> {
+    fs::read_dir(&path)
+        .map(|_| ())
+        .map_err(|err| format!("{}: {}", path, describe_io(&err)))
+}
+
+/// Kolik položek velké složky přijde hned v odpovědi; zbytek jde po dávkách
+/// událostí `dir-chunk`, aby první obsah nečekal na výpis celé složky.
+const LIST_FIRST_BATCH: usize = 300;
+const LIST_CHUNK: usize = 500;
+
+/// Token posledního streamovaného výpisu. Starší výpis (uživatel mezitím
+/// odešel jinam) se podle něj přestane posílat.
+static LIST_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+#[derive(Serialize)]
+struct DirListing {
+    entries: Vec<FileEntry>,
+    /// Přijdou ještě dávky `dir-chunk` se stejným tokenem.
+    more: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct DirChunk {
+    token: u64,
+    entries: Vec<FileEntry>,
+    /// Poslední dávka — výpis je kompletní.
+    done: bool,
+}
+
+/// Výpis složky po částech: prvních 300 položek hned, zbytek po 500 událostí
+/// `dir-chunk` s tokenem složky. Řadí frontend (podle zvoleného sloupce), tady
+/// jde jen o to, aby první řádky nečekaly na tisíce dalších.
+#[tauri::command(async)]
+fn list_dir_stream(
+    app: tauri::AppHandle,
+    path: String,
+    show_hidden: Option<bool>,
+    token: u64,
+) -> Result<DirListing, String> {
+    use std::sync::atomic::Ordering;
+    use tauri::Emitter;
+
+    LIST_TOKEN.store(token, Ordering::SeqCst);
+    let show_hidden = show_hidden.unwrap_or(false);
+    let reader = fs::read_dir(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+
+    let mut items = reader.filter_map(move |item| {
+        // Jednotlivé nečitelné položky výpis nezruší, jen se přeskočí.
+        let item = item.ok()?;
+        let metadata = item.metadata().ok()?;
+        let name = item.file_name().to_string_lossy().to_string();
+        is_listed(&name, &metadata, show_hidden).then(|| make_entry(&item.path(), &metadata))
+    });
+
+    let first: Vec<FileEntry> = items.by_ref().take(LIST_FIRST_BATCH).collect();
+    if first.len() < LIST_FIRST_BATCH {
+        return Ok(DirListing { entries: first, more: false });
+    }
+
+    std::thread::spawn(move || loop {
+        if LIST_TOKEN.load(Ordering::SeqCst) != token {
+            return;
+        }
+        let entries: Vec<FileEntry> = items.by_ref().take(LIST_CHUNK).collect();
+        let done = entries.len() < LIST_CHUNK;
+        let _ = app.emit("dir-chunk", DirChunk { token, entries, done });
+        if done {
+            return;
+        }
+    });
+
+    Ok(DirListing { entries: first, more: true })
 }
 
 fn favorite(label: &str, path: impl AsRef<Path>, icon_name: &str) -> FavoriteEntry {
@@ -2219,6 +2296,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             list_dir,
+            list_dir_stream,
+            can_list_dir,
             get_favorites,
             open_file,
             get_disk_free_space,
