@@ -239,16 +239,9 @@ export function sidebarIcon(iconName: string): LucideIcon {
 }
 
 /**
- * Finder tintuje ikony v sidebaru podle skupiny, ne jednotně šedě.
- * Barva se odvozuje od sekce, jen iCloud Photos má vlastní odstín.
+ * Finder Sonoma: ikony Oblíbených jsou modré (akcent), ostatní sekce tlumené.
+ * `itemLabel` zůstává v podpisu pro případné výjimky jednotlivých položek.
  */
-export function sidebarIconColor(sectionLabel: string, itemLabel: string): string {
-  switch (sectionLabel) {
-    case "Oblíbené":
-      return "var(--accent)";
-    case "Cloud":
-      return itemLabel === "iCloud Photos" ? "var(--tint-photos)" : "var(--tint-cloud)";
-    default:
-      return "var(--text-secondary)";
-  }
+export function sidebarIconColor(sectionLabel: string, _itemLabel: string): string {
+  return sectionLabel === "Oblíbené" ? "var(--accent)" : "var(--text-secondary)";
 }

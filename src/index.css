@@ -83,8 +83,9 @@
   --tint-code: #0a84ff;
   --tint-document: #0a84ff;
   --tint-archive: #a2845e;
-  --tint-cloud: #1e88e5;
-  --tint-photos: #af52de;
+
+  /* Vnitřní světlý lem barevných puntíků (štítky v sidebaru). */
+  --dot-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 
   /* Animační křivky. Nejsou v .dark — na motion nemá téma vliv.
      Pozor: --ease-out a --ease-in-out má i Tailwind ve své @layer theme.
@@ -140,8 +141,8 @@
   --tint-code: #0a84ff;
   --tint-document: #0a84ff;
   --tint-archive: #ac8e68;
-  --tint-cloud: #5eb5f0;
-  --tint-photos: #bf5af2;
+
+  --dot-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
 }
 
 html,
@@ -433,16 +434,18 @@ body {
 
 /* --------------------------------- sidebar -------------------------------- */
 
-.fw-sidebar-row {
-  transition:
-    background-color 140ms var(--ease-out),
-    transform 140ms var(--ease-out);
+/* Panel: podklad s rozmazáním, jako macOS. */
+.fw-sidebar {
+  background-color: var(--bg-sidebar);
+  backdrop-filter: blur(20px);
 }
 
-/* Aktivní řádek drží na místě — posouvat to, co je právě otevřené, ruší. */
+.fw-sidebar-row {
+  transition: background-color 140ms var(--ease-out);
+}
+
 .fw-sidebar-row:hover:not(.is-active):not(.is-active-dim) {
   background-color: var(--hover);
-  transform: translateX(2px);
 }
 
 .fw-sidebar-row.is-active {
@@ -457,13 +460,43 @@ body {
   transition: color 140ms var(--ease-out);
 }
 
+/* Nadpis sekce: 11 px polotučně, barva --text-section (kontrast hlídá
+   token, ne průhlednost). */
 .fw-section-heading {
-  opacity: 0.55;
-  transition: opacity 200ms var(--ease-out);
+  padding: 14px 12px 4px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-section);
 }
 
-.fw-section-heading:hover {
-  opacity: 0.85;
+/* Hodnoty vpravo (čas nedávných, počet štítků): na úzkém panelu jen při
+   najetí na sekci, na širokém pořád. Skryté úplně (ne průhledně) — jinak by
+   dál ubíraly místo názvu a ten by se zbytečně zkracoval. */
+.fw-sidebar-value {
+  display: none;
+  margin-left: auto;
+  flex-shrink: 0;
+  padding-left: 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.fw-sidebar-section:hover .fw-sidebar-value,
+.fw-sidebar[data-wide="true"] .fw-sidebar-value {
+  display: inline;
+}
+
+/* Táhlo šířky na pravé hraně panelu. */
+.fw-sidebar-resizer {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  z-index: 5;
+  width: 6px;
+  cursor: col-resize;
 }
 
 /* ------------------------------- ostatní ---------------------------------- */

@@ -101,16 +101,15 @@ function SectionHeading({
         event.stopPropagation();
         control.onContextMenu(event.clientX, event.clientY);
       }}
-      className="fw-section-heading group flex cursor-default items-center px-4 pt-1.5 pb-1 text-[11px] font-semibold text-section"
-      style={{ letterSpacing: "0.5px" }}
+      className="fw-section-heading group flex cursor-default items-center"
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {/* Jako ve Finderu: šipka se ukáže až při najetí, sbalená sekce ji má pořád. */}
+      {/* Jako ve Finderu: šipka sbalení se ukáže jen při najetí na nadpis. */}
       <ChevronDown
         size={12}
         strokeWidth={2.5}
-        className={`shrink-0 transition-[transform,opacity] duration-150 ${
-          control.collapsed ? "-rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100"
+        className={`shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover:opacity-100 ${
+          control.collapsed ? "-rotate-90" : ""
         }`}
       />
     </div>
@@ -119,7 +118,7 @@ function SectionHeading({
 
 /** Společný vzhled všech řádků sidebaru, ať už jde o složku, tag nebo nedávný soubor. */
 const ROW_CLASS =
-  "fw-sidebar-row mx-1.5 flex h-[26px] items-center gap-2 rounded-md px-3 py-1 text-left text-[13px] text-primary";
+  "fw-sidebar-row mx-2 flex h-[28px] items-center gap-2 rounded-[6px] px-2 text-left text-[13px] text-primary";
 
 /**
  * Hover posun i podbarvení řeší .fw-sidebar-row v CSS — jen tam jde napsat
@@ -396,12 +395,15 @@ function EntryIcon({
   type,
   active,
   folderIcon,
+  muted = false,
 }: {
   name: string;
   path: string;
   type: RecentKind;
   active: boolean;
   folderIcon?: string;
+  /** Mimo Oblíbené jsou ikony tlumené (Finder Sonoma: modré jen Oblíbené). */
+  muted?: boolean;
 }) {
   if (type === "folder") {
     const Icon = folderIcon === undefined ? Folder : sidebarIcon(folderIcon);
@@ -411,7 +413,7 @@ function EntryIcon({
         size={16}
         strokeWidth={1.75}
         className="fw-sidebar-icon shrink-0"
-        color={iconColor("var(--accent)", active)}
+        color={iconColor(muted ? "var(--text-secondary)" : "var(--accent)", active)}
       />
     );
   }
@@ -437,7 +439,7 @@ function EntryIcon({
       size={16}
       strokeWidth={1.75}
       className="fw-sidebar-icon shrink-0"
-      color={iconColor(tint, active)}
+      color={iconColor(muted ? "var(--text-secondary)" : tint, active)}
     />
   );
 }
@@ -462,7 +464,7 @@ function Recents({
   const shown = items.slice(0, RECENTS_SHOWN);
 
   return (
-    <div>
+    <div className="fw-sidebar-section">
       <SectionHeading control={heading}>NEDÁVNÉ</SectionHeading>
 
       {!heading.collapsed && (
@@ -495,14 +497,11 @@ function Recents({
                   path={entry.path}
                   type={entry.type}
                   active={isActive}
+                  muted
                 />
                 {/* min-w-0 musí být, jinak se flex položka odmítne zkrátit pod obsah. */}
-                <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
-                  {entry.name}
-                </span>
-                <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary tabular-nums">
-                  {formatRelative(entry.opened_at)}
-                </span>
+                <span className="min-w-0 flex-1 truncate">{entry.name}</span>
+                <span className="fw-sidebar-value">{formatRelative(entry.opened_at)}</span>
               </button>
             );
           })}
@@ -536,7 +535,7 @@ function TagsSection({
   if (used.length === 0) return null;
 
   return (
-    <div>
+    <div className="fw-sidebar-section">
       <SectionHeading control={heading}>TAGY</SectionHeading>
 
       {!heading.collapsed && (
@@ -553,19 +552,18 @@ function TagsSection({
               }}
               className={`${ROW_CLASS} ${rowStateClass(activeTag === color, windowFocused)}`}
             >
+              {/* Vnitřní světlý lem, ať puntík nepůsobí plochý. */}
               <span
-                className="shrink-0 rounded-full"
+                className="mx-[3px] shrink-0 rounded-full"
                 style={{
-                  width: 12,
-                  height: 12,
+                  width: 10,
+                  height: 10,
                   backgroundColor: TAG_HEX[color],
-                  boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+                  boxShadow: "var(--dot-highlight)",
                 }}
               />
-              <span className="truncate">{TAG_LABEL[color]}</span>
-              <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary tabular-nums">
-                {counts.get(color)}
-              </span>
+              <span className="min-w-0 flex-1 truncate">{TAG_LABEL[color]}</span>
+              <span className="fw-sidebar-value">{counts.get(color)}</span>
             </button>
           ))}
         </nav>
@@ -599,7 +597,7 @@ export function Sidebar({
   onError,
   onConfirm,
 }: SidebarProps) {
-  const { favorites, recents, tags } = useStorage();
+  const { favorites, recents, tags, sidebarWidth } = useStorage();
 
   function confirmClearRecents() {
     onConfirm({
@@ -915,121 +913,165 @@ export function Sidebar({
     tags,
   ]);
 
+  /** Sekce od backendu jako řádky — Oblíbené, Cloud, Zařízení. */
+  function renderSystemSection(section: FavoriteSection) {
+    const heading = headingFor(`system:${section.label}`);
+
+    return (
+      <div key={section.label}>
+        <SectionHeading control={heading}>{sectionHeading(section.label)}</SectionHeading>
+
+        {!heading.collapsed && (
+          <nav className="flex flex-col pb-0.5">
+            {section.items.map((item) => {
+              const Icon = sidebarIcon(item.icon_name);
+              const isActive =
+                !item.external && currentPath !== null && storage.samePath(item.path, currentPath);
+
+              return (
+                <button
+                  key={`${section.label}/${item.path}`}
+                  type="button"
+                  // Shellová cesta telefonu ("::{20D04FE0…}\\?\usb#…") nikomu nic neřekne.
+                  data-tooltip={item.external ? "Otevře se v Průzkumníku" : item.path}
+                  onClick={() => {
+                    if (item.external) openDeviceOrReport(item.path);
+                    else onNavigate(item.path);
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
+                  }}
+                  className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
+                >
+                  <Icon
+                    size={16}
+                    strokeWidth={1.75}
+                    className="fw-sidebar-icon shrink-0"
+                    color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
+                  />
+                  <span className="truncate">{sidebarLabel(item.label)}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+      </div>
+    );
+  }
+
+  // Pořadí jako Finder: Oblíbené (a hned pod nimi vlastní), Cloud, Zařízení,
+  // pak Nedávné a Štítky.
+  const favoritesSection = sections.find((section) => section.label === "Oblíbené");
+  const otherSections = sections.filter((section) => section !== favoritesSection);
+
+  /** Tažení za pravou hranu mění šířku; na disk se zapíše až na konci. */
+  function startResize(event: React.MouseEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = sidebarWidth;
+
+    const onMove = (move: MouseEvent) => {
+      void storage.setSidebarWidth(startWidth + move.clientX - startX, false);
+    };
+    const onUp = (up: MouseEvent) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      void storage.setSidebarWidth(startWidth + up.clientX - startX);
+    };
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   return (
-    <aside
-      // Menu volné plochy visí na celém sloupci: nadpisy sekcí, prázdné stavy
-      // i prostor pod poslední sekcí patří jemu. Řádky si událost zastaví samy.
-      onContextMenu={(event) => {
-        if (isTypingTarget(event.target)) return;
-        event.preventDefault();
-        setMenu({ kind: "background", x: event.clientX, y: event.clientY });
-      }}
-      className="surface flex w-[220px] shrink-0 flex-col overflow-y-auto bg-sidebar pt-2"
-      style={{ backdropFilter: "blur(20px)" }}
-    >
-      <CustomFavorites
-        items={favorites}
-        currentPath={currentPath}
-        windowFocused={windowFocused}
-        onActivate={activateFavorite}
-        onContextMenu={(item, x, y) => setMenu({ kind: "favorite", item, x, y })}
-        renamingPath={renamingPath}
-        onRenameSubmit={(path, label) => {
-          setRenamingPath(null);
-          void storage.renameFavorite(path, label);
+    <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+      <aside
+        // Menu volné plochy visí na celém sloupci: nadpisy sekcí, prázdné stavy
+        // i prostor pod poslední sekcí patří jemu. Řádky si událost zastaví samy.
+        onContextMenu={(event) => {
+          if (isTypingTarget(event.target)) return;
+          event.preventDefault();
+          setMenu({ kind: "background", x: event.clientX, y: event.clientY });
         }}
-        onRenameCancel={() => setRenamingPath(null)}
-        heading={headingFor(CUSTOM_ID)}
-      />
+        // Hodnoty vpravo (čas, počty) jsou u úzkého panelu vidět jen při najetí.
+        data-wide={sidebarWidth > 240}
+        className="fw-sidebar surface flex w-full flex-col overflow-y-auto pt-1"
+      >
+        {favoritesSection && renderSystemSection(favoritesSection)}
 
-      <Recents
-        items={recents}
-        currentPath={currentPath}
-        windowFocused={windowFocused}
-        onActivate={activateRecent}
-        onContextMenu={(entry, x, y) => setMenu({ kind: "recent", entry, x, y })}
-        heading={headingFor(RECENTS_ID)}
-      />
-
-      {sections.map((section) => {
-        const heading = headingFor(`system:${section.label}`);
-
-        return (
-          <div key={section.label}>
-            <SectionHeading control={heading}>{sectionHeading(section.label)}</SectionHeading>
-
-            {!heading.collapsed && (
-              <nav className="flex flex-col pb-0.5">
-                {section.items.map((item) => {
-                  const Icon = sidebarIcon(item.icon_name);
-                  const isActive =
-                    !item.external && currentPath !== null && storage.samePath(item.path, currentPath);
-
-                  return (
-                    <button
-                      key={`${section.label}/${item.path}`}
-                      type="button"
-                      // Shellová cesta telefonu ("::{20D04FE0…}\\?\usb#…") nikomu nic neřekne.
-                      data-tooltip={item.external ? "Otevře se v Průzkumníku" : item.path}
-                      onClick={() => {
-                        if (item.external) openDeviceOrReport(item.path);
-                        else onNavigate(item.path);
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
-                      }}
-                      className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
-                    >
-                      <Icon
-                        size={16}
-                        strokeWidth={1.75}
-                        className="fw-sidebar-icon shrink-0"
-                        color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
-                      />
-                      <span className="truncate">{sidebarLabel(item.label)}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            )}
-          </div>
-        );
-      })}
-
-      <TagsSection
-        counts={tagCounts}
-        activeTag={activeTag}
-        windowFocused={windowFocused}
-        onSelectTag={onSelectTag}
-        onContextMenu={(color, x, y) => setMenu({ kind: "tag", color, x, y })}
-        heading={headingFor(TAGS_ID)}
-      />
-
-      {/* Roztáhne se přes zbytek sloupce, aby pravý klik dole padl do sidebaru
-          a ne mimo něj. */}
-      <div className="min-h-[8px] flex-1 shrink-0" />
-
-      {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
-      )}
-
-      {pathTip && (
-        <div
-          className="fixed z-50 max-w-[320px] rounded-md px-2.5 py-1.5 font-mono text-[11px] break-all text-primary"
-          style={{
-            left: Math.min(pathTip.x, window.innerWidth - 340),
-            top: pathTip.y + 6,
-            background: "var(--bg-toolbar)",
-            border: "1px solid var(--border)",
-            boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-            backdropFilter: "blur(20px)",
+        <CustomFavorites
+          items={favorites}
+          currentPath={currentPath}
+          windowFocused={windowFocused}
+          onActivate={activateFavorite}
+          onContextMenu={(item, x, y) => setMenu({ kind: "favorite", item, x, y })}
+          renamingPath={renamingPath}
+          onRenameSubmit={(path, label) => {
+            setRenamingPath(null);
+            void storage.renameFavorite(path, label);
           }}
-        >
-          {pathTip.path}
-        </div>
-      )}
-    </aside>
+          onRenameCancel={() => setRenamingPath(null)}
+          heading={headingFor(CUSTOM_ID)}
+        />
+
+        {otherSections.map(renderSystemSection)}
+
+        <Recents
+          items={recents}
+          currentPath={currentPath}
+          windowFocused={windowFocused}
+          onActivate={activateRecent}
+          onContextMenu={(entry, x, y) => setMenu({ kind: "recent", entry, x, y })}
+          heading={headingFor(RECENTS_ID)}
+        />
+
+        <TagsSection
+          counts={tagCounts}
+          activeTag={activeTag}
+          windowFocused={windowFocused}
+          onSelectTag={onSelectTag}
+          onContextMenu={(color, x, y) => setMenu({ kind: "tag", color, x, y })}
+          heading={headingFor(TAGS_ID)}
+        />
+
+        {/* Roztáhne se přes zbytek sloupce, aby pravý klik dole padl do sidebaru
+            a ne mimo něj. */}
+        <div className="min-h-[8px] flex-1 shrink-0" />
+
+        {menu && (
+          <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+        )}
+
+        {pathTip && (
+          <div
+            className="fixed z-50 max-w-[320px] rounded-md px-2.5 py-1.5 font-mono text-[11px] break-all text-primary"
+            style={{
+              left: Math.min(pathTip.x, window.innerWidth - 340),
+              top: pathTip.y + 6,
+              background: "var(--bg-toolbar)",
+              border: "1px solid var(--border)",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            {pathTip.path}
+          </div>
+        )}
+      </aside>
+
+      {/* Táhlo šířky na pravé hraně; dvojklik vrátí výchozích 220 px. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Šířka postranního panelu"
+        onMouseDown={startResize}
+        onDoubleClick={() => void storage.setSidebarWidth(storage.SIDEBAR_DEFAULT)}
+        className="fw-sidebar-resizer"
+      />
+    </div>
   );
 }

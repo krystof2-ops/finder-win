@@ -20,6 +20,12 @@ const KEY_FAVORITES = "favorites";
 const KEY_RECENTS = "recents";
 const KEY_TAGS = "tags";
 const KEY_SHOW_HIDDEN = "showHidden";
+const KEY_SIDEBAR_WIDTH = "sidebarWidth";
+
+/** Rozsah šířky sidebaru při tažení za hranu; dvojklik vrací výchozí. */
+export const SIDEBAR_MIN = 180;
+export const SIDEBAR_MAX = 360;
+export const SIDEBAR_DEFAULT = 220;
 
 /** Kolik nedávných se drží na disku. Sidebar jich ukazuje míň. */
 export const RECENTS_LIMIT = 20;
@@ -30,9 +36,20 @@ export type Snapshot = {
   tags: TagMap;
   /** null = uživatel přepínač ještě nezměnil, platí nastavení Průzkumníku. */
   showHidden: boolean | null;
+  sidebarWidth: number;
 };
 
-const EMPTY: Snapshot = { favorites: [], recents: [], tags: {}, showHidden: null };
+const EMPTY: Snapshot = {
+  favorites: [],
+  recents: [],
+  tags: {},
+  showHidden: null,
+  sidebarWidth: SIDEBAR_DEFAULT,
+};
+
+function clampSidebar(width: number): number {
+  return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width)));
+}
 
 let store: Store | null = null;
 let cache: Snapshot = EMPTY;
@@ -153,11 +170,12 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden] = await Promise.all([
+    const [favorites, recents, tags, showHidden, sidebarWidth] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
       store.get<unknown>(KEY_SHOW_HIDDEN),
+      store.get<unknown>(KEY_SIDEBAR_WIDTH),
     ]);
 
     commit({
@@ -165,6 +183,7 @@ export function init(): Promise<void> {
       recents: sanitizeRecents(recents),
       tags: sanitizeTags(tags),
       showHidden: typeof showHidden === "boolean" ? showHidden : null,
+      sidebarWidth: typeof sidebarWidth === "number" ? clampSidebar(sidebarWidth) : SIDEBAR_DEFAULT,
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -192,6 +211,14 @@ async function persist(key: string, value: unknown): Promise<void> {
 export async function setShowHidden(value: boolean): Promise<void> {
   commit({ showHidden: value });
   await persist(KEY_SHOW_HIDDEN, value);
+}
+
+/* ---------------------------- šířka sidebaru -------------------------------- */
+
+/** Během tažení se jen překresluje (persist = false), na disk až na konci. */
+export async function setSidebarWidth(width: number, persistNow = true): Promise<void> {
+  commit({ sidebarWidth: clampSidebar(width) });
+  if (persistNow) await persist(KEY_SIDEBAR_WIDTH, cache.sidebarWidth);
 }
 
 /* ------------------------------- oblíbené ---------------------------------- */
