@@ -99,7 +99,8 @@ export function ListView({
           <div
             key={entry.path}
             data-path={entry.path}
-            role="button"
+            role="option"
+            aria-selected={isSelected}
             tabIndex={0}
             draggable={!isRenaming}
             onDragStart={(event) =>
@@ -118,7 +119,7 @@ export function ListView({
               event.stopPropagation();
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className={`fw-list-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${stripeClass} ${stateClass}`}
+            className={`fw-list-row fw-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary transition-colors duration-100 ${stripeClass} ${stateClass}`}
             style={{
               gridTemplateColumns: GRID_TEMPLATE,
               opacity: entryOpacity(entry, cutPaths.has(entry.path)),

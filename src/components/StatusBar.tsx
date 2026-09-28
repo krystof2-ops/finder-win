@@ -91,6 +91,8 @@ type StatusBarProps = {
   /** Počet ve složce bez filtru. */
   totalCount: number;
   filtered: boolean;
+  /** Kolik položek je vybraných; 0 = ukazuje se jen počet. */
+  selectedCount: number;
   freeSpace: number | null;
   onNavigate: (path: string) => void;
   editing: boolean;
@@ -104,6 +106,7 @@ export function StatusBar({
   itemCount,
   totalCount,
   filtered,
+  selectedCount,
   freeSpace,
   onNavigate,
   editing,
@@ -145,7 +148,12 @@ export function StatusBar({
       )}
 
       <div className="shrink-0 whitespace-nowrap">
-        {path && (filtered ? `${itemCount} z ${totalCount} (filtr)` : formatItemCount(itemCount))}
+        {path &&
+          (selectedCount > 0
+            ? `Vybráno ${selectedCount} z ${itemCount}`
+            : filtered
+              ? `${itemCount} z ${totalCount} (filtr)`
+              : formatItemCount(itemCount))}
         {path && freeSpace !== null && `, ${formatFreeSpace(freeSpace)}`}
       </div>
     </footer>

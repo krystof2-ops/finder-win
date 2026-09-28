@@ -57,6 +57,16 @@ export type FileProperties = {
 
 export type ViewMode = "icon" | "list" | "column";
 
+/** Velikost složky z folder_stats — průběžně i na konci. */
+export type FolderStats = {
+  files: number;
+  folders: number;
+  bytes: number;
+  /** Výpočet narazil na strop 200 000 položek; čísla jsou dolní odhad. */
+  truncated: boolean;
+  done: boolean;
+};
+
 /** Interní schránka aplikace — nesouvisí se systémovou schránkou Windows. */
 export type Clipboard = { paths: string[]; mode: "copy" | "cut" };
 

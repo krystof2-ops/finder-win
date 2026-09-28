@@ -1,7 +1,7 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 import { joinPath, splitPath } from "./format";
-import type { FileEntry, FileProperties, OpResult, StatResult } from "./types";
+import type { FileEntry, FileProperties, FolderStats, OpResult, StatResult } from "./types";
 
 /* Tenké typované obálky nad Tauri commandy.
    Tauri převádí snake_case parametry na camelCase, proto toName / toDir. */
@@ -66,6 +66,21 @@ export function openDevice(path: string): Promise<void> {
 
 export function getFileProperties(path: string): Promise<FileProperties> {
   return invoke<FileProperties>("get_file_properties", { path });
+}
+
+/** Velikost a počet položek složky; mezisoučty chodí do `onProgress`. */
+export function folderStats(
+  path: string,
+  requestId: number,
+  onProgress: (stats: FolderStats) => void,
+): Promise<FolderStats> {
+  const channel = new Channel<FolderStats>();
+  channel.onmessage = onProgress;
+  return invoke<FolderStats>("folder_stats", { path, requestId, onProgress: channel });
+}
+
+export function cancelFolderStats(requestId: number): Promise<void> {
+  return invoke<void>("cancel_folder_stats", { requestId });
 }
 
 export function searchRecursive(

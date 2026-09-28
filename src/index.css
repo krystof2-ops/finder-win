@@ -485,6 +485,17 @@ body {
   transform-origin: top left;
 }
 
+/* Řádky výpisu: bez obrysu po kliknutí myší, ale viditelný fokus z klávesnice
+   (Tab) — jinak by uživatel bez myši nevěděl, kde je. */
+.fw-row {
+  outline: none;
+}
+
+.fw-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* Tooltip jen zlehka vybledne — žádný pohyb, ukazuje se pod kurzorem. */
 @keyframes fw-tooltip-in {
   from {

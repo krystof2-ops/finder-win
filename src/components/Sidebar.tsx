@@ -4,9 +4,10 @@ import { ChevronDown, Folder } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { fileVisual, sidebarIcon, sidebarIconColor } from "./icons";
+import { fileVisual, sidebarIcon, sidebarIconColor, sidebarLabel } from "./icons";
 import { openDevice, openInExplorer, openTerminal, parentPath } from "../fileops";
-import { formatRelative } from "../format";
+import { formatItemCount, formatRelative } from "../format";
+import type { ConfirmRequest } from "./ConfirmDialog";
 import { isTypingTarget } from "../lib/dom";
 import { endDrag, getDrag, startDrag, useDrag } from "../lib/dnd";
 import * as storage from "../lib/storage";
@@ -42,16 +43,15 @@ type SidebarProps = {
   onSelectTag: (color: TagColor) => void;
   /** Chyby (Průzkumník, Terminál, schránka) — do stejné hlášky jako v App. */
   onError: (message: string) => void;
+  /** Potvrzení nevratné akce — dialog drží App, ať je jediný v aplikaci. */
+  onConfirm: (request: ConfirmRequest) => void;
 };
 
 /* -------------------------- sdílené stavební díly -------------------------- */
 
-/**
- * "iCloud" má v Finderu i v nadpisu malé úvodní i, což by `text-transform`
- * zahodilo — proto se velká písmena dělají v JS a ne v CSS.
- */
+/** Velká písmena v JS, ne přes text-transform — ať nadpis sedí i ve čtečce. */
 function sectionHeading(label: string): string {
-  return label === "iCloud" ? "iCLOUD" : label.toUpperCase();
+  return label.toUpperCase();
 }
 
 /** Sbalené sekce přežijí restart. Jde o pohodlí jednoho uživatele, ne o data,
@@ -214,7 +214,7 @@ type CustomFavoritesProps = {
   currentPath: string | null;
   windowFocused: boolean;
   onActivate: (item: CustomFavorite) => void;
-  onContextMenu: (item: CustomFavorite, index: number, x: number, y: number) => void;
+  onContextMenu: (item: CustomFavorite, x: number, y: number) => void;
   renamingPath: string | null;
   onRenameSubmit: (path: string, label: string) => void;
   onRenameCancel: () => void;
@@ -340,7 +340,7 @@ function CustomFavorites({
                     if (isTypingTarget(event.target)) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    onContextMenu(item, index, event.clientX, event.clientY);
+                    onContextMenu(item, event.clientX, event.clientY);
                   }}
                   className={`${ROW_CLASS} ${rowStateClass(isActive && !isRenaming, windowFocused)}`}
                 >
@@ -573,7 +573,7 @@ function TagsSection({
 /* -------------------------------- sidebar --------------------------------- */
 
 type SidebarMenu =
-  | { kind: "favorite"; x: number; y: number; item: CustomFavorite; index: number }
+  | { kind: "favorite"; x: number; y: number; item: CustomFavorite }
   | { kind: "recent"; x: number; y: number; entry: RecentEntry }
   /** Položka ze sekcí od backendu (Downloads, iCloud, Zařízení …). */
   | { kind: "section"; x: number; y: number; item: FavoriteEntry }
@@ -593,8 +593,30 @@ export function Sidebar({
   activeTag,
   onSelectTag,
   onError,
+  onConfirm,
 }: SidebarProps) {
   const { favorites, recents, tags } = useStorage();
+
+  function confirmClearRecents() {
+    onConfirm({
+      title: "Vymazat nedávné?",
+      message: "Seznam naposledy otevřených položek se vyprázdní. Soubory samotné zůstanou.",
+      confirmLabel: "Vymazat",
+      danger: true,
+      onConfirm: () => void storage.clearRecents(),
+    });
+  }
+
+  function confirmRemoveTag(color: TagColor) {
+    const count = Object.values(tags).filter((colors) => colors.includes(color)).length;
+    onConfirm({
+      title: `Odebrat štítek ${TAG_LABEL[color].toLowerCase()}?`,
+      message: `Štítek zmizí ze ${formatItemCount(count)}. Soubory samotné zůstanou, ale vrátit štítky zpátky nepůjde.`,
+      confirmLabel: "Odebrat",
+      danger: true,
+      onConfirm: () => void storage.removeTagEverywhere(color),
+    });
+  }
 
   function openDeviceOrReport(path: string) {
     openDevice(path).catch((err: unknown) =>
@@ -727,7 +749,7 @@ export function Sidebar({
             label: "Vymazat nedávné",
             disabled: recents.length === 0,
             danger: true,
-            onSelect: () => void storage.clearRecents(),
+            onSelect: confirmClearRecents,
           },
         );
       }
@@ -763,7 +785,7 @@ export function Sidebar({
           label: "Vymazat všechny nedávné",
           disabled: recents.length === 0,
           danger: true,
-          onSelect: () => void storage.clearRecents(),
+          onSelect: confirmClearRecents,
         },
       ];
     }
@@ -778,7 +800,7 @@ export function Sidebar({
           type: "item",
           label: `Odebrat štítek ${TAG_LABEL[color].toLowerCase()} ze všech položek`,
           danger: true,
-          onSelect: () => void storage.removeTagEverywhere(color),
+          onSelect: () => confirmRemoveTag(color),
         },
       ];
     }
@@ -806,7 +828,7 @@ export function Sidebar({
         reveal(item.path),
         terminal(item.path),
         { type: "separator" },
-        toggleFavorite(item.path, item.label, "folder"),
+        toggleFavorite(item.path, sidebarLabel(item.label), "folder"),
         copyPathItem(item.path),
         showPath(item.path),
       ];
@@ -869,7 +891,7 @@ export function Sidebar({
         type: "item",
         label: "Vymazat všechny nedávné",
         danger: true,
-        onSelect: () => void storage.clearRecents(),
+        onSelect: confirmClearRecents,
       },
     ];
     // toggleSection jen zapisuje do stavu, jeho identita na výsledek nemá vliv.
@@ -885,6 +907,8 @@ export function Sidebar({
     onOpenFile,
     onSelectTag,
     onError,
+    onConfirm,
+    tags,
   ]);
 
   return (
@@ -904,7 +928,7 @@ export function Sidebar({
         currentPath={currentPath}
         windowFocused={windowFocused}
         onActivate={activateFavorite}
-        onContextMenu={(item, index, x, y) => setMenu({ kind: "favorite", item, index, x, y })}
+        onContextMenu={(item, x, y) => setMenu({ kind: "favorite", item, x, y })}
         renamingPath={renamingPath}
         onRenameSubmit={(path, label) => {
           setRenamingPath(null);
@@ -960,7 +984,7 @@ export function Sidebar({
                         className="fw-sidebar-icon shrink-0"
                         color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
                       />
-                      <span className="truncate">{item.label}</span>
+                      <span className="truncate">{sidebarLabel(item.label)}</span>
                     </button>
                   );
                 })}

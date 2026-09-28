@@ -67,7 +67,8 @@ export function IconView({
           <div
             key={entry.path}
             data-path={entry.path}
-            role="button"
+            role="option"
+            aria-selected={isSelected}
             tabIndex={0}
             data-tooltip={entry.name}
             // Přejmenovaný řádek se netahá — jinak by drag ukradl výběr v inputu.
@@ -91,7 +92,7 @@ export function IconView({
               event.stopPropagation();
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className="fw-card flex h-[118px] w-full flex-col items-center gap-1 outline-none"
+            className="fw-card fw-row flex h-[118px] w-full flex-col items-center gap-1"
             style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}
           >
             {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —

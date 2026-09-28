@@ -103,26 +103,6 @@ function folderEntry(path: string): FileEntry {
   };
 }
 
-/** Přepínač skrytých souborů. null = uživatel ho ještě nezměnil a platí
- *  nastavení Průzkumníku, které se dotáhne z backendu. */
-const SHOW_HIDDEN_KEY = "finder-show-hidden";
-
-function readStoredShowHidden(): boolean | null {
-  try {
-    const raw = localStorage.getItem(SHOW_HIDDEN_KEY);
-    return raw === null ? null : raw === "true";
-  } catch {
-    return null;
-  }
-}
-
-function storeShowHidden(value: boolean) {
-  try {
-    localStorage.setItem(SHOW_HIDDEN_KEY, String(value));
-  } catch {
-    // Bez úložiště se volba jen nezapamatuje.
-  }
-}
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -211,7 +191,9 @@ export default function App() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [query, setQuery] = useState("");
   const [quickLookOpen, setQuickLookOpen] = useState(false);
-  const [showHidden, setShowHidden] = useState<boolean | null>(readStoredShowHidden);
+  /** Přepínač skrytých souborů. null = ještě se neví (čeká se na settings.json
+   *  a případně na nastavení Průzkumníku) — výpis se do té doby nenačítá. */
+  const [showHidden, setShowHidden] = useState<boolean | null>(null);
   /** Náhled položky z výsledků hledání nebo z tag view — ty nejsou ve výpisu
    *  složky, takže běžný Quick Look nad `activeEntry` je neuvidí. */
   const [overlayPreview, setOverlayPreview] = useState<FileEntry | null>(null);
@@ -267,25 +249,28 @@ export default function App() {
     setNotice,
   );
 
-  // Dokud si uživatel přepínač nezmění sám, platí to, co má nastavené Průzkumník.
+  // Persistentní nastavení se načte jednou; do té doby jedou sekce prázdné.
+  // Přepínač skrytých souborů bere uloženou volbu, a dokud si ho uživatel
+  // nezměnil sám, platí to, co má nastavené Průzkumník.
   useEffect(() => {
-    if (showHidden !== null) return;
-    invoke<boolean>("explorer_shows_hidden")
-      .then(setShowHidden)
-      .catch(() => setShowHidden(false));
-  }, [showHidden]);
+    void storage.init().then(() => {
+      const saved = storage.getSnapshot().showHidden;
+      if (saved !== null) {
+        setShowHidden(saved);
+        return;
+      }
+      invoke<boolean>("explorer_shows_hidden")
+        .then(setShowHidden)
+        .catch(() => setShowHidden(false));
+    });
+  }, []);
 
   const toggleHidden = useCallback(() => {
     setShowHidden((current) => {
       const next = !current;
-      storeShowHidden(next);
+      void storage.setShowHidden(next);
       return next;
     });
-  }, []);
-
-  // Persistentní nastavení se načte jednou; do té doby jedou sekce prázdné.
-  useEffect(() => {
-    void storage.init();
   }, []);
 
   useEffect(() => applyTheme(theme), [theme]);
@@ -413,6 +398,19 @@ export default function App() {
     const id = ++requestId.current;
     const path = nav.current;
 
+    // Volné místo ukazuje status bar ve všech režimech.
+    invoke<number>("get_disk_free_space", { path })
+      .then((bytes) => {
+        if (requestId.current === id) setFreeSpace(bytes);
+      })
+      .catch(() => {
+        if (requestId.current === id) setFreeSpace(null);
+      });
+
+    // Column view si sloupce načítá sám (columns.ts) — výpis nav.current by
+    // se tu stahoval podruhé a nikde nepoužil. Při přepnutí zpátky se načte.
+    if (viewMode === "column") return;
+
     setLoading(true);
     setError(null);
 
@@ -432,15 +430,7 @@ export default function App() {
       .finally(() => {
         if (requestId.current === id) setLoading(false);
       });
-
-    invoke<number>("get_disk_free_space", { path })
-      .then((bytes) => {
-        if (requestId.current === id) setFreeSpace(bytes);
-      })
-      .catch(() => {
-        if (requestId.current === id) setFreeSpace(null);
-      });
-  }, [nav.current, refreshToken, showHidden]);
+  }, [nav.current, refreshToken, showHidden, viewMode]);
 
   const sortedEntries = useMemo(
     () => sortEntries(entries, sortKey, sortDirection),
@@ -578,16 +568,42 @@ export default function App() {
 
   const open = useCallback(
     (entry: FileEntry) => {
-      selectEntry(entry);
-
       if (entry.is_dir) {
         void storage.addRecent(entry.path, entry.name, "folder");
+
+        // V column view se složka otevírá do dalšího sloupce (jako Enter a →).
+        // navigate() by sloupce zbořil na jediný.
+        if (isColumnView) {
+          const parent = parentPath(entry.path);
+          const index = columnsApi.columns.findIndex(
+            (column) => parent !== null && storage.samePath(column.path, parent),
+          );
+          if (index >= 0) {
+            columnsApi.openInto(index, entry);
+            return;
+          }
+        }
+
+        selectEntry(entry);
         navigate(entry.path);
       } else {
+        selectEntry(entry);
         openFile(entry);
       }
     },
-    [navigate, openFile, selectEntry],
+    [navigate, openFile, selectEntry, isColumnView, columnsApi],
+  );
+
+  /** Dvojklik ve výsledcích hledání / tag view: složka se otevře (a výsledky
+   *  se tím zavřou), soubor spustí výchozí aplikací. Výběr v podkladové
+   *  složce se nemění — položka v ní vůbec nemusí být. */
+  const openFromResults = useCallback(
+    (entry: FileEntry) => {
+      if (!entry.is_dir) return openFile(entry);
+      void storage.addRecent(entry.path, entry.name, "folder");
+      navigate(entry.path);
+    },
+    [navigate, openFile],
   );
 
   /** Sidebar volá s holou cestou — nedávné o FileEntry nevědí. */
@@ -930,6 +946,9 @@ export default function App() {
       // pod otevřenými Vlastnostmi šel dřív stisknout Delete a smazat výběr,
       // který uživatel za dialogem ani neviděl.
       if (modalOpen) return;
+      // Menu, která drží vlastní stav mimo App (Více v toolbaru, sidebar) —
+      // pod nimi nesmí projít Delete, F2 ani Ctrl+V. Menu se pozná podle DOM.
+      if (document.querySelector("[data-fw-menu]")) return;
       if (isTypingTarget(event.target)) return;
 
       // Escape ve výsledcích hledání je zavře (a tím zastaví běžící průchod
@@ -946,6 +965,14 @@ export default function App() {
       if (tagFilter !== null || search !== null) return;
 
       const ctrl = event.ctrlKey || event.metaKey;
+
+      // Ctrl+Shift+. (jako Cmd+Shift+. ve Finderu) — podle fyzické klávesy,
+      // tečka je na české klávese jinde než na anglické.
+      if (ctrl && event.shiftKey && event.code === "Period") {
+        event.preventDefault();
+        toggleHidden();
+        return;
+      }
 
       if (ctrl) {
         switch (event.key.toLowerCase()) {
@@ -995,10 +1022,6 @@ export default function App() {
           case "r":
             event.preventDefault();
             refresh();
-            return;
-          case "h":
-            event.preventDefault();
-            toggleHidden();
             return;
           default:
             return;
@@ -1196,11 +1219,31 @@ export default function App() {
     [isColumnView, tagFilter, search],
   );
 
+  /** Tag view a výsledky hledání se navzájem vylučují — jinak by status bar
+   *  hlásil počet z hledání a živé obnovení zůstalo vypnuté. */
+  const selectTag = useCallback(
+    (color: TagColor) => {
+      if (search !== null) setQuery("");
+      setSearch(null);
+      setTagFilter(color);
+    },
+    [search],
+  );
+
   const openStatusMenu = useCallback(
     (x: number, y: number) => {
       if (currentDir !== null) setMenu({ kind: "status", x, y, dir: currentDir });
     },
     [currentDir],
+  );
+
+  /** Soubor přepnutý šipkami v Quick Look se označí i ve výpisu. */
+  const syncQuickLookSelection = useCallback(
+    (entry: FileEntry) => {
+      if (isColumnView) columnsApi.select(columnsApi.focusedIndex, entry);
+      else selectEntry(entry);
+    },
+    [isColumnView, columnsApi, selectEntry],
   );
 
   const openQuickLookMenu = useCallback((entry: FileEntry, x: number, y: number) => {
@@ -1306,7 +1349,7 @@ export default function App() {
             {
               type: "item",
               label: "Skryté soubory",
-              shortcut: "Ctrl+H",
+              shortcut: "Ctrl+Shift+.",
               checked: showHidden === true,
               onSelect: toggleHidden,
             },
@@ -1395,8 +1438,17 @@ export default function App() {
         label: "Otevřít",
         shortcut: "Enter",
         // open() by soubor označil v podkladové složce, kde vůbec není.
-        onSelect: () => (overlay && !entry.is_dir ? openFile(entry) : open(entry)),
+        onSelect: () => (overlay ? openFromResults(entry) : open(entry)),
       },
+      // Výsledky hledání a tag view jsou rozcestník — odtud se položka odkrývá
+      // v její složce (dřív to dělal jeden klik).
+      overlay && parentPath(entry.path) !== null
+        ? {
+            type: "item",
+            label: "Zobrazit ve složce",
+            onSelect: () => reveal(entry.path),
+          }
+        : null,
       entry.is_dir
         ? null
         : {
@@ -1552,6 +1604,7 @@ export default function App() {
     toggleHidden,
     open,
     openFile,
+    openFromResults,
     reveal,
     previewEntry,
     revealInExplorer,
@@ -1610,14 +1663,17 @@ export default function App() {
         ? columnEntries.length
         : sortedEntries.length;
 
+  // "Vybráno N z M" — ve výsledcích a v tag view výběr v podkladové složce není.
+  const statusSelectedCount =
+    inSearch || inTagView ? 0 : isColumnView ? (columnSelected ? 1 : 0) : targetEntries.length;
+
   function renderContent() {
     if (tagFilter !== null) {
       return (
         <TagView
           color={tagFilter}
           windowFocused={windowFocused}
-          onReveal={reveal}
-          onOpen={openFile}
+          onOpen={openFromResults}
           onContextMenu={openOverlayMenu}
           refreshToken={refreshToken}
           onCountChange={setTagCount}
@@ -1631,8 +1687,7 @@ export default function App() {
           root={search.root}
           query={search.query}
           windowFocused={windowFocused}
-          onReveal={reveal}
-          onOpen={openFile}
+          onOpen={openFromResults}
           onContextMenu={openOverlayMenu}
           refreshToken={refreshToken}
           showHidden={showHidden ?? false}
@@ -1721,8 +1776,9 @@ export default function App() {
           onOpenFile={openRecentFile}
           onReveal={reveal}
           activeTag={tagFilter}
-          onSelectTag={setTagFilter}
+          onSelectTag={selectTag}
           onError={setNotice}
+          onConfirm={setConfirm}
         />
 
         <main className="surface flex min-w-0 flex-1 flex-col bg-main">
@@ -1774,10 +1830,13 @@ export default function App() {
       </div>
 
       <StatusBar
-        path={nav.current}
+        path={currentDir}
         itemCount={statusVisibleCount}
         totalCount={statusTotalCount}
-        filtered={needle.length > 0}
+        // Ve výsledcích hledání a v tag view je dotaz celek, ne filtr —
+        // jinak by status hlásil "12 z 12 (filtr)".
+        filtered={needle.length > 0 && !inSearch && !inTagView}
+        selectedCount={statusSelectedCount}
         freeSpace={freeSpace}
         onNavigate={navigate}
         editing={pathEditing}
@@ -1793,6 +1852,7 @@ export default function App() {
           style={{ bottom: 32 }}
         >
           <div
+            role={notice.sticky ? "alert" : "status"}
             className={`pointer-events-auto flex max-w-[70%] items-center gap-3 rounded-lg px-3 py-2 text-[12px] ${
               noticeClosing ? "fw-toast-out" : "fw-toast-in"
             }`}
@@ -1837,6 +1897,7 @@ export default function App() {
           onClose={() => setQuickLookOpen(false)}
           onOpenFile={openFile}
           onContextMenu={openQuickLookMenu}
+          onCurrentChange={syncQuickLookSelection}
         />
       )}
 

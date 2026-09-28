@@ -92,6 +92,7 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
                 type="button"
                 data-tooltip={TAG_LABEL[color]}
                 aria-pressed={isActive}
+                aria-label={`Tag ${TAG_LABEL[color]}`}
                 // Menu po kliknutí schválně zůstává — tagů jde přidat víc najednou.
                 onClick={() => onToggle(color)}
                 className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full transition-transform duration-100 hover:scale-110"
@@ -141,6 +142,8 @@ function ActionRow({
   return (
     <button
       type="button"
+      role={item.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+      aria-checked={item.checked}
       disabled={item.disabled}
       onMouseEnter={onHover}
       onClick={() => {
@@ -313,6 +316,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       ref={menuRef}
       // Podle atributu tooltipy poznají, že je otevřené menu, a neukážou se.
       data-fw-menu=""
+      role="menu"
       className={`fixed z-[60] rounded-md p-1 text-[13px] ${closing ? "fw-menu-out" : "fw-menu"}`}
       style={{
         ...PANEL_STYLE,

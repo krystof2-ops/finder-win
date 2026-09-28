@@ -19,6 +19,7 @@ const STORE_FILE = "settings.json";
 const KEY_FAVORITES = "favorites";
 const KEY_RECENTS = "recents";
 const KEY_TAGS = "tags";
+const KEY_SHOW_HIDDEN = "showHidden";
 
 /** Kolik nedávných se drží na disku. Sidebar jich ukazuje míň. */
 export const RECENTS_LIMIT = 20;
@@ -27,9 +28,11 @@ export type Snapshot = {
   favorites: CustomFavorite[];
   recents: RecentEntry[];
   tags: TagMap;
+  /** null = uživatel přepínač ještě nezměnil, platí nastavení Průzkumníku. */
+  showHidden: boolean | null;
 };
 
-const EMPTY: Snapshot = { favorites: [], recents: [], tags: {} };
+const EMPTY: Snapshot = { favorites: [], recents: [], tags: {}, showHidden: null };
 
 let store: Store | null = null;
 let cache: Snapshot = EMPTY;
@@ -150,16 +153,18 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags] = await Promise.all([
+    const [favorites, recents, tags, showHidden] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
+      store.get<unknown>(KEY_SHOW_HIDDEN),
     ]);
 
     commit({
       favorites: sanitizeFavorites(favorites),
       recents: sanitizeRecents(recents),
       tags: sanitizeTags(tags),
+      showHidden: typeof showHidden === "boolean" ? showHidden : null,
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -182,11 +187,14 @@ async function persist(key: string, value: unknown): Promise<void> {
   }
 }
 
-/* ------------------------------- oblíbené ---------------------------------- */
+/* ---------------------------- skryté soubory -------------------------------- */
 
-export function getFavorites(): CustomFavorite[] {
-  return cache.favorites;
+export async function setShowHidden(value: boolean): Promise<void> {
+  commit({ showHidden: value });
+  await persist(KEY_SHOW_HIDDEN, value);
 }
+
+/* ------------------------------- oblíbené ---------------------------------- */
 
 export async function setFavorites(items: CustomFavorite[]): Promise<void> {
   commit({ favorites: items });
@@ -241,10 +249,6 @@ export async function moveFavorite(from: number, to: number): Promise<void> {
 
 /* -------------------------------- nedávné ---------------------------------- */
 
-export function getRecents(): RecentEntry[] {
-  return cache.recents;
-}
-
 /**
  * Nejnovější první. Když už cesta v seznamu je, jen se vytáhne nahoru
  * s novým časem — jinak by pár často otvíraných souborů seznam zaplevelilo.
@@ -268,10 +272,6 @@ export async function clearRecents(): Promise<void> {
 }
 
 /* ---------------------------------- tagy ----------------------------------- */
-
-export function getTags(): TagMap {
-  return cache.tags;
-}
 
 export async function setTags(map: TagMap): Promise<void> {
   commit({ tags: map });

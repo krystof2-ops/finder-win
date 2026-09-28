@@ -17,7 +17,8 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 - **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
 - **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
 - **Sidebar**
-  - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos), OneDrive / iCloud Drive when present, drive C: and your home folder,
+  - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos, Home), OneDrive / iCloud Drive when present,
+  - **all connected drives** (USB drives get their own icon) and phones / cameras; the list updates as soon as a device is plugged in or removed,
   - **custom favorites** – drag any folder onto the sidebar to add it, drag to reorder, right-click to rename or remove; saved between sessions,
   - **Recents** – recently opened items with relative times,
   - **Tags** – colors that are in use, with item counts.
@@ -45,6 +46,8 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `F2` | Rename |
 | `Delete` | Move to Recycle Bin |
 | `Ctrl+R` / `F5` | Refresh |
+| `Ctrl+Shift+.` | Show / hide hidden files (follows the Explorer setting until changed) |
+| `Esc` | Clear selection; close search results |
 | `↑` `↓` `←` `→` `Home` `End` | Move within Column view |
 | `←` / `→`, `Esc` | Previous / next file, close (in Quick Look) |
 | Mouse button 4 / 5 | Back / forward |
@@ -81,10 +84,9 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - **No drag & drop of files** between folders or from Windows Explorer. Dragging currently only adds folders to the sidebar.
 - **Copy / cut / paste works only inside the app**, not through the system clipboard (you can't paste into Explorer). "Copy path" does use the system clipboard.
 - The **Sort, Share and Tags buttons in the toolbar do nothing yet**. Sorting works through the List view column headers.
-- **Hidden and system files are always hidden**, there is no toggle.
-- **Only drive C:** is listed in the sidebar; other drives are reachable by typing the path (Ctrl+L).
+- **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
 - **No image thumbnails**, files show a type icon.
-- Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and `target` folders.
+- Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
 - No tabs or multiple windows.
 - The installer is **not code-signed** (see SmartScreen above).
 

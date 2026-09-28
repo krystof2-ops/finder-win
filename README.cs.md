@@ -15,7 +15,8 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 - **Tři režimy zobrazení** – Ikony, Seznam (řaditelné sloupce, pruhované řádky) a Sloupce (Miller columns s info panelem vybraného souboru).
 - **Okno ve stylu macOS** – vlastní titulkový pruh se „semaforem“, zaoblené rohy, tenké scrollbary.
 - **Postranní panel**
-  - standardní složky (Plocha, Stažené, Dokumenty, Obrázky, Hudba, Videa), OneDrive / iCloud Drive, pokud existují, disk C: a domovská složka,
+  - standardní složky (Plocha, Stažené, Dokumenty, Obrázky, Hudba, Videa, Domů), OneDrive / iCloud Drive, pokud existují,
+  - **všechny připojené disky** (USB disky s vlastní ikonou) a telefony / fotoaparáty; seznam se aktualizuje hned po připojení nebo odpojení,
   - **vlastní oblíbené** – přetažením složky do panelu ji přidáš, tažením přeuspořádáš, pravým klikem přejmenuješ nebo odebereš; ukládá se mezi spuštěními,
   - **Nedávné** – naposledy otevřené položky s relativním časem,
   - **Tagy** – použité barvy s počtem položek.
@@ -43,6 +44,8 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 | `F2` | Přejmenovat |
 | `Delete` | Přesunout do koše |
 | `Ctrl+R` / `F5` | Obnovit |
+| `Ctrl+Shift+.` | Zobrazit / skrýt skryté soubory (dokud ho nezměníš, řídí se Průzkumníkem) |
+| `Esc` | Zrušit výběr; zavřít výsledky hledání |
 | `↑` `↓` `←` `→` `Home` `End` | Pohyb ve sloupcovém zobrazení |
 | `←` / `→`, `Esc` | Předchozí / další soubor, zavřít (v Quick Look) |
 | Tlačítko myši 4 / 5 | Zpět / vpřed |
@@ -79,10 +82,9 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 - **Chybí drag & drop souborů** mezi složkami i z Průzkumníku. Tažením jde zatím jen přidat složku do postranního panelu.
 - **Kopírovat / vyjmout / vložit funguje jen uvnitř aplikace**, ne přes systémovou schránku (do Průzkumníku vložit nejde). „Kopírovat cestu“ systémovou schránku používá.
 - **Tlačítka Seřadit, Sdílet a Štítky v toolbaru zatím nic nedělají.** Řadit jde přes hlavičky sloupců v zobrazení Seznam.
-- **Skryté a systémové soubory jsou vždy skryté**, přepínač není.
-- **V panelu je jen disk C:**, ostatní disky jsou dostupné zadáním cesty (Ctrl+L).
+- **Telefony a fotoaparáty** (iPhone, Android — zařízení MTP) jsou v panelu vidět, ale klik je otevře v Průzkumníku Windows; přímo v aplikaci se procházet nedají.
 - **Bez náhledů obrázků**, soubory mají ikonu podle typu.
-- Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a `target`.
+- Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a rustové `target` (jen ty vedle `Cargo.toml`).
 - Žádné taby ani víc oken.
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 

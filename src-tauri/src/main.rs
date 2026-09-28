@@ -211,13 +211,46 @@ fn make_entry(path: &Path, metadata: &fs::Metadata) -> FileEntry {
     }
 }
 
-/// Nejdřív složky, pak soubory; uvnitř abecedně bez ohledu na velikost písmen.
+/// Kus názvu pro přirozené řazení. Číslo se porovnává hodnotou (délka bez
+/// úvodních nul, pak číslice), takže "foto2" jde před "foto10". Čísla před
+/// textem, stejně jako Intl.Collator s numeric: true ve frontendu.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum NameChunk {
+    Number(usize, String),
+    Text(String),
+}
+
+fn natural_key(name: &str) -> Vec<NameChunk> {
+    let lower = name.to_lowercase();
+    let mut chunks = Vec::new();
+    let mut chars = lower.chars().peekable();
+
+    while let Some(&first) = chars.peek() {
+        let numeric = first.is_ascii_digit();
+        let mut chunk = String::new();
+        while let Some(&c) = chars.peek() {
+            if c.is_ascii_digit() != numeric {
+                break;
+            }
+            chunk.push(c);
+            chars.next();
+        }
+
+        if numeric {
+            let value = chunk.trim_start_matches('0').to_string();
+            chunks.push(NameChunk::Number(value.len(), value));
+        } else {
+            chunks.push(NameChunk::Text(chunk));
+        }
+    }
+
+    chunks
+}
+
+/// Nejdřív složky, pak soubory; uvnitř přirozeně a bez ohledu na velikost
+/// písmen. Klíč se spočítá jednou na položku, ne při každém porovnání.
 fn sort_entries(entries: &mut [FileEntry]) {
-    entries.sort_by(|a, b| {
-        b.is_dir
-            .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
+    entries.sort_by_cached_key(|entry| (!entry.is_dir, natural_key(&entry.name)));
 }
 
 // Všechny commandy jsou `(async)` schválně. Bez toho by je Tauri pustilo na
@@ -647,6 +680,8 @@ fn watch_dirs(
 fn get_favorites() -> Vec<FavoriteSection> {
     let home = dirs::home_dir();
 
+    // Popisky jsou anglické klíče — do češtiny je překládá frontend
+    // (sidebarLabel v icons.tsx), backend jen říká, co to je.
     let standard = [
         ("Desktop", dirs::desktop_dir(), "Monitor"),
         ("Downloads", dirs::download_dir(), "Download"),
@@ -654,32 +689,44 @@ fn get_favorites() -> Vec<FavoriteSection> {
         ("Pictures", dirs::picture_dir(), "Image"),
         ("Music", dirs::audio_dir(), "Music"),
         ("Videos", dirs::video_dir(), "Video"),
+        ("Home", home.clone(), "Home"),
     ]
     .into_iter()
     .filter_map(|(label, path, icon)| path.map(|path| favorite(label, path, icon)))
     .collect();
 
-    let cloud = [
-        ("OneDrive", "OneDrive", "Cloud"),
-        ("iCloud Drive", "iCloudDrive", "Cloud"),
-        ("iCloud Photos", "iCloudPhotos", "Image"),
-    ]
-    .into_iter()
-    .filter_map(|(label, dir, icon)| {
-        let path = home.as_ref()?.join(dir);
-        favorite_if_exists(label, path, icon)
-    })
-    .collect();
+    // OneDrive se hledá přes proměnné prostředí, které si nastavuje sám —
+    // firemní účet žije v "OneDrive - Firma", ne v %USERPROFILE%\OneDrive.
+    let mut cloud: Vec<FavoriteEntry> = Vec::new();
+    for variable in ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"] {
+        let Some(path) = std::env::var_os(variable).map(PathBuf::from) else { continue };
+        let already = cloud
+            .iter()
+            .any(|item| item.path.eq_ignore_ascii_case(&path.to_string_lossy()));
+        if already || !path.is_dir() {
+            continue;
+        }
+        let label = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_else(|| "OneDrive".to_string());
+        cloud.push(favorite(&label, &path, "Cloud"));
+    }
+    cloud.extend(
+        [("iCloud Drive", "iCloudDrive", "Cloud"), ("iCloud Photos", "iCloudPhotos", "Image")]
+            .into_iter()
+            .filter_map(|(label, dir, icon)| {
+                let path = home.as_ref()?.join(dir);
+                favorite_if_exists(label, path, icon)
+            }),
+    );
 
     let mut devices = drive_favorites();
     devices.extend(portable_devices());
-    if let Some(home) = home {
-        devices.push(favorite("Home", home, "Home"));
-    }
 
     [
         section("Oblíbené", standard),
-        section("iCloud", cloud),
+        section("Cloud", cloud),
         section("Zařízení", devices),
     ]
     .into_iter()
@@ -1535,6 +1582,94 @@ fn search_recursive(
     Ok(entries)
 }
 
+/// Strop pro výpočet velikosti složky. C:\Windows má stovky tisíc souborů —
+/// dialog Vlastnosti na to nesmí čekat minuty; nad stropem ukáže "více než".
+const FOLDER_STATS_LIMIT: u64 = 200_000;
+
+/// Průběžný i konečný stav výpočtu velikosti složky.
+#[derive(Clone, Serialize)]
+struct FolderStats {
+    files: u64,
+    folders: u64,
+    bytes: u64,
+    /// Výpočet narazil na FOLDER_STATS_LIMIT — čísla jsou dolní odhad.
+    truncated: bool,
+    done: bool,
+}
+
+/// Běžící výpočty podle id — zavřený dialog svůj výpočet zruší.
+#[derive(Default)]
+struct FolderStatsState {
+    running: std::sync::Mutex<
+        std::collections::HashMap<u64, std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    >,
+}
+
+/// Projde složku (bez následování odkazů) a průběžně, zhruba 4× za sekundu,
+/// posílá mezisoučty — dialog tak ukazuje čísla hned, ne až po minutě.
+#[tauri::command(async)]
+fn folder_stats(
+    state: tauri::State<'_, FolderStatsState>,
+    path: String,
+    request_id: u64,
+    on_progress: tauri::ipc::Channel<FolderStats>,
+) -> Result<FolderStats, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    state
+        .running
+        .lock()
+        .map_err(|err| err.to_string())?
+        .insert(request_id, cancelled.clone());
+
+    let mut stats = FolderStats { files: 0, folders: 0, bytes: 0, truncated: false, done: false };
+    let mut last_report = Instant::now();
+
+    for item in WalkDir::new(&path).follow_links(false).min_depth(1) {
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
+        // Nečitelné podsložky se přeskočí — jedna zamčená větev nesmí shodit součet.
+        let Ok(item) = item else { continue };
+
+        if item.file_type().is_dir() {
+            stats.folders += 1;
+        } else {
+            stats.files += 1;
+            stats.bytes += item.metadata().map(|meta| meta.len()).unwrap_or(0);
+        }
+
+        if stats.files + stats.folders >= FOLDER_STATS_LIMIT {
+            stats.truncated = true;
+            break;
+        }
+        if last_report.elapsed() >= Duration::from_millis(250) {
+            last_report = Instant::now();
+            let _ = on_progress.send(stats.clone());
+        }
+    }
+
+    if let Ok(mut running) = state.running.lock() {
+        running.remove(&request_id);
+    }
+
+    stats.done = true;
+    let _ = on_progress.send(stats.clone());
+    Ok(stats)
+}
+
+#[tauri::command(async)]
+fn cancel_folder_stats(state: tauri::State<'_, FolderStatsState>, request_id: u64) {
+    if let Ok(running) = state.running.lock() {
+        if let Some(flag) = running.get(&request_id) {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}
+
 #[tauri::command(async)]
 fn get_file_properties(path: String) -> Result<FileProperties, String> {
     let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
@@ -1691,6 +1826,7 @@ fn main() {
 
             let (sender, receiver) = std::sync::mpsc::channel();
             app.manage(SearchState::default());
+            app.manage(FolderStatsState::default());
             app.manage(DirWatcher {
                 current: std::sync::Mutex::new(WatchState::default()),
                 changes: std::sync::Mutex::new(sender),
@@ -1722,7 +1858,9 @@ fn main() {
             open_device,
             explorer_shows_hidden,
             trash_is_permanent,
-            cancel_search
+            cancel_search,
+            folder_stats,
+            cancel_folder_stats
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

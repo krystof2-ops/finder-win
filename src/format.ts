@@ -1,3 +1,4 @@
+import { fileType, type PreviewKind } from "./lib/filetypes";
 import type { FileEntry } from "./types";
 
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
@@ -116,110 +117,34 @@ export function breadcrumbs(path: string): Crumb[] {
 
 /* ------------------------------ druh souboru ------------------------------ */
 
-const KINDS: Record<string, string> = {
-  pdf: "Dokument PDF",
-  txt: "Textový dokument",
-  md: "Dokument Markdown",
-  rtf: "Dokument RTF",
-  doc: "Dokument Word",
-  docx: "Dokument Word",
-  xls: "Sešit Excel",
-  xlsx: "Sešit Excel",
-  ppt: "Prezentace PowerPoint",
-  pptx: "Prezentace PowerPoint",
-  jpg: "Obrázek JPEG",
-  jpeg: "Obrázek JPEG",
-  png: "Obrázek PNG",
-  gif: "Obrázek GIF",
-  webp: "Obrázek WebP",
-  svg: "Obrázek SVG",
-  bmp: "Obrázek BMP",
-  heic: "Obrázek HEIC",
-  ico: "Ikona",
-  mp4: "Video MP4",
-  mov: "Video QuickTime",
-  mkv: "Video MKV",
-  avi: "Video AVI",
-  webm: "Video WebM",
-  wmv: "Video WMV",
-  mp3: "Zvuk MP3",
-  wav: "Zvuk WAV",
-  flac: "Zvuk FLAC",
-  m4a: "Zvuk M4A",
-  aac: "Zvuk AAC",
-  ogg: "Zvuk OGG",
-  zip: "Archiv ZIP",
-  rar: "Archiv RAR",
-  "7z": "Archiv 7z",
-  tar: "Archiv TAR",
-  gz: "Archiv GZip",
-  iso: "Obraz disku",
-  exe: "Aplikace",
-  msi: "Instalátor",
-  dll: "Knihovna DLL",
-  json: "Dokument JSON",
-  html: "Dokument HTML",
-  css: "Šablona stylů",
-  toml: "Konfigurace TOML",
-  yml: "Konfigurace YAML",
-  yaml: "Konfigurace YAML",
-  ttf: "Písmo TrueType",
-  otf: "Písmo OpenType",
-  lnk: "Zástupce",
-  url: "Internetový zástupce",
-};
-
-const SOURCE_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-  "cs", "rb", "php", "swift", "kt", "sh", "ps1", "sql", "lua", "dart",
-]);
-
-/** Sloupec "Kind" v list view. */
+/** Sloupec "Druh" v list view. Tabulka přípon je v lib/filetypes.ts. */
 export function kindLabel(entry: FileEntry): string {
   if (entry.is_dir) return "Složka";
   if (!entry.extension) return "Dokument";
-
-  const known = KINDS[entry.extension];
-  if (known) return known;
-  if (SOURCE_EXTENSIONS.has(entry.extension)) {
-    return `Zdrojový kód ${entry.extension.toUpperCase()}`;
-  }
-
-  return `Soubor ${entry.extension.toUpperCase()}`;
+  return fileType(entry.extension)?.kind ?? `Soubor ${entry.extension.toUpperCase()}`;
 }
 
 /* ------------------------------ Quick Look -------------------------------- */
 
-export type PreviewKind = "image" | "pdf" | "markdown" | "text" | "video" | "audio" | "other";
-
-const PREVIEW_IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico"]);
-const PREVIEW_MARKDOWN = new Set(["md", "markdown"]);
-const PREVIEW_VIDEO = new Set(["mp4", "webm", "mov", "mkv", "avi"]);
-const PREVIEW_AUDIO = new Set(["mp3", "wav", "flac", "ogg", "m4a", "aac"]);
-const PREVIEW_TEXT = new Set([
-  "txt", "json", "js", "ts", "tsx", "jsx", "py", "rs", "html", "css", "yaml",
-  "yml", "toml", "xml", "log", "csv", "ini", "bat", "ps1", "sh", "go", "java",
-  "cs", "c", "cpp", "h", "hpp",
-]);
+export type { PreviewKind };
 
 /** Jakým způsobem se soubor ukáže v Quick Look náhledu. */
 export function previewKind(entry: FileEntry): PreviewKind {
   if (entry.is_dir) return "other";
-
-  const extension = entry.extension ?? "";
-
-  // Markdown má přednost před obecným textem.
-  if (PREVIEW_MARKDOWN.has(extension)) return "markdown";
-  if (PREVIEW_IMAGE.has(extension)) return "image";
-  if (extension === "pdf") return "pdf";
-  if (PREVIEW_VIDEO.has(extension)) return "video";
-  if (PREVIEW_AUDIO.has(extension)) return "audio";
-  if (PREVIEW_TEXT.has(extension)) return "text";
-
-  return "other";
+  return fileType(entry.extension)?.preview ?? "other";
 }
-
 /* --------------------------------- řazení --------------------------------- */
+
+/**
+ * Přirozené řazení jako v Průzkumníku: "foto2" před "foto10", bez ohledu na
+ * velikost písmen, s českou abecedou (č za c). Backend řadí stejně
+ * (sort_entries), frontend ale výsledek stejně přeřazuje podle zvoleného sloupce.
+ */
+const NAME_COLLATOR = new Intl.Collator("cs", { sensitivity: "base", numeric: true });
+
+export function compareNames(a: string, b: string): number {
+  return NAME_COLLATOR.compare(a, b);
+}
 
 export type SortKey = "name" | "modified" | "size" | "kind";
 export type SortDirection = "asc" | "desc";
@@ -241,9 +166,9 @@ export function sortEntries(
       case "size":
         return (a.size - b.size) * factor;
       case "kind":
-        return kindLabel(a).localeCompare(kindLabel(b), "cs") * factor;
+        return compareNames(kindLabel(a), kindLabel(b)) * factor;
       case "name":
-        return a.name.localeCompare(b.name, "cs", { sensitivity: "base" }) * factor;
+        return compareNames(a.name, b.name) * factor;
     }
   });
 }

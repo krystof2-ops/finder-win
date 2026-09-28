@@ -242,9 +242,19 @@ type QuickLookProps = {
   onOpenFile: (entry: FileEntry) => void;
   /** Pravý klik na kartu — menu pro právě zobrazený soubor. */
   onContextMenu: (entry: FileEntry, x: number, y: number) => void;
+  /** Šipky přepnuly soubor — výběr ve výpisu se má posunout s ním, jinak
+   *  by po zavření zůstal vybraný ten, kterým se začínalo. */
+  onCurrentChange?: (entry: FileEntry) => void;
 };
 
-export function QuickLook({ entries, entry, onClose, onOpenFile, onContextMenu }: QuickLookProps) {
+export function QuickLook({
+  entries,
+  entry,
+  onClose,
+  onOpenFile,
+  onContextMenu,
+  onCurrentChange,
+}: QuickLookProps) {
   const files = useMemo(() => entries.filter((item) => !item.is_dir), [entries]);
 
   const [currentPath, setCurrentPath] = useState(entry.path);
@@ -279,8 +289,9 @@ export function QuickLook({ entries, entry, onClose, onOpenFile, onContextMenu }
       const next = index + delta;
       if (next < 0 || next >= files.length) return;
       setCurrentPath(files[next].path);
+      onCurrentChange?.(files[next]);
     },
-    [index, files],
+    [index, files, onCurrentChange],
   );
 
   // Fade + scale in po připojení; zavření běží zrcadlově přes requestClose.
@@ -394,6 +405,9 @@ export function QuickLook({ entries, entry, onClose, onOpenFile, onContextMenu }
       <div
         ref={cardRef}
         tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Náhled — ${current.name}`}
         onMouseDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => {
           event.preventDefault();

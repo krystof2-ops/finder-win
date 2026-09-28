@@ -1,9 +1,11 @@
 import {
+  AppWindow,
   ArrowUpRight,
   Cloud,
   Disc,
   Download,
   File,
+  FileArchive,
   FileAudio,
   FileCode2,
   FileText,
@@ -21,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { fileType, type FileGroup } from "../lib/filetypes";
 import type { FileEntry } from "../types";
 
 /**
@@ -75,29 +78,23 @@ export function FolderIcon({ size = 64 }: { size?: number }) {
 
 type FileVisual = { Icon: LucideIcon; tint: string };
 
-const IMAGE_EXTENSIONS = new Set([
-  "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "heic", "tiff",
-]);
-const VIDEO_EXTENSIONS = new Set(["mp4", "mov", "mkv", "avi", "webm", "wmv", "m4v"]);
-const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "flac", "m4a", "aac", "ogg", "wma"]);
-const CODE_EXTENSIONS = new Set([
-  "ts", "tsx", "js", "jsx", "rs", "py", "go", "java", "c", "cpp", "h", "hpp",
-  "cs", "rb", "php", "swift", "kt", "sh", "ps1", "sql", "lua", "dart",
-  "json", "html", "css", "toml", "yml", "yaml", "xml", "txt", "md",
-]);
+/** Ikona a barva podle skupiny z lib/filetypes.ts — stejná tabulka jako druh. */
+const GROUP_VISUALS: Record<FileGroup, FileVisual> = {
+  image: { Icon: ImageIcon, tint: "#ff9500" },
+  pdf: { Icon: FileText, tint: "#ff3b30" },
+  video: { Icon: FileVideo, tint: "#af52de" },
+  audio: { Icon: FileAudio, tint: "#30d158" },
+  code: { Icon: FileCode2, tint: "#0a84ff" },
+  text: { Icon: FileText, tint: "var(--text-secondary)" },
+  document: { Icon: FileText, tint: "#0a84ff" },
+  archive: { Icon: FileArchive, tint: "#a2845e" },
+  app: { Icon: AppWindow, tint: "var(--text-secondary)" },
+  other: { Icon: File, tint: "var(--text-secondary)" },
+};
 
 export function fileVisual(entry: FileEntry): FileVisual {
-  const extension = entry.extension ?? "";
-
-  if (IMAGE_EXTENSIONS.has(extension)) return { Icon: ImageIcon, tint: "#ff9500" };
-  if (extension === "pdf") return { Icon: FileText, tint: "#ff3b30" };
-  if (VIDEO_EXTENSIONS.has(extension)) return { Icon: FileVideo, tint: "#af52de" };
-  if (AUDIO_EXTENSIONS.has(extension)) return { Icon: FileAudio, tint: "#30d158" };
-  if (CODE_EXTENSIONS.has(extension)) return { Icon: FileCode2, tint: "#0a84ff" };
-
-  return { Icon: File, tint: "var(--text-secondary)" };
+  return GROUP_VISUALS[fileType(entry.extension)?.group ?? "other"];
 }
-
 /**
  * Odkaz (symlink / junction) dostane v levém dolním rohu šipku jako alias
  * ve Finderu — jinak by nešlo poznat, že složka ve skutečnosti leží jinde.
@@ -198,6 +195,21 @@ const SIDEBAR_ICONS: Record<string, LucideIcon> = {
   Home,
 };
 
+/** Backend posílá anglické klíče standardních složek, UI je česky. */
+const SIDEBAR_LABELS: Record<string, string> = {
+  Desktop: "Plocha",
+  Downloads: "Stažené",
+  Documents: "Dokumenty",
+  Pictures: "Obrázky",
+  Music: "Hudba",
+  Videos: "Videa",
+  Home: "Domů",
+};
+
+export function sidebarLabel(label: string): string {
+  return SIDEBAR_LABELS[label] ?? label;
+}
+
 export function sidebarIcon(iconName: string): LucideIcon {
   return SIDEBAR_ICONS[iconName] ?? Folder;
 }
@@ -210,7 +222,7 @@ export function sidebarIconColor(sectionLabel: string, itemLabel: string): strin
   switch (sectionLabel) {
     case "Oblíbené":
       return "var(--accent)";
-    case "iCloud":
+    case "Cloud":
       return itemLabel === "iCloud Photos" ? "#af52de" : "#5eb5f0";
     default:
       return "var(--text-secondary)";

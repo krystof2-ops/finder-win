@@ -99,6 +99,8 @@ function ColumnPane({
             key={entry.path}
             ref={isSelected ? selectedRef : undefined}
             data-path={entry.path}
+            role="option"
+            aria-selected={isSelected}
             data-tooltip={entry.name}
             draggable={!isRenaming}
             onDragStart={(event) =>
@@ -116,7 +118,7 @@ function ColumnPane({
               onSelect(index, entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
-            className={`fw-col-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
+            className={`fw-col-row fw-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
               isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
             style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}

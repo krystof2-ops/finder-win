@@ -123,7 +123,7 @@ export function Toolbar({
     {
       type: "item",
       label: "Zobrazit skryté soubory",
-      shortcut: "Ctrl+H",
+      shortcut: "Ctrl+Shift+.",
       checked: showHidden,
       onSelect: onToggleHidden,
     },

@@ -2,11 +2,17 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { LargeEntryIcon } from "./icons";
-import { getFileProperties, parentPath } from "../fileops";
-import { formatModified, formatSize, kindLabel } from "../format";
-import type { FileEntry, FileProperties } from "../types";
+import { cancelFolderStats, folderStats, getFileProperties, parentPath } from "../fileops";
+import { formatItemCount, formatModified, formatSize, kindLabel } from "../format";
+import { tagsOf } from "../lib/storage";
+import { TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { useStorage } from "../lib/useStorage";
+import type { FileEntry, FileProperties, FolderStats } from "../types";
 
-function Row({ label, value }: { label: string; value: string }) {
+/** Identita výpočtu velikosti — napříč dialogy, proto modulová. */
+let nextStatsId = 1;
+
+function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1">
       <span className="shrink-0 text-secondary">{label}</span>
@@ -15,14 +21,25 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+/** "12,4 MB · 1 234 položek", během výpočtu s "…", nad stropem "více než". */
+function folderSummary(stats: FolderStats): string {
+  const count = stats.files + stats.folders;
+  const prefix = stats.truncated ? "více než " : "";
+  const size = formatSize(stats.bytes, false);
+  const suffix = stats.done ? "" : " …";
+  return `${prefix}${size} · ${prefix}${formatItemCount(count)}${suffix}`;
+}
+
 type PropertiesDialogProps = {
   entry: FileEntry;
   onClose: () => void;
 };
 
 export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
+  const { tags } = useStorage();
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stats, setStats] = useState<FolderStats | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +56,29 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
       cancelled = true;
     };
   }, [entry.path]);
+
+  // Velikost složky se počítá na pozadí a naskakuje průběžně. Zavření
+  // dialogu výpočet zastaví — jinak by na C:\Windows běžel dál naprázdno.
+  useEffect(() => {
+    if (!entry.is_dir) return;
+
+    const requestId = nextStatsId++;
+    let active = true;
+    setStats(null);
+
+    folderStats(entry.path, requestId, (progress) => {
+      if (active) setStats(progress);
+    })
+      .then((result) => {
+        if (active) setStats(result);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+      void cancelFolderStats(requestId).catch(() => undefined);
+    };
+  }, [entry.path, entry.is_dir]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -57,6 +97,16 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
         .join(", ") || "žádné"
     : "";
 
+  const colors = tagsOf(tags, entry.path);
+
+  const size = entry.is_dir
+    ? stats === null
+      ? "Počítám…"
+      : folderSummary(stats)
+    : properties
+      ? formatSize(properties.size, false)
+      : "";
+
   return createPortal(
     <div
       onMouseDown={onClose}
@@ -64,6 +114,9 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
       style={{ background: "rgba(0,0,0,0.4)" }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Vlastnosti — ${entry.name}`}
         onMouseDown={(event) => event.stopPropagation()}
         className="flex flex-col gap-3 rounded-xl p-5"
         style={{
@@ -89,12 +142,33 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
           ) : (
             <>
               <Row label="Typ" value={kindLabel(entry)} />
-              <Row label="Velikost" value={formatSize(properties.size, properties.is_dir)} />
+              <Row label="Velikost" value={size} />
               <Row label="Vytvořeno" value={formatModified(properties.created)} />
               <Row label="Změněno" value={formatModified(properties.modified)} />
               <Row label="Otevřeno" value={formatModified(properties.accessed)} />
               <Row label="Kde" value={parentPath(entry.path) ?? entry.path} />
               <Row label="Atributy" value={attributes} />
+              <Row
+                label="Tagy"
+                value={
+                  colors.length === 0 ? (
+                    "žádné"
+                  ) : (
+                    <span className="inline-flex flex-wrap justify-end gap-x-2 gap-y-0.5">
+                      {colors.map((color) => (
+                        <span key={color} className="inline-flex items-center gap-1">
+                          <span
+                            aria-hidden
+                            className="inline-block rounded-full"
+                            style={{ width: 8, height: 8, background: TAG_HEX[color] }}
+                          />
+                          {TAG_LABEL[color]}
+                        </span>
+                      ))}
+                    </span>
+                  )
+                }
+              />
             </>
           )}
         </div>
