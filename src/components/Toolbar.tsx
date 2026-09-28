@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -29,6 +29,9 @@ type IconButtonProps = {
   onMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   /** Třída na samotnou ikonu, kvůli animaci uvnitř nehybného tlačítka. */
   iconClassName?: string;
+  /** Vypnuté tlačítko s vysvětlením v tooltipu ("Vyberte soubor"). Obyčejné
+   *  `disabled` by tooltip nedovolilo — vypnutý button nedostává myš. */
+  unavailable?: string;
 };
 
 function IconButton({
@@ -39,22 +42,24 @@ function IconButton({
   onClick,
   onMouseDown,
   iconClassName,
+  unavailable,
 }: IconButtonProps) {
   return (
     <button
       type="button"
       aria-label={label}
-      data-tooltip={label}
+      aria-disabled={unavailable !== undefined || undefined}
+      data-tooltip={unavailable ?? label}
       disabled={disabled}
-      onClick={onClick}
+      onClick={unavailable === undefined ? onClick : undefined}
       onMouseDown={(event) => {
         // Tlačítko si fokus nebere — jinak by po kliku přestaly fungovat
         // šipky ve výpisu (column view drží klávesnici na svém kontejneru).
         event.preventDefault();
-        onMouseDown?.(event);
+        if (unavailable === undefined) onMouseDown?.(event);
       }}
       className={`fw-tool-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary ${
-        active ? "bg-selected" : "hover:bg-hover"
+        unavailable !== undefined ? "opacity-35" : active ? "bg-selected" : "hover:bg-hover"
       } disabled:pointer-events-none disabled:opacity-35`}
     >
       <Icon size={16} strokeWidth={1.75} className={iconClassName} />
@@ -85,7 +90,16 @@ type ToolbarProps = {
   onShowAbout: () => void;
   showHidden: boolean;
   onToggleHidden: () => void;
+  /** Položky menu Seřadit / Sdílet / Štítky — sestavuje je App, zná výběr. */
+  sortItems: MenuItem[];
+  shareItems: MenuItem[];
+  /** null = nic není vybrané, tlačítko Štítky je vypnuté. */
+  tagItems: MenuItem[] | null;
+  /** Otevřené menu musí App znát kvůli globálním zkratkám (modalOpen). */
+  onMenuOpenChange: (open: boolean) => void;
 };
+
+type ToolbarMenu = "sort" | "share" | "tags" | "more";
 
 export function Toolbar({
   folderName,
@@ -107,9 +121,30 @@ export function Toolbar({
   onShowAbout,
   showHidden,
   onToggleHidden,
+  sortItems,
+  shareItems,
+  tagItems,
+  onMenuOpenChange,
 }: ToolbarProps) {
-  // Menu se otevírá pod tlačítkem, proto se pozice bere z jeho rámečku.
-  const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
+  // Otevřené může být jen jedno menu. Pozice se bere z rámečku tlačítka.
+  const [menu, setMenu] = useState<{ kind: ToolbarMenu; x: number; y: number } | null>(null);
+
+  useEffect(() => onMenuOpenChange(menu !== null), [menu, onMenuOpenChange]);
+
+  /**
+   * Přepínání musí běžet na mousedown se stopPropagation: ContextMenu se
+   * zavírá posluchačem mousedown na window, takže by se na click otevřelo
+   * znovu hned po zavření a tlačítko by menu nikdy nezavřelo.
+   */
+  function toggleMenu(kind: ToolbarMenu) {
+    return (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      setMenu((current) =>
+        current?.kind === kind ? null : { kind, x: rect.left, y: rect.bottom + 4 },
+      );
+    };
+  }
 
   const moreItems: MenuItem[] = [
     { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: onRefresh },
@@ -171,23 +206,30 @@ export function Toolbar({
         />
       </div>
 
-      {/* Zatím jen vizuální prvky toolbaru — chování k nim zadání neurčuje. */}
-      <IconButton Icon={SlidersHorizontal} label="Seřadit" />
-      <IconButton Icon={Share} label="Sdílet" />
-      <IconButton Icon={Tag} label="Štítky" />
-
-      {/* Přepínání musí běžet na mousedown se stopPropagation: ContextMenu se
-          zavírá posluchačem mousedown na window, takže by se na click otevřelo
-          znovu hned po zavření a tlačítko by menu nikdy nezavřelo. */}
+      <IconButton
+        Icon={SlidersHorizontal}
+        label="Seřadit"
+        active={menu?.kind === "sort"}
+        onMouseDown={toggleMenu("sort")}
+      />
+      <IconButton
+        Icon={Share}
+        label="Sdílet"
+        active={menu?.kind === "share"}
+        onMouseDown={toggleMenu("share")}
+      />
+      <IconButton
+        Icon={Tag}
+        label="Štítky"
+        active={menu?.kind === "tags"}
+        unavailable={tagItems === null ? "Vyberte soubor" : undefined}
+        onMouseDown={toggleMenu("tags")}
+      />
       <IconButton
         Icon={MoreHorizontal}
         label="Více"
-        active={moreMenu !== null}
-        onMouseDown={(event) => {
-          event.stopPropagation();
-          const rect = event.currentTarget.getBoundingClientRect();
-          setMoreMenu((current) => (current ? null : { x: rect.left, y: rect.bottom + 4 }));
-        }}
+        active={menu?.kind === "more"}
+        onMouseDown={toggleMenu("more")}
       />
 
       <IconButton
@@ -236,12 +278,20 @@ export function Toolbar({
         )}
       </div>
 
-      {moreMenu && (
+      {menu && (
         <ContextMenu
-          x={moreMenu.x}
-          y={moreMenu.y}
-          items={moreItems}
-          onClose={() => setMoreMenu(null)}
+          x={menu.x}
+          y={menu.y}
+          items={
+            menu.kind === "sort"
+              ? sortItems
+              : menu.kind === "share"
+                ? shareItems
+                : menu.kind === "tags"
+                  ? (tagItems ?? [])
+                  : moreItems
+          }
+          onClose={() => setMenu(null)}
         />
       )}
     </header>

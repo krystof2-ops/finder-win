@@ -13,6 +13,8 @@ type ActionItem = {
   disabled?: boolean;
   /** Přepínač (režim zobrazení, řazení). undefined = obyčejná položka bez háčku. */
   checked?: boolean;
+  /** Barevný puntík před názvem (menu Štítky). */
+  dot?: string;
   onSelect: () => void;
 };
 
@@ -157,6 +159,18 @@ function ActionRow({
         <span className="-ml-1 -mr-2 flex w-3.5 shrink-0 justify-center">
           {item.checked && <Check size={13} strokeWidth={2.5} />}
         </span>
+      )}
+      {item.dot && (
+        <span
+          aria-hidden
+          className="-mr-2 shrink-0 rounded-full"
+          style={{
+            width: 10,
+            height: 10,
+            background: item.dot,
+            boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+          }}
+        />
       )}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {item.shortcut && <span className="shrink-0 text-[11px] text-secondary">{item.shortcut}</span>}

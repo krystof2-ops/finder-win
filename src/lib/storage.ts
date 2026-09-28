@@ -293,6 +293,24 @@ export async function toggleTag(path: string, color: TagColor): Promise<void> {
   await setTags(map);
 }
 
+/** Nastaví (on) nebo sundá barvu u všech cest naráz — jeden zápis na disk. */
+export async function setTag(paths: string[], color: TagColor, on: boolean): Promise<void> {
+  const map = { ...cache.tags };
+
+  for (const path of paths) {
+    const key = pathKey(path);
+    const current = map[key] ?? [];
+    const next = on
+      ? orderColors([...current.filter((existing) => existing !== color), color])
+      : current.filter((existing) => existing !== color);
+
+    if (next.length === 0) delete map[key];
+    else map[key] = next;
+  }
+
+  await setTags(map);
+}
+
 /** Sundá z položky všechny barvy naráz — po jedné by to bylo až sedm kliků. */
 export async function clearTags(path: string): Promise<void> {
   const key = pathKey(path);

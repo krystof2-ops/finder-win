@@ -45,7 +45,7 @@ import {
 } from "./format";
 import { isTypingTarget } from "./lib/dom";
 import * as storage from "./lib/storage";
-import { TAG_LABEL } from "./lib/tags";
+import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useStorage } from "./lib/useStorage";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
@@ -134,6 +134,8 @@ export default function App() {
   /** Informativní hláška, sama zmizí. */
   const showInfo = useCallback((text: string) => setNoticeState({ text, sticky: false }), []);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  /** Menu z toolbaru (Seřadit / Sdílet / Štítky / Více) — drží ho Toolbar. */
+  const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
@@ -938,7 +940,8 @@ export default function App() {
     menu !== null ||
     propertiesFor !== null ||
     aboutOpen ||
-    confirm !== null;
+    confirm !== null ||
+    toolbarMenuOpen;
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -1622,6 +1625,96 @@ export default function App() {
     changeViewMode,
   ]);
 
+  /* ------------------------- menu tlačítek toolbaru ------------------------ */
+
+  const toolbarSortItems = useMemo(
+    (): MenuItem[] => [
+      ...(Object.keys(SORT_LABELS) as SortKey[]).map(
+        (key): MenuItem => ({
+          type: "item",
+          label: SORT_LABELS[key],
+          checked: sortKey === key,
+          onSelect: () => setSortKey(key),
+        }),
+      ),
+      { type: "separator" },
+      {
+        type: "item",
+        label: "Vzestupně",
+        checked: sortDirection === "asc",
+        onSelect: () => setSortDirection("asc"),
+      },
+      {
+        type: "item",
+        label: "Sestupně",
+        checked: sortDirection === "desc",
+        onSelect: () => setSortDirection("desc"),
+      },
+    ],
+    [sortKey, sortDirection],
+  );
+
+  // Sdílet míří na výběr; bez výběru na složku, ve které uživatel stojí.
+  const sharePaths = useMemo(
+    () =>
+      targetEntries.length > 0
+        ? targetEntries.map((entry) => entry.path)
+        : currentDir !== null
+          ? [currentDir]
+          : [],
+    [targetEntries, currentDir],
+  );
+
+  const toolbarShareItems = useMemo((): MenuItem[] => {
+    const single = sharePaths.length === 1;
+    const text = sharePaths.join("\r\n");
+
+    return [
+      {
+        type: "item",
+        label: single ? "Kopírovat cestu" : "Kopírovat cesty",
+        disabled: sharePaths.length === 0,
+        onSelect: () => copyText(text, single ? "Cestu" : "Cesty"),
+      },
+      {
+        type: "item",
+        label: "Kopírovat soubory do schránky",
+        disabled: sharePaths.length === 0,
+        // Soubory jako soubory (CF_HDROP pro vložení v Průzkumníku) zatím ne —
+        // do schránky jdou cesty jako text a uživatel se to dozví.
+        onSelect: () => {
+          copyText(text, single ? "Cestu" : "Cesty");
+          showInfo("Zkopírováno jako cesty (text) — vkládání souborů do Průzkumníku zatím neumím.");
+        },
+      },
+      { type: "separator" },
+      {
+        type: "item",
+        label: "Otevřít v Průzkumníku",
+        disabled: sharePaths.length === 0,
+        onSelect: () => revealInExplorer(sharePaths[0]),
+      },
+    ];
+  }, [sharePaths, copyText, showInfo, revealInExplorer]);
+
+  // Štítky výběru: barva je zaškrtnutá, když ji mají všechny vybrané položky.
+  // Klik ji pak všem odebere, jinak ji přidá všem — jako ve Finderu.
+  const toolbarTagItems = useMemo((): MenuItem[] | null => {
+    if (targetEntries.length === 0) return null;
+    const paths = targetEntries.map((entry) => entry.path);
+
+    return TAG_COLORS.map((color): MenuItem => {
+      const everywhere = paths.every((path) => storage.tagsOf(tags, path).includes(color));
+      return {
+        type: "item",
+        label: TAG_LABEL[color],
+        dot: TAG_HEX[color],
+        checked: everywhere,
+        onSelect: () => void storage.setTag(paths, color, !everywhere),
+      };
+    });
+  }, [targetEntries, tags]);
+
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName =
     tagFilter !== null
@@ -1802,6 +1895,10 @@ export default function App() {
             onShowAbout={() => setAboutOpen(true)}
             showHidden={showHidden ?? false}
             onToggleHidden={toggleHidden}
+            sortItems={toolbarSortItems}
+            shareItems={toolbarShareItems}
+            tagItems={toolbarTagItems}
+            onMenuOpenChange={setToolbarMenuOpen}
           />
 
           {/* Přenačtení už zobrazené složky obsah nevyhazuje (viz renderContent),
