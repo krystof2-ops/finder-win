@@ -6,6 +6,11 @@ import { X } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { ColumnView } from "./components/ColumnView";
+import {
+  ConflictDialog,
+  type ConflictAnswer,
+  type ConflictRequest,
+} from "./components/ConflictDialog";
 import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { IconDefs } from "./components/icons";
@@ -34,7 +39,9 @@ import {
   openWith,
   parentPath,
   renamePath,
+  statPaths,
   trashIsPermanent,
+  type OnConflict,
 } from "./fileops";
 import {
   breadcrumbs,
@@ -55,6 +62,7 @@ import type {
   FavoriteSection,
   FileEntry,
   SelectMods,
+  StatResult,
   TagColor,
   Theme,
   ViewMode,
@@ -171,6 +179,18 @@ export default function App() {
   /** Informativní hláška, sama zmizí. */
   const showInfo = useCallback((text: string) => setNoticeState({ text, sticky: false }), []);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  /** Otevřený dialog kolize a funkce, která vrátí odpověď čekající operaci. */
+  const [conflict, setConflict] = useState<{
+    request: ConflictRequest;
+    resolve: (answer: ConflictAnswer | null) => void;
+  } | null>(null);
+
+  /** Zeptá se na kolizi; null = uživatel operaci zastavil. */
+  const askConflict = useCallback(
+    (request: ConflictRequest) =>
+      new Promise<ConflictAnswer | null>((resolve) => setConflict({ request, resolve })),
+    [],
+  );
   /** Menu z toolbaru (Seřadit / Sdílet / Štítky / Více) — drží ho Toolbar. */
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
@@ -1044,28 +1064,74 @@ export default function App() {
           : sources;
       if (paths.length === 0) return 0;
 
+      // Kolize: položka stejného jména v cíli. Zjistí se předem, jedním
+      // voláním, a na každou se zeptá dialog (dokud nepadne "pro všechny").
+      // Kopie do vlastní složky se neptá — tam je "ponechat obě" jediné rozumné.
+      const destination = (path: string) =>
+        target.endsWith("\\") ? `${target}${storage.lastSegment(path)}` : `${target}\\${storage.lastSegment(path)}`;
+      let sourceStats: StatResult[];
+      let targetStats: StatResult[];
+      try {
+        [sourceStats, targetStats] = await Promise.all([
+          statPaths(paths),
+          statPaths(paths.map(destination)),
+        ]);
+      } catch (err: unknown) {
+        setNotice(`Cíl se nepodařilo zkontrolovat — ${String(err)}`);
+        return 0;
+      }
+      const collides = paths.map((path, index) => {
+        const parent = parentPath(path);
+        return targetStats[index]?.entry != null && !(parent !== null && storage.samePath(parent, target));
+      });
+
+      let remaining = collides.filter(Boolean).length;
+      let forAll: OnConflict | null = null;
+      const plan: { path: string; onConflict: OnConflict }[] = [];
+
+      for (const [index, path] of paths.entries()) {
+        let onConflict: OnConflict = "rename";
+        const source = sourceStats[index]?.entry;
+        const found = targetStats[index]?.entry;
+
+        if (collides[index] && source && found) {
+          remaining -= 1;
+          if (forAll !== null) {
+            onConflict = forAll;
+          } else {
+            const answer = await askConflict({ source, existing: found, targetDir: target, remaining, mode });
+            // Zastavit: co už je rozhodnuté, se neprovede — nic se nezměnilo.
+            if (answer === null) return 0;
+            onConflict = answer.choice;
+            if (answer.applyToAll) forAll = answer.choice;
+          }
+        }
+
+        plan.push({ path, onConflict });
+      }
+
       let skipped = 0;
 
       const { ok } = await runBatch(
         mode === "copy" ? "Kopírování selhalo" : "Přesun selhal",
-        paths,
-        async (path) => {
-          if (mode === "copy") {
-            const result = await copyPath(path, target);
-            await storage.copyTags(path, result.path);
-            skipped += result.skipped_links;
-          } else {
-            const result = await movePath(path, target);
-            await storage.remapPath(path, result.path);
-            skipped += result.skipped_links;
-          }
+        plan,
+        async ({ path, onConflict }) => {
+          const result =
+            mode === "copy"
+              ? await copyPath(path, target, onConflict)
+              : await movePath(path, target, onConflict);
+          if (result.skipped) return;
+
+          if (mode === "copy") await storage.copyTags(path, result.path);
+          else await storage.remapPath(path, result.path);
+          skipped += result.skipped_links;
         },
       );
 
       noteSkippedLinks(skipped);
       return ok;
     },
-    [runBatch, noteSkippedLinks],
+    [runBatch, noteSkippedLinks, askConflict, setNotice],
   );
 
   /** Vloží do `into`, bez něj do složky, ve které uživatel stojí. */
@@ -1140,6 +1206,7 @@ export default function App() {
     propertiesFor !== null ||
     aboutOpen ||
     confirm !== null ||
+    conflict !== null ||
     toolbarMenuOpen;
 
   useEffect(() => {
@@ -2299,6 +2366,20 @@ export default function App() {
       )}
 
       {confirm && <ConfirmDialog {...confirm} onClose={() => setConfirm(null)} />}
+
+      {conflict && (
+        <ConflictDialog
+          {...conflict.request}
+          onAnswer={(answer) => {
+            setConflict(null);
+            conflict.resolve(answer);
+          }}
+          onCancel={() => {
+            setConflict(null);
+            conflict.resolve(null);
+          }}
+        />
+      )}
 
       {propertiesFor && (
         <PropertiesDialog entry={propertiesFor} onClose={() => setPropertiesFor(null)} />

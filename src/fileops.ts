@@ -20,12 +20,15 @@ export function trashIsPermanent(paths: string[]): Promise<boolean> {
   return invoke<boolean>("trash_is_permanent", { paths });
 }
 
-export function copyPath(from: string, toDir: string): Promise<OpResult> {
-  return invoke<OpResult>("copy_path", { from, toDir });
+/** Co dělat s kolizí jména v cíli: ponechat obě, nahradit (složku sloučit), přeskočit. */
+export type OnConflict = "rename" | "replace" | "skip";
+
+export function copyPath(from: string, toDir: string, onConflict: OnConflict = "rename"): Promise<OpResult> {
+  return invoke<OpResult>("copy_path", { from, toDir, onConflict });
 }
 
-export function movePath(from: string, toDir: string): Promise<OpResult> {
-  return invoke<OpResult>("move_path", { from, toDir });
+export function movePath(from: string, toDir: string, onConflict: OnConflict = "rename"): Promise<OpResult> {
+  return invoke<OpResult>("move_path", { from, toDir, onConflict });
 }
 
 export function duplicatePath(path: string): Promise<OpResult> {

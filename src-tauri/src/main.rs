@@ -762,6 +762,122 @@ struct FileProperties {
 struct OpResult {
     path: String,
     skipped_links: u32,
+    /// Kolize vyřešená volbou "přeskočit" — nic se nestalo.
+    skipped: bool,
+}
+
+/// Co dělat, když v cíli už položka stejného jména je.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OnConflict {
+    /// Ponechat obě — nová dostane "(kopie)".
+    Rename,
+    /// Nahradit; u složky sloučit obsah (jako Průzkumník), cíl se nemaže.
+    Replace,
+    /// Nechat být.
+    Skip,
+}
+
+fn parse_conflict(value: Option<String>) -> Result<OnConflict, String> {
+    match value.as_deref() {
+        None | Some("rename") => Ok(OnConflict::Rename),
+        Some("replace") => Ok(OnConflict::Replace),
+        Some("skip") => Ok(OnConflict::Skip),
+        Some(other) => Err(format!("neznámá volba kolize: {}", other)),
+    }
+}
+
+/// Kam položka `source` ve složce `dir` půjde.
+enum Placement {
+    /// Volné místo (bez kolize, nebo "ponechat obě" s novým názvem).
+    Fresh(PathBuf),
+    /// Existující cíl, který se nahradí / sloučí.
+    Replace(PathBuf),
+    /// Existující cíl, položka se přeskočí.
+    Skip(PathBuf),
+}
+
+fn place(source: &Path, dir: &Path, on_conflict: OnConflict) -> Result<Placement, String> {
+    let name = file_name_of(source)?;
+    let direct = dir.join(&name);
+
+    // symlink_metadata — i rozbitý odkaz v cíli je kolize.
+    let Ok(existing) = fs::symlink_metadata(&direct) else {
+        return Ok(Placement::Fresh(direct));
+    };
+
+    match on_conflict {
+        OnConflict::Rename => Ok(Placement::Fresh(unique_destination(dir, &name)?)),
+        OnConflict::Skip => Ok(Placement::Skip(direct)),
+        OnConflict::Replace => {
+            // Složku souborem (ani naopak) nahradit nejde — smazal by se celý strom.
+            if source.is_dir() != existing.is_dir() {
+                return Err(format!(
+                    "„{}“: {} nelze nahradit {}",
+                    name,
+                    if existing.is_dir() { "složku" } else { "soubor" },
+                    if source.is_dir() { "složkou" } else { "souborem" },
+                ));
+            }
+            Ok(Placement::Replace(direct))
+        }
+    }
+}
+
+/// Přesune jednu položku na volné místo `target` — přes rename, na jiný
+/// svazek kopií a smazáním. Odkazy přes svazky nejdou (viz move_path).
+fn move_item(source: &Path, target: &Path) -> std::io::Result<()> {
+    match rename_no_replace(source, target) {
+        Ok(()) => return Ok(()),
+        Err(err) if err.raw_os_error() == Some(ERROR_NOT_SAME_DEVICE) => {}
+        Err(err) => return Err(err),
+    }
+
+    let skipped = copy_tree(source, target).inspect_err(|_| remove_partial(target))?;
+    if skipped > 0 {
+        remove_partial(target);
+        return Err(std::io::Error::other(format!(
+            "obsahuje {} odkazů (symlinky / junctions), které se na jiný disk přesunout nedají",
+            skipped
+        )));
+    }
+
+    if source.is_dir() {
+        fs::remove_dir_all(source)
+    } else {
+        fs::remove_file(source)
+    }
+}
+
+/// Přesun složky do existující složky: sloučení obsahu jako v Průzkumníku.
+/// Co v cíli není, se přesune; shodné podsložky se sloučí rekurzivně; shodné
+/// soubory se nahradí. Nakonec se smaže (už prázdný) zdroj.
+fn move_merge(source: &Path, target: &Path) -> std::io::Result<()> {
+    for entry in fs::read_dir(source)? {
+        let entry = entry?;
+        let from = entry.path();
+        let to = target.join(entry.file_name());
+        let from_meta = fs::symlink_metadata(&from)?;
+
+        match fs::symlink_metadata(&to) {
+            Err(_) => move_item(&from, &to)?,
+            Ok(to_meta) => {
+                let from_dir = from_meta.is_dir() && !from_meta.file_type().is_symlink();
+                if from_dir && to_meta.is_dir() {
+                    move_merge(&from, &to)?;
+                } else if !from_meta.is_dir() && !to_meta.is_dir() {
+                    fs::remove_file(&to)?;
+                    move_item(&from, &to)?;
+                } else {
+                    return Err(std::io::Error::other(format!(
+                        "{}: složku nelze nahradit souborem (ani naopak)",
+                        to.to_string_lossy()
+                    )));
+                }
+            }
+        }
+    }
+
+    fs::remove_dir(source)
 }
 
 /// Odpověď `stat_paths` pro jednu cestu. Zachovává pozici ve vstupu.
@@ -1140,35 +1256,81 @@ fn is_directly_in(path: &Path, dir: &Path) -> bool {
 }
 
 #[tauri::command(async)]
-fn copy_path(from: String, to_dir: String) -> Result<OpResult, String> {
+fn copy_path(from: String, to_dir: String, on_conflict: Option<String>) -> Result<OpResult, String> {
+    let on_conflict = parse_conflict(on_conflict)?;
     let source = PathBuf::from(&from);
     let destination = Path::new(&to_dir);
 
     ensure_not_inside(&source, destination)?;
 
-    let target = unique_destination(destination, &file_name_of(&source)?)?;
-    let skipped_links = copy_or_clean(&source, &target, &from)?;
+    let (target, skipped_links) = match place(&source, destination, on_conflict)? {
+        Placement::Skip(existing) => {
+            return Ok(OpResult {
+                path: existing.to_string_lossy().to_string(),
+                skipped_links: 0,
+                skipped: true,
+            })
+        }
+        Placement::Fresh(target) => {
+            let skipped = copy_or_clean(&source, &target, &from)?;
+            (target, skipped)
+        }
+        // Nahrazení: fs::copy přepisuje soubory, create_dir_all projde přes
+        // existující složky — copy_tree tak rovnou slučuje. Cíl existoval už
+        // předtím, takže se po chybě neuklízí (smazal by se původní obsah).
+        Placement::Replace(target) => {
+            let skipped = copy_tree(&source, &target)
+                .map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+            (target, skipped)
+        }
+    };
 
     Ok(OpResult {
         path: target.to_string_lossy().to_string(),
         skipped_links,
+        skipped: false,
     })
 }
 
 #[tauri::command(async)]
-fn move_path(from: String, to_dir: String) -> Result<OpResult, String> {
+fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Result<OpResult, String> {
+    let on_conflict = parse_conflict(on_conflict)?;
     let source = PathBuf::from(&from);
     let destination = Path::new(&to_dir);
 
     // Přesun tam, kde položka už je, nic nedělá. Bez toho by unique_destination
     // našel kolizi sám se sebou a soubor "přesunul" na "X (kopie)".
     if is_directly_in(&source, destination) {
-        return Ok(OpResult { path: from, skipped_links: 0 });
+        return Ok(OpResult { path: from, skipped_links: 0, skipped: false });
     }
 
     ensure_not_inside(&source, destination)?;
 
-    let target = unique_destination(destination, &file_name_of(&source)?)?;
+    let target = match place(&source, destination, on_conflict)? {
+        Placement::Fresh(target) => target,
+        Placement::Skip(existing) => {
+            return Ok(OpResult {
+                path: existing.to_string_lossy().to_string(),
+                skipped_links: 0,
+                skipped: true,
+            })
+        }
+        Placement::Replace(target) => {
+            let result = if source.is_dir() {
+                move_merge(&source, &target)
+            } else {
+                // Soubor: starý pryč, nový na jeho místo (přes svazky kopií).
+                fs::remove_file(&target).and_then(|_| move_item(&source, &target))
+            };
+            result.map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+
+            return Ok(OpResult {
+                path: target.to_string_lossy().to_string(),
+                skipped_links: 0,
+                skipped: false,
+            });
+        }
+    };
 
     // rename je atomický, ale funguje jen v rámci jednoho svazku.
     match rename_no_replace(&source, &target) {
@@ -1176,6 +1338,7 @@ fn move_path(from: String, to_dir: String) -> Result<OpResult, String> {
             return Ok(OpResult {
                 path: target.to_string_lossy().to_string(),
                 skipped_links: 0,
+                skipped: false,
             })
         }
         // Kopie a smazání se smí použít jen kvůli jinému svazku. Dřív se
@@ -1216,6 +1379,7 @@ fn move_path(from: String, to_dir: String) -> Result<OpResult, String> {
     Ok(OpResult {
         path: target.to_string_lossy().to_string(),
         skipped_links,
+        skipped: false,
     })
 }
 
@@ -1229,6 +1393,7 @@ fn duplicate_path(path: String) -> Result<OpResult, String> {
     Ok(OpResult {
         path: target.to_string_lossy().to_string(),
         skipped_links,
+        skipped: false,
     })
 }
 

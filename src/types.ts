@@ -36,6 +36,8 @@ export type OpResult = {
   path: string;
   /** Kolik symlinků a junctions se při kopii přeskočilo. */
   skipped_links: number;
+  /** Kolize vyřešená volbou Přeskočit — nic se nestalo. */
+  skipped: boolean;
 };
 
 export type StatResult = {
