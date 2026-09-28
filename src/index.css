@@ -27,11 +27,13 @@
 
 :root {
   --bg-window: #ececec;
-  --bg-sidebar: rgba(230, 230, 230, 0.7);
+  /* Sidebar jako macOS: světle šedý, s rozmazáním (.fw-sidebar). */
+  --bg-sidebar: rgba(245, 245, 247, 0.92);
   --bg-main: #ffffff;
   --bg-toolbar: rgba(246, 246, 246, 0.85);
   --text-primary: #1d1d1f;
-  --text-secondary: #86868b;
+  /* #86868b měl na sidebaru kontrast jen ~3,3 : 1 — #6e6e73 dává přes 4,5 : 1. */
+  --text-secondary: #6e6e73;
   --text-section: #6e6e73;
   --accent: #0a84ff;
   --accent-bg: rgba(10, 132, 255, 0.15);
@@ -42,6 +44,9 @@
 
   /* Každý druhý řádek v list view. */
   --row-stripe: rgba(0, 0, 0, 0.035);
+
+  /* Jezdec scrollbaru — vidět jen při najetí nebo během posouvání. */
+  --scroll-thumb: rgba(0, 0, 0, 0.25);
 
   /* "papírek" pod ikonou souboru v icon view */
   --paper: #ffffff;
@@ -114,6 +119,8 @@
 
   --row-stripe: rgba(255, 255, 255, 0.085);
 
+  --scroll-thumb: rgba(255, 255, 255, 0.25);
+
   --paper: #f2f2f4;
   --paper-border: rgba(0, 0, 0, 0.2);
 
@@ -149,6 +156,13 @@ html,
 body,
 #root {
   height: 100%;
+  width: 100%;
+}
+
+/* I <html> nese barvu okna. Bez ní prosvítal při zlomkovém škálování
+   (125 %, 150 %) na pravém okraji podklad webview — bílý proužek. */
+html {
+  background-color: var(--bg-window);
 }
 
 body {
@@ -312,31 +326,29 @@ body {
   max-width: 100%;
 }
 
-/* Tenké překryvné scrollbary ve stylu macOS. */
+/* Scrollbary ve stylu macOS: 10 px, jezdec se 2px průhledným okrajem, dráha
+   průhledná. Jezdec je vidět jen při najetí na posouvaný kontejner nebo
+   během posouvání (.is-scrolling přidává main.tsx na 800 ms). */
 ::-webkit-scrollbar {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
 }
 
-::-webkit-scrollbar-track {
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
   background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.22);
+  background-color: transparent;
   border: 2px solid transparent;
   background-clip: content-box;
   border-radius: 5px;
 }
 
-.dark ::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.25);
-  border: 2px solid transparent;
-  background-clip: content-box;
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
+:hover::-webkit-scrollbar-thumb,
+.is-scrolling::-webkit-scrollbar-thumb {
+  background-color: var(--scroll-thumb);
 }
 
 

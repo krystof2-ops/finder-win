@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
 
+import { EmptyState } from "./EmptyState";
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
 import { entryOpacity, formatModified, sortEntries } from "../format";
@@ -17,7 +18,8 @@ type ResultsViewProps = {
   loading: boolean;
   loadingMessage: string;
   error: string | null;
-  emptyMessage: string;
+  /** Prázdný stav — ikona, nadpis a nápověda. */
+  empty: React.ComponentProps<typeof EmptyState>;
   /** Kořen hledání. Se ním je "Kde je" relativně k němu, bez něj plná cesta. */
   root?: string;
   /** Patička pod výsledky ("Zobrazeno prvních 500 výsledků."). */
@@ -44,7 +46,7 @@ export function ResultsView({
   loading,
   loadingMessage,
   error,
-  emptyMessage,
+  empty,
   root,
   footer,
   windowFocused,
@@ -80,13 +82,7 @@ export function ResultsView({
     );
   }
 
-  if (sorted.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-center text-[13px] text-secondary">
-        {emptyMessage}
-      </div>
-    );
-  }
+  if (sorted.length === 0) return <EmptyState {...empty} />;
 
   const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
 

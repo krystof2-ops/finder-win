@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Tag } from "lucide-react";
+
 import { ResultsView } from "./ResultsView";
 import { statPaths } from "../fileops";
 import * as storage from "../lib/storage";
@@ -92,7 +94,11 @@ export function TagView({
       loading={loading}
       loadingMessage="Načítám…"
       error={null}
-      emptyMessage={`Nic není označené barvou ${TAG_LABEL[color].toLowerCase()}.`}
+      empty={{
+        Icon: Tag,
+        title: `Nic není označené barvou ${TAG_LABEL[color].toLowerCase()}`,
+        hint: "Štítek přidáte pravým klikem na položku → Tagy.",
+      }}
       windowFocused={windowFocused}
       selectedPath={selectedPath}
       onSelectionChange={onSelectionChange}

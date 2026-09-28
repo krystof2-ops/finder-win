@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Search, X } from "lucide-react";
+import { FolderOpen, Search, SearchX, X } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -13,6 +13,7 @@ import {
 } from "./components/ConflictDialog";
 import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
+import { EmptyState } from "./components/EmptyState";
 import { AboutDialog } from "./components/AboutDialog";
 import { PropertiesDialog } from "./components/PropertiesDialog";
 import { IconView } from "./components/IconView";
@@ -2230,10 +2231,18 @@ export default function App() {
     if (loadedPath !== nav.current) return <Placeholder>Načítám…</Placeholder>;
     if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
     if (visibleEntries.length === 0) {
-      return (
-        <Placeholder>
-          {query ? "Nic neodpovídá hledání." : "Tato složka je prázdná."}
-        </Placeholder>
+      return query ? (
+        <EmptyState
+          Icon={SearchX}
+          title={`Nic nenalezeno pro „${query.trim()}“`}
+          hint="Enter prohledá i podsložky."
+        />
+      ) : (
+        <EmptyState
+          Icon={FolderOpen}
+          title="Složka je prázdná"
+          hint={showHidden ? undefined : "Skryté soubory ukáže Ctrl+Shift+."}
+        />
       );
     }
 
@@ -2267,7 +2276,9 @@ export default function App() {
   }
 
   return (
-    <div className="surface flex h-screen w-screen flex-col overflow-hidden bg-window text-primary">
+    // 100 %, ne 100vw/100vh: vw se při zlomkovém škálování zaokrouhlí a na
+    // okraji by zůstal proužek podkladu.
+    <div className="surface flex h-full w-full flex-col overflow-hidden bg-window text-primary">
       <TitleBar />
 
       <div className="flex min-h-0 flex-1">

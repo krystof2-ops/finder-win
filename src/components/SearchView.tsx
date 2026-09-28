@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { SearchX } from "lucide-react";
+
 import { ResultsView } from "./ResultsView";
 import { cancelSearch, searchRecursive } from "../fileops";
 import type { FileEntry } from "../types";
@@ -89,7 +91,11 @@ export function SearchView({
       loading={loading}
       loadingMessage="Hledám…"
       error={error}
-      emptyMessage={`Nic neodpovídá „${query}".`}
+      empty={{
+        Icon: SearchX,
+        title: `Nic nenalezeno pro „${query}“`,
+        hint: "Hledá se podle názvu v této složce a ve všech podsložkách.",
+      }}
       root={root}
       footer={
         entries.length === MAX_RESULTS && (
