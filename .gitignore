@@ -28,3 +28,6 @@ src-tauri/target
 *.njsproj
 *.sln
 *.sw?
+
+# Osobní poznámky k vývoji
+finder-windows-prompty.md
