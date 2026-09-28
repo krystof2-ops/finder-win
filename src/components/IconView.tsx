@@ -63,7 +63,7 @@ export function IconView({
         const tileBg = showSelection ? "var(--icon-selection)" : "transparent";
         const nameBg = showSelection
           ? windowFocused
-            ? "var(--accent)"
+            ? "var(--accent-fill)"
             : "var(--name-pill-inactive)"
           : "transparent";
         const nameColor = showSelection && windowFocused ? "var(--on-accent)" : "var(--text-primary)";

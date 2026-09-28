@@ -440,7 +440,7 @@ export function QuickLook({
           <button
             type="button"
             onClick={handleOpen}
-            className="shrink-0 rounded-full bg-accent px-3 py-1 text-[12px] font-medium text-white transition-opacity duration-100 hover:opacity-90"
+            className="shrink-0 rounded-full bg-[color:var(--accent-fill)] px-3 py-1 text-[12px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
           >
             Otevřít
           </button>

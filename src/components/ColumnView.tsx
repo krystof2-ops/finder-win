@@ -253,7 +253,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
       <button
         type="button"
         onClick={() => onOpen(entry)}
-        className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-accent text-[13px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
+        className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-[color:var(--accent-fill)] text-[13px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
       >
         Otevřít
       </button>

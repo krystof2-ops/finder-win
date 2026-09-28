@@ -32,10 +32,17 @@
   --bg-main: #ffffff;
   --bg-toolbar: rgba(246, 246, 246, 0.85);
   --text-primary: #1d1d1f;
-  /* #86868b měl na sidebaru kontrast jen ~3,3 : 1 — #6e6e73 dává přes 4,5 : 1. */
-  --text-secondary: #6e6e73;
-  --text-section: #6e6e73;
+  /* #86868b měl na sidebaru kontrast jen ~3,3 : 1; #636366 drží ≥ 4,5 : 1
+     i na nejtmavší ploše (pole hledání na toolbaru). */
+  --text-secondary: #636366;
+  --text-section: #636366;
+  /* Akcent pro ikony, prstence a rámečky (grafika, WCAG 3 : 1). */
   --accent: #0a84ff;
+  /* Akcent jako plocha pod bílým textem (tlačítko, zvýraznění v menu,
+     pilulka názvu) — #0a84ff by dal s bílou jen 3,65 : 1. */
+  --accent-fill: #0068da;
+  /* Akcent jako text (odkazy v náhledu markdownu). */
+  --link: #0068da;
   --accent-bg: rgba(10, 132, 255, 0.15);
   --border: rgba(0, 0, 0, 0.08);
   --hover: rgba(0, 0, 0, 0.05);
@@ -94,8 +101,10 @@
   /* Tenký tmavý okraj barevných vzorků (puntíky tagů v řádcích a v menu). */
   --swatch-edge: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 
-  /* Stavové barvy: nebezpečná akce / chyba, úspěch. */
-  --danger: #ff3b30;
+  /* Stavové barvy. --danger je text a rámeček (≥ 4,5 : 1 na menu),
+     --danger-fill plocha pod bílým textem. */
+  --danger: #d70015;
+  --danger-fill: #d70015;
   --success: #28a745;
 
   /* Podklad pod dialogem a pod Quick Look. */
@@ -127,9 +136,12 @@
   --bg-main: #000000;
   --bg-toolbar: rgba(50, 50, 50, 0.85);
   --text-primary: #f5f5f7;
-  --text-secondary: #98989d;
+  /* #98989d měl v poli hledání jen 3,8 : 1. */
+  --text-secondary: #aeaeb2;
   --text-section: #98989d;
   --accent: #0a84ff;
+  --accent-fill: #0068da;
+  --link: #0a84ff;
   --accent-bg: rgba(10, 132, 255, 0.25);
   --border: rgba(255, 255, 255, 0.08);
   --hover: rgba(255, 255, 255, 0.06);
@@ -171,7 +183,8 @@
   --dot-highlight: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
   --swatch-edge: inset 0 0 0 0.5px rgba(0, 0, 0, 0.3);
 
-  --danger: #ff453a;
+  --danger: #ff7b73;
+  --danger-fill: #d70015;
   --success: #32d74b;
 
   --overlay: rgba(0, 0, 0, 0.45);
@@ -305,7 +318,7 @@ body {
 }
 
 .ql-markdown a {
-  color: var(--accent);
+  color: var(--link);
   text-decoration: underline;
 }
 
@@ -678,13 +691,13 @@ body {
 }
 
 .fw-button.is-primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
   font-weight: 500;
 }
 
 .fw-button.is-danger {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: var(--on-accent);
   font-weight: 500;
 }
@@ -726,7 +739,7 @@ body {
 
 .fw-menu-item:hover:not(:disabled),
 .fw-menu-item.is-highlighted {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 
@@ -741,7 +754,7 @@ body {
 
 .fw-menu-item.is-danger:hover:not(:disabled),
 .fw-menu-item.is-danger.is-highlighted {
-  background: var(--danger);
+  background: var(--danger-fill);
   color: var(--on-accent);
 }
 
