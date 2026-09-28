@@ -5,6 +5,7 @@ import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
+import { isTypingTarget } from "../lib/dom";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
 import type { FileEntry, TagMap } from "../types";
@@ -27,6 +28,7 @@ type ColumnPaneProps = {
   onRenameSubmit: (entry: FileEntry, name: string) => void;
   onRenameCancel: () => void;
   tags: TagMap;
+  onClearSelection: (index: number) => void;
   /** Sloupec, který se právě zahazuje — jen dohrává odchod, nereaguje. */
   exiting?: boolean;
 };
@@ -40,6 +42,7 @@ function ColumnPane({
   onSelect,
   onOpen,
   onFocus,
+  onClearSelection,
   onContextMenu,
   cutPaths,
   renamingPath,
@@ -62,6 +65,10 @@ function ColumnPane({
       // Podle tohohle App pozná, ve kterém sloupci padl pravý klik do volné plochy.
       data-column-path={column.path}
       onMouseDown={() => onFocus(index)}
+      // Klik do prázdna pod řádky zruší výběr ve sloupci, jako ve Finderu.
+      onClick={(event) => {
+        if (!(event.target as Element).closest("[data-path]")) onClearSelection(index);
+      }}
       className={`surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
         exiting ? "fw-column-out" : "fw-column-in"
       }`}
@@ -207,9 +214,10 @@ type ColumnViewProps = {
   onRenameSubmit: (entry: FileEntry, name: string) => void;
   onRenameCancel: () => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
-  /** Filtruje se jen zaměřený sloupec, ostatní zůstávají celé. */
-  query: string;
   tags: TagMap;
+  /** Menu, dialog nebo přejmenování drží fokus u sebe. Po jejich zavření se
+   *  fokus vrací sloupcům — jinak by šipky byly mrtvé do dalšího kliku. */
+  suspended: boolean;
 };
 
 export function ColumnView({
@@ -221,10 +229,10 @@ export function ColumnView({
   onRenameSubmit,
   onRenameCancel,
   onContextMenu,
-  query,
   tags,
+  suspended,
 }: ColumnViewProps) {
-  const { columns, focusedIndex, select, openInto, focusColumn, move } = api;
+  const { columns, focusedIndex, select, openInto, focusColumn, move, clearSelection } = api;
 
   const containerRef = useRef<HTMLDivElement>(null);
   /** Živé sloupce bez těch odcházejících — cíl pro doscrollování doprava. */
@@ -266,10 +274,6 @@ export function ColumnView({
 
   useEffect(() => () => window.clearTimeout(exitTimer.current), []);
 
-  const needle = query.trim().toLowerCase();
-  const filterEntries = (entries: FileEntry[]) =>
-    needle ? entries.filter((entry) => entry.name.toLowerCase().includes(needle)) : entries;
-
   const lastColumn = columns.length > 0 ? columns[columns.length - 1] : null;
   const selectedInLast =
     lastColumn?.entries.find((entry) => entry.path === lastColumn.selectedPath) ?? null;
@@ -280,6 +284,20 @@ export function ColumnView({
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
+
+  // Po zavření menu / potvrzení přejmenování fokus nikde není (prvek, který ho
+  // měl, zmizel) — vrátí se sloupcům. Když si ho mezitím vzalo pole hledání
+  // nebo jiný input, nechá se tam.
+  const wasSuspended = useRef(suspended);
+  useEffect(() => {
+    const resumed = wasSuspended.current && !suspended;
+    wasSuspended.current = suspended;
+    if (!resumed) return;
+
+    if (!isTypingTarget(document.activeElement)) {
+      containerRef.current?.focus({ preventScroll: true });
+    }
+  }, [suspended]);
 
   // Nově otevřený sloupec (nebo info panel) si musí sám doscrollovat do zorného
   // pole. Cílem je poslední *živý* prvek — lastElementChild scrolleru by během
@@ -293,8 +311,11 @@ export function ColumnView({
   }, [columns.length, infoEntry?.path]);
 
   const focusedColumn = columns[focusedIndex];
+  // Jen mezi viditelnými — položka skrytá filtrem se aktivovat nesmí.
   const focusedEntry =
-    focusedColumn?.entries.find((entry) => entry.path === focusedColumn.selectedPath) ?? null;
+    api
+      .visibleEntries(focusedIndex)
+      .find((entry) => entry.path === focusedColumn?.selectedPath) ?? null;
 
   /** Dvojklik i Enter: složka se otevře do dalšího sloupce, soubor v systému. */
   function activate(columnIndex: number, entry: FileEntry) {
@@ -303,7 +324,15 @@ export function ColumnView({
   }
 
   function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    // Ctrl+šipky (nadřazená složka, otevřít) patří globálním zkratkám v App.
+    // Bez tohohle by se provedly obě akce naráz.
+    if (event.ctrlKey || event.altKey || event.metaKey) return;
+
     switch (event.key) {
+      case "Escape":
+        event.preventDefault();
+        clearSelection(focusedIndex);
+        break;
       case "ArrowDown":
         event.preventDefault();
         move(1);
@@ -348,13 +377,14 @@ export function ColumnView({
             <ColumnPane
               key={`${index}/${column.path}`}
               column={column}
-              entries={index === focusedIndex ? filterEntries(column.entries) : column.entries}
+              entries={api.visibleEntries(index)}
               index={index}
               isFocused={index === focusedIndex}
               windowFocused={windowFocused}
               onSelect={select}
               onOpen={activate}
               onFocus={focusColumn}
+              onClearSelection={clearSelection}
               onContextMenu={onContextMenu}
               cutPaths={cutPaths}
               renamingPath={renamingPath}
@@ -381,6 +411,7 @@ export function ColumnView({
             onSelect={() => undefined}
             onOpen={() => undefined}
             onFocus={() => undefined}
+            onClearSelection={() => undefined}
             cutPaths={cutPaths}
             renamingPath={null}
             onRenameSubmit={() => undefined}

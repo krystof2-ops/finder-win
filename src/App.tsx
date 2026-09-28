@@ -175,6 +175,9 @@ export default function App() {
     dir: string;
     path: string;
     seq: number;
+    /** Totéž pro Column View: `version` sloupce s cestou `dir` v okamžiku
+     *  požadavku (-1, když takový sloupec není otevřený). */
+    columnVersion: number;
     /** Po označení rovnou otevřít přejmenování (Přejmenovat z výsledků hledání). */
     rename?: boolean;
   } | null>(null);
@@ -214,6 +217,9 @@ export default function App() {
    * barvu, jejíž výsledky už nikdo nevidí, a hledání by viselo nad jinou cestou.
    */
   const leaveOverlays = useCallback(() => {
+    // Čekající výběr patří složce, ze které se odchází. Kdyby zůstal, vystřelil
+    // by při příštím refreshi — třeba nečekaně otevřeným přejmenováním.
+    setPendingSelect(null);
     setTagFilter(null);
     // Odchod z výsledků bere s sebou i dotaz. Bez toho by cílová složka zůstala
     // zafiltrovaná textem, kterým uživatel jen hledal, a chyběla by v ní půlka
@@ -245,6 +251,8 @@ export default function App() {
     viewMode === "column",
     { key: sortKey, direction: sortDirection },
     showHidden ?? false,
+    query,
+    setNotice,
   );
 
   // Dokud si uživatel přepínač nezmění sám, platí to, co má nastavené Průzkumník.
@@ -336,14 +344,20 @@ export default function App() {
     };
   }, []);
 
+  // Kde uživatel právě je — pro odpovědi, které dorazí se zpožděním.
+  const navCurrentRef = useRef(nav.current);
+  navCurrentRef.current = nav.current;
+
   useEffect(() => {
     invoke<FavoriteSection[]>("get_favorites")
       .then((result) => {
         setSections(result);
+        // Výčet disků umí trvat sekundy (odpojený síťový disk). Kdo mezitím
+        // sám někam došel (Ctrl+L, klik), toho to nesmí hodit zpátky.
         const first = result[0]?.items[0];
-        if (first) dispatch({ type: "go", path: first.path });
+        if (first && navCurrentRef.current === null) dispatch({ type: "go", path: first.path });
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => setError(`Postranní panel se nepodařilo načíst — ${String(err)}`));
   }, []);
 
   // Připojený nebo odpojený disk (USB, síťový) se v sidebaru ukáže hned.
@@ -403,26 +417,6 @@ export default function App() {
       });
   }, [nav.current, refreshToken, showHidden]);
 
-  // Po každé změně výpisu se výběr musí sesouhlasit se skutečností. Reset výše
-  // visí na nav.current, takže po smazání nebo přejmenování by `active` dál
-  // ukazoval na neexistující cestu — mezerník by otevřel náhled smazaného
-  // souboru, Ctrl+D by hlásil chybu a F2 by tiše nic neudělalo. Musí to běžet
-  // před efektem pendingSelect, který výběr naopak nastavuje.
-  useEffect(() => {
-    setActive((current) =>
-      current === null ? null : (entries.find((entry) => entry.path === current.path) ?? null),
-    );
-
-    setSelection((current) => {
-      if (current.size === 0) return current;
-      const alive = new Set<string>();
-      for (const entry of entries) if (current.has(entry.path)) alive.add(entry.path);
-      // Stejná identita, dokud se opravdu nic nezměnilo — jinak by každý výpis
-      // zbytečně překreslil všechny řádky.
-      return alive.size === current.size ? current : alive;
-    });
-  }, [entries]);
-
   const sortedEntries = useMemo(
     () => sortEntries(entries, sortKey, sortDirection),
     [entries, sortKey, sortDirection],
@@ -434,11 +428,36 @@ export default function App() {
     return sortedEntries.filter((entry) => entry.name.toLowerCase().includes(needle));
   }, [sortedEntries, query]);
 
+  // Po každé změně výpisu i filtru se výběr musí sesouhlasit s tím, co je
+  // vidět. Po smazání nebo přejmenování by `active` jinak dál ukazoval na
+  // neexistující cestu, a položka schovaná filtrem by šla smazat Delete
+  // nebo přejmenovat F2, aniž by ji uživatel viděl. Musí to běžet před
+  // efektem pendingSelect, který výběr naopak nastavuje.
+  useEffect(() => {
+    setActive((current) =>
+      current === null
+        ? null
+        : (visibleEntries.find((entry) => entry.path === current.path) ?? null),
+    );
+
+    setSelection((current) => {
+      if (current.size === 0) return current;
+      const alive = new Set<string>();
+      for (const entry of visibleEntries) if (current.has(entry.path)) alive.add(entry.path);
+      // Stejná identita, dokud se opravdu nic nezměnilo — jinak by každý výpis
+      // zbytečně překreslil všechny řádky.
+      return alive.size === current.size ? current : alive;
+    });
+  }, [visibleEntries]);
+
   /* ------------------------------ výběr ---------------------------------- */
 
   const focusedColumn = columnsApi.columns[columnsApi.focusedIndex];
+  // Jen mezi viditelnými: vybraná položka, kterou schoval filtr, není cíl akcí.
   const columnSelected =
-    focusedColumn?.entries.find((entry) => entry.path === focusedColumn.selectedPath) ?? null;
+    columnsApi
+      .visibleEntries(columnsApi.focusedIndex)
+      .find((entry) => entry.path === focusedColumn?.selectedPath) ?? null;
 
   const isColumnView = viewMode === "column";
   const currentDir = isColumnView ? columnsApi.activePath : nav.current;
@@ -474,6 +493,14 @@ export default function App() {
 
   const activeEntry = isColumnView ? columnSelected : active;
 
+  // Soubor v náhledu zmizel (smazán zvenčí, sloupec zrušil výběr) — Quick Look
+  // se odmontuje sám, ale příznak by zůstal a jako "otevřený modal" by
+  // blokoval všechny zkratky i tlačítka myši až do restartu.
+  const quickLookShown = quickLookOpen && activeEntry !== null && !activeEntry.is_dir;
+  useEffect(() => {
+    if (quickLookOpen && !quickLookShown) setQuickLookOpen(false);
+  }, [quickLookOpen, quickLookShown]);
+
   /* ---------------------------- operace ---------------------------------- */
 
   const refresh = useCallback(() => {
@@ -491,9 +518,15 @@ export default function App() {
     .filter((path): path is string => path !== null)
     .join("\n");
 
+  // Pořadové číslo: volání běží souběžně a backend podle něj zahodí to starší,
+  // kdyby doběhlo až po novějším.
+  const watchGeneration = useRef(0);
   useEffect(() => {
     const paths = watchedKey === "" ? [] : watchedKey.split("\n");
-    invoke("watch_dirs", { paths }).catch(() => undefined);
+    watchGeneration.current += 1;
+    invoke("watch_dirs", { paths, generation: watchGeneration.current }).catch(
+      (err: unknown) => setNotice(`Složku nejde hlídat, změny se neukážou samy — ${String(err)}`),
+    );
   }, [watchedKey]);
 
   // Změnu na disku (nový soubor z prohlížeče, smazání v Průzkumníku…) ukáže
@@ -549,31 +582,80 @@ export default function App() {
     [openFile],
   );
 
-  /** Označí `path` ve složce `dir`, jakmile dorazí čerstvý výpis té složky. */
+  // requestSelect si potřebuje přečíst aktuální sloupce bez závislosti na renderu.
+  const columnsRef = useRef(columnsApi.columns);
+  columnsRef.current = columnsApi.columns;
+
+  /**
+   * Označí `path` ve složce `dir`, jakmile dorazí čerstvý výpis té složky —
+   * buď hlavního výpisu (Icon / List), nebo sloupce s tou cestou (Column View,
+   * i jiného než kořenového: Nová složka ve třetím sloupci).
+   */
   const requestSelect = useCallback((dir: string, path: string, rename = false) => {
-    setPendingSelect({ dir, path, seq: loadSeq.current, rename });
+    const column = columnsRef.current.find((item) => storage.samePath(item.path, dir));
+    setPendingSelect({
+      dir,
+      path,
+      seq: loadSeq.current,
+      columnVersion: column?.version ?? -1,
+      rename,
+    });
   }, []);
 
   /** Skočí do nadřazené složky a označí v ní danou položku. */
   const reveal = useCallback(
-    (path: string) => {
+    (path: string, rename = false) => {
       const parent = parentPath(path);
       if (parent === null) return;
 
+      const alreadyThere = nav.current !== null && storage.samePath(parent, nav.current);
       navigate(parent);
-      requestSelect(parent, path);
+      requestSelect(parent, path, rename);
+      // Navigace na tutéž složku nic nenačte a čekající výběr by se nikdy
+      // nedočkal čerstvého výpisu — vyvolá se proto ručně.
+      if (alreadyThere) refresh();
     },
-    [navigate, requestSelect],
+    [nav.current, navigate, requestSelect, refresh],
   );
 
   // Čeká se na *čerstvý* výpis té složky, do které se odkrývá. Na `loading` se
   // spolehnout nedá — v prvním průchodu efektů je ještě false z předchozí
-  // složky. Porovnání seq navíc pokrývá odkrytí v už otevřené složce (po
-  // přejmenování), kde by samotná shoda cesty prošla hned proti starým datům.
+  // složky. Porovnání seq / version navíc pokrývá odkrytí v už otevřené složce
+  // (po přejmenování), kde by samotná shoda cesty prošla hned proti starým datům.
   useEffect(() => {
+    if (pendingSelect === null) return;
+
+    /** Po označení: přejmenování a doscrollování, ať není mimo obrazovku. */
+    const finish = (found: FileEntry | undefined) => {
+      if (found) {
+        if (pendingSelect.rename) setRenamingPath(found.path);
+        const target = found.path;
+        requestAnimationFrame(() => {
+          document
+            .querySelector(`[data-path="${CSS.escape(target)}"]`)
+            ?.scrollIntoView({ block: "nearest" });
+        });
+      }
+      // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
+      setPendingSelect(null);
+    };
+
+    if (isColumnView) {
+      const index = columnsApi.columns.findIndex(
+        (column) => storage.samePath(column.path, pendingSelect.dir) && !column.loading,
+      );
+      const column = columnsApi.columns[index];
+      if (!column || column.version <= pendingSelect.columnVersion) return;
+
+      const found = column.entries.find((entry) => entry.path === pendingSelect.path);
+      if (found) columnsApi.select(index, found);
+      finish(found);
+      return;
+    }
+
     if (
-      pendingSelect === null ||
-      loaded.path !== pendingSelect.dir ||
+      loaded.path === null ||
+      !storage.samePath(loaded.path, pendingSelect.dir) ||
       loaded.seq <= pendingSelect.seq
     )
       return;
@@ -582,20 +664,9 @@ export default function App() {
     if (found) {
       setActive(found);
       setSelection(new Set([found.path]));
-      if (pendingSelect.rename) setRenamingPath(found.path);
-
-      // Ve stovkách položek by označení zůstalo mimo obrazovku. Řádek se hledá
-      // přes data-path, ať se kvůli jednomu doscrollování netahá ref přes obě views.
-      const target = found.path;
-      requestAnimationFrame(() => {
-        document
-          .querySelector(`[data-path="${CSS.escape(target)}"]`)
-          ?.scrollIntoView({ block: "nearest" });
-      });
     }
-    // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
-    setPendingSelect(null);
-  }, [entries, loaded, pendingSelect]);
+    finish(found);
+  }, [entries, loaded, pendingSelect, isColumnView, columnsApi]);
 
   /**
    * Kopie nenásleduje symlinky a junctions. Když nějaké přeskočila, musí se to
@@ -868,6 +939,13 @@ export default function App() {
             setQuickLookOpen(true);
           }
           break;
+        case "Escape":
+          // Zrušit výběr jako ve Finderu i Průzkumníku. Column view si Escape
+          // obsluhuje sám (zruší výběr v zaměřeném sloupci).
+          if (isColumnView) break;
+          setSelection(new Set());
+          setActive(null);
+          break;
         case "Enter":
           // V column view má Enter vlastní obsluhu na jeho kontejneru.
           if (isColumnView) break;
@@ -1019,6 +1097,18 @@ export default function App() {
       setMenu({ kind: "background", x: event.clientX, y: event.clientY, dir });
     },
     [tagFilter, search, currentDir],
+  );
+
+  /** Klik do prázdné plochy Icon / List View zruší výběr. Column view to řeší
+   *  po sloupcích sám, overlaye výběr v podkladové složce nemají. */
+  const clearSelectionOnBackground = useCallback(
+    (event: React.MouseEvent) => {
+      if (isColumnView || tagFilter !== null || search !== null) return;
+      if ((event.target as Element).closest("[data-path]")) return;
+      setSelection(new Set());
+      setActive(null);
+    },
+    [isColumnView, tagFilter, search],
   );
 
   const openStatusMenu = useCallback(
@@ -1279,12 +1369,8 @@ export default function App() {
         // Výsledky hledání nemají inline přejmenování — odkryje se položka v její
         // složce a přejmenování se otevře až tam.
         onSelect: () => {
-          const dir = parentPath(entry.path);
-          if (!overlay) setRenamingPath(entry.path);
-          else if (dir !== null) {
-            navigate(dir);
-            requestSelect(dir, entry.path, true);
-          }
+          if (overlay) reveal(entry.path, true);
+          else setRenamingPath(entry.path);
         },
       },
       {
@@ -1381,8 +1467,7 @@ export default function App() {
     toggleHidden,
     open,
     openFile,
-    navigate,
-    requestSelect,
+    reveal,
     previewEntry,
     revealInExplorer,
     openTerminalAt,
@@ -1471,7 +1556,11 @@ export default function App() {
       );
     }
 
-    if (nav.current === null) return <Placeholder>Začni výběrem složky vlevo.</Placeholder>;
+    if (nav.current === null) {
+      // Bez složky je jediné místo pro chybu (typicky z get_favorites) tady —
+      // jinak by uživatel koukal na prázdný sidebar i panel bez vysvětlení.
+      return <Placeholder>{error ?? "Začni výběrem složky vlevo."}</Placeholder>;
+    }
 
     if (isColumnView) {
       return (
@@ -1484,8 +1573,8 @@ export default function App() {
           onRenameSubmit={submitRename}
           onRenameCancel={() => setRenamingPath(null)}
           onContextMenu={openContextMenu}
-          query={query}
           tags={tags}
+          suspended={modalOpen || renamingPath !== null || pathEditing}
         />
       );
     }
@@ -1588,6 +1677,7 @@ export default function App() {
             key={viewMode}
             data-view={viewMode}
             onContextMenu={openBackgroundMenu}
+            onClick={clearSelectionOnBackground}
             className={`min-h-0 flex-1 overflow-auto ${
               viewSwapping ? "fw-view-out" : "fw-view-swap"
             }`}

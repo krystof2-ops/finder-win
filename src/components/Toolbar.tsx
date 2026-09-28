@@ -47,7 +47,12 @@ function IconButton({
       data-tooltip={label}
       disabled={disabled}
       onClick={onClick}
-      onMouseDown={onMouseDown}
+      onMouseDown={(event) => {
+        // Tlačítko si fokus nebere — jinak by po kliku přestaly fungovat
+        // šipky ve výpisu (column view drží klávesnici na svém kontejneru).
+        event.preventDefault();
+        onMouseDown?.(event);
+      }}
       className={`fw-tool-btn flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-primary ${
         active ? "bg-selected" : "hover:bg-hover"
       } disabled:pointer-events-none disabled:opacity-35`}

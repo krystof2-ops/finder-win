@@ -522,9 +522,19 @@ fn open_device(path: String) -> Result<(), String> {
 /// Hlídač složek, které má uživatel právě otevřené. Při každém `watch_dirs`
 /// se starý zahodí a vznikne nový nad aktuálním seznamem.
 struct DirWatcher {
-    watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
+    current: std::sync::Mutex<WatchState>,
     /// Kanál do vlákna, které změny sdružuje a posílá frontendu.
     changes: std::sync::Mutex<std::sync::mpsc::Sender<()>>,
+}
+
+#[derive(Default)]
+struct WatchState {
+    /// Pořadové číslo posledního použitého volání z frontendu. Volání běží
+    /// souběžně (async commandy) a při rychlé navigaci může starší doběhnout
+    /// později — to se pak zahodí, jinak by se hlídala složka, ze které
+    /// uživatel už odešel.
+    generation: u64,
+    watcher: Option<notify::RecommendedWatcher>,
 }
 
 /// Sdružuje změny: kopírování tisíce souborů je tisíc událostí, frontend
@@ -546,8 +556,19 @@ fn spawn_change_emitter(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiv
 }
 
 #[tauri::command(async)]
-fn watch_dirs(state: tauri::State<'_, DirWatcher>, paths: Vec<String>) -> Result<(), String> {
+fn watch_dirs(
+    state: tauri::State<'_, DirWatcher>,
+    paths: Vec<String>,
+    generation: u64,
+) -> Result<(), String> {
     use notify::{EventKind, RecursiveMode, Watcher};
+
+    // Zámek se drží po celou dobu výměny — souběžná volání tak jdou po sobě
+    // a rozhodne pořadové číslo, ne to, které doběhne poslední.
+    let mut current = state.current.lock().map_err(|err| err.to_string())?;
+    if generation <= current.generation {
+        return Ok(());
+    }
 
     let sender = state.changes.lock().map_err(|err| err.to_string())?.clone();
 
@@ -568,7 +589,8 @@ fn watch_dirs(state: tauri::State<'_, DirWatcher>, paths: Vec<String>) -> Result
     }
 
     // Přiřazení zahodí předchozí hlídač, a tím i jeho sledování.
-    *state.watcher.lock().map_err(|err| err.to_string())? = Some(watcher);
+    current.generation = generation;
+    current.watcher = Some(watcher);
     Ok(())
 }
 
@@ -1479,7 +1501,7 @@ fn main() {
 
             let (sender, receiver) = std::sync::mpsc::channel();
             app.manage(DirWatcher {
-                watcher: std::sync::Mutex::new(None),
+                current: std::sync::Mutex::new(WatchState::default()),
                 changes: std::sync::Mutex::new(sender),
             });
             spawn_change_emitter(app.handle().clone(), receiver);
