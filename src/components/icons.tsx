@@ -177,19 +177,35 @@ function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
   );
 }
 
-/** Velká ikona 64px pro icon view. `thumbnail` = u obrázku ukázat náhled. */
-export function LargeEntryIcon({ entry, thumbnail = false }: { entry: FileEntry; thumbnail?: boolean }) {
+/**
+ * Ikona položky v libovolné velikosti: složka (se speciálním glyfem), náhled
+ * obrázku (když `thumbnail`), jinak ikona ze shellu. Odkaz dostane šipku.
+ */
+export function EntryIcon({
+  entry,
+  size,
+  thumbnail = false,
+}: {
+  entry: FileEntry;
+  size: number;
+  thumbnail?: boolean;
+}) {
   return (
-    <WithLinkBadge entry={entry} size={64}>
+    <WithLinkBadge entry={entry} size={size}>
       {entry.is_dir ? (
-        <FolderIcon size={64} glyph={specialFolderGlyph(entry.path)} />
+        <FolderIcon size={size} glyph={specialFolderGlyph(entry.path)} />
       ) : thumbnail && canThumbnail(entry) ? (
-        <Thumbnail entry={entry} size={64} />
+        <Thumbnail entry={entry} size={size} />
       ) : (
-        <ShellIcon entry={entry} size={64} />
+        <ShellIcon entry={entry} size={size} />
       )}
     </WithLinkBadge>
   );
+}
+
+/** Velká ikona 64px pro icon view. `thumbnail` = u obrázku ukázat náhled. */
+export function LargeEntryIcon({ entry, thumbnail = false }: { entry: FileEntry; thumbnail?: boolean }) {
+  return <EntryIcon entry={entry} size={64} thumbnail={thumbnail} />;
 }
 
 /** Malá ikona 16px pro list view, sloupce a výsledky. */

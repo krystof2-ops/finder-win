@@ -18,7 +18,8 @@ import type { FileEntry, SelectMods, TagMap } from "../types";
 
 const COLUMNS: { key: SortKey; label: string; width: string; align: "left" | "right" }[] = [
   { key: "name", label: "Název", width: "minmax(0, 1fr)", align: "left" },
-  { key: "modified", label: "Datum úpravy", width: "140px", align: "left" },
+  // Data a velikosti doprava, s tabulárními číslicemi — čísla pod sebou lícují.
+  { key: "modified", label: "Datum úpravy", width: "140px", align: "right" },
   { key: "size", label: "Velikost", width: "80px", align: "right" },
   { key: "kind", label: "Druh", width: "100px", align: "left" },
 ];
@@ -145,7 +146,7 @@ export function ListView({
                 <span className="truncate">{entry.name}</span>
               )}
             </div>
-            <span className="truncate text-secondary tabular-nums">{formatModified(entry.modified)}</span>
+            <span className="truncate text-right text-secondary tabular-nums">{formatModified(entry.modified)}</span>
             <span className="truncate text-right text-secondary tabular-nums">
               {formatSize(entry.size, entry.is_dir)}
             </span>

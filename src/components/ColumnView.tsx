@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronRight } from "lucide-react";
 
-import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
+import { EntryIcon, SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
@@ -9,9 +9,11 @@ import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../
 import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
+import { TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { getFileProperties } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
-import type { FileEntry, SelectMods, TagMap } from "../types";
+import type { FileEntry, FileProperties, SelectMods, TagMap } from "../types";
 
 /* --------------------------------- sloupec -------------------------------- */
 
@@ -175,66 +177,89 @@ function ColumnPane({
   );
 }
 
-/* ------------------------------- info panel ------------------------------- */
+/* ------------------------------ náhled souboru ----------------------------- */
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 py-1">
+    <div className="flex items-baseline justify-between gap-3 py-[3px]">
       <span className="shrink-0 text-secondary">{label}</span>
-      <span className="truncate text-right text-primary">{value || "—"}</span>
+      <span className="min-w-0 truncate text-right text-primary tabular-nums">{children || "—"}</span>
     </div>
   );
 }
 
 type InfoPanelProps = {
   entry: FileEntry;
-  parentPath: string;
   onOpen: (entry: FileEntry) => void;
+  tags: TagMap;
 };
 
-function InfoPanel({ entry, parentPath, onOpen }: InfoPanelProps) {
-  const { Icon, tint } = fileVisual(entry);
+/**
+ * Poslední sloupec u vybraného souboru — náhled jako ve Finderu: velká ikona
+ * nebo obrázek, pod ní název a údaje. Časy se berou z get_file_properties
+ * (výpis nese jen změnu a vytvoření, ne přesné atributy).
+ */
+function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
+  const [properties, setProperties] = useState<FileProperties | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setProperties(null);
+    getFileProperties(entry.path)
+      .then((result) => {
+        if (active) setProperties(result);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [entry.path]);
+
+  const colors = tagsOf(tags, entry.path);
 
   return (
-    <div
-      className="fw-info-panel surface flex w-[280px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line p-4"
-      style={{ backgroundColor: "var(--bg-main)" }}
-    >
+    <div className="fw-info-panel surface flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
       <div className="flex justify-center pt-2">
-        {entry.is_dir ? (
-          <FolderIcon size={96} />
-        ) : (
-          <Icon size={96} color={tint} strokeWidth={1.25} />
-        )}
+        <EntryIcon entry={entry} size={128} thumbnail />
       </div>
 
-      <p className="text-center text-[14px] font-semibold break-words text-primary">{entry.name}</p>
+      <p className="text-center text-[13px] font-semibold break-words text-primary">{entry.name}</p>
 
-      <div className="flex flex-col border-t border-line pt-2 text-[12px]">
-        <InfoRow label="Typ" value={kindLabel(entry)} />
-        <InfoRow label="Velikost" value={formatSize(entry.size, entry.is_dir)} />
-        <InfoRow label="Vytvořeno" value={formatModified(entry.created)} />
-        <InfoRow label="Změněno" value={formatModified(entry.modified)} />
-
-        <div className="flex flex-col gap-0.5 py-1">
-          <span className="text-secondary">Kde</span>
-          <span className="font-mono text-[11px] leading-snug break-all text-primary">
-            {parentPath}
-          </span>
-        </div>
+      <div className="flex flex-col border-t border-line pt-2">
+        <InfoRow label="Druh">{kindLabel(entry)}</InfoRow>
+        <InfoRow label="Velikost">
+          {formatSize(properties?.size ?? entry.size, entry.is_dir)}
+        </InfoRow>
+        <InfoRow label="Vytvořeno">{formatModified(properties?.created ?? entry.created)}</InfoRow>
+        <InfoRow label="Změněno">{formatModified(properties?.modified ?? entry.modified)}</InfoRow>
+        <InfoRow label="Štítky">
+          {colors.length > 0 && (
+            <span className="inline-flex flex-wrap justify-end gap-x-2">
+              {colors.map((color) => (
+                <span key={color} className="inline-flex items-center gap-1">
+                  <span
+                    aria-hidden
+                    className="inline-block rounded-full"
+                    style={{ width: 8, height: 8, background: TAG_HEX[color] }}
+                  />
+                  {TAG_LABEL[color]}
+                </span>
+              ))}
+            </span>
+          )}
+        </InfoRow>
       </div>
 
       <button
         type="button"
         onClick={() => onOpen(entry)}
-        className="mt-auto w-full shrink-0 rounded-md bg-accent py-1.5 text-[13px] font-medium text-white transition-opacity duration-100 hover:opacity-90"
+        className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-accent text-[13px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
       >
         Otevřít
       </button>
     </div>
   );
 }
-
 /* -------------------------------- column view ------------------------------ */
 
 type ColumnViewProps = {
@@ -457,7 +482,7 @@ export function ColumnView({
           ))}
 
           {infoEntry && lastColumn && (
-            <InfoPanel entry={infoEntry} parentPath={lastColumn.path} onOpen={onOpenFile} />
+            <InfoPanel entry={infoEntry} onOpen={onOpenFile} tags={tags} />
           )}
         </div>
 
