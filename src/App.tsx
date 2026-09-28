@@ -930,11 +930,20 @@ export default function App() {
       // pod otevřenými Vlastnostmi šel dřív stisknout Delete a smazat výběr,
       // který uživatel za dialogem ani neviděl.
       if (modalOpen) return;
+      if (isTypingTarget(event.target)) return;
+
+      // Escape ve výsledcích hledání je zavře (a tím zastaví běžící průchod
+      // disku), i když fokus není v poli hledání.
+      if (event.key === "Escape" && search !== null) {
+        event.preventDefault();
+        setQuery("");
+        return;
+      }
+
       // Tag view ani výsledky hledání nemají výběr v hlavním panelu — zkratky
       // by mířily na položky podkladové složky, které uživatel nevidí.
       // Nejnebezpečnější je Delete.
       if (tagFilter !== null || search !== null) return;
-      if (isTypingTarget(event.target)) return;
 
       const ctrl = event.ctrlKey || event.metaKey;
 

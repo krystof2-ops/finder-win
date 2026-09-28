@@ -60,7 +60,37 @@ const SYSTEM_NAMES: [&str; 6] = [
 
 /// Adresáře, do kterých se při rekurzivním hledání nesestupuje. Bývají obrovské
 /// a jejich obsah nikdo nehledá — bez nich by hledání v projektu trvalo minuty.
-const SKIP_DIRS: [&str; 3] = [".git", "node_modules", "target"];
+const SKIP_DIRS: [&str; 2] = [".git", "node_modules"];
+
+/// Přeskočit při hledání? `target` jen jako výstup Cargo (vedle leží
+/// Cargo.toml) — obyčejnou uživatelskou složku "Target" hledání vynechat nesmí.
+fn is_skipped_dir(path: &Path, name: &str) -> bool {
+    if SKIP_DIRS.iter().any(|skip| skip.eq_ignore_ascii_case(name)) {
+        return true;
+    }
+    name.eq_ignore_ascii_case("target")
+        && path.parent().is_some_and(|parent| parent.join("Cargo.toml").is_file())
+}
+
+/// Běžící hledání a jeho příznak zrušení. Nový dotaz zruší předchozí — jinak
+/// by průchod celého C:\ doběhl až do konce, i když výsledek už nikdo nechce.
+#[derive(Default)]
+struct SearchState {
+    current: std::sync::Mutex<Option<(u64, std::sync::Arc<std::sync::atomic::AtomicBool>)>>,
+}
+
+/// Zruší hledání `search_id` — jen pokud je pořád to aktuální. Zrušení, které
+/// dorazí po startu novějšího hledání, tak omylem nezastaví to nové.
+#[tauri::command(async)]
+fn cancel_search(state: tauri::State<'_, SearchState>, search_id: u64) -> Result<(), String> {
+    let current = state.current.lock().map_err(|err| err.to_string())?;
+    if let Some((id, flag)) = current.as_ref() {
+        if *id == search_id {
+            flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+    Ok(())
+}
 
 const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
 const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
@@ -340,9 +370,15 @@ fn drive_favorites() -> Vec<FavoriteEntry> {
             let root_w = HSTRING::from(root.as_str());
 
             let kind = unsafe { GetDriveTypeW(&root_w) };
+
+            // Odpojený síťový disk drží GetVolumeInformationW desítky sekund —
+            // a to při každém drives-changed. Název svazku se u sítě nečte.
+            if kind == REMOTE {
+                return Some(favorite(&format!("Síťový disk ({}:)", letter), &root, "Network"));
+            }
+
             let (fallback, icon) = match kind {
                 REMOVABLE => ("USB disk", "Usb"),
-                REMOTE => ("Síťový disk", "Network"),
                 CDROM => ("Mechanika", "Disc"),
                 // Název jako v Průzkumníku („Místní disk"), ikona podle sběrnice.
                 _ if is_usb_drive(letter) => ("Místní disk", "Usb"),
@@ -1411,15 +1447,29 @@ fn stat_paths(paths: Vec<String>) -> Vec<StatResult> {
 /// a spol. vůbec nevkročí, místo aby se jejich obsah zahazoval až po projití.
 #[tauri::command(async)]
 fn search_recursive(
+    state: tauri::State<'_, SearchState>,
     root: String,
     query: String,
     max_results: usize,
     show_hidden: Option<bool>,
+    search_id: u64,
 ) -> Result<Vec<FileEntry>, String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
     let show_hidden = show_hidden.unwrap_or(false);
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Ok(Vec::new());
+    }
+
+    // Tohle hledání se stane aktuálním; to předchozí se zruší.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    {
+        let mut current = state.current.lock().map_err(|err| err.to_string())?;
+        if let Some((_, previous)) = current.replace((search_id, cancelled.clone())) {
+            previous.store(true, Ordering::Relaxed);
+        }
     }
 
     let root_path = PathBuf::from(&root);
@@ -1438,9 +1488,7 @@ fn search_recursive(
             }
 
             let name = item.file_name().to_string_lossy().to_string();
-            if item.file_type().is_dir()
-                && SKIP_DIRS.iter().any(|skip| skip.eq_ignore_ascii_case(&name))
-            {
+            if item.file_type().is_dir() && is_skipped_dir(item.path(), &name) {
                 return false;
             }
 
@@ -1452,6 +1500,10 @@ fn search_recursive(
     let mut entries = Vec::new();
 
     for item in walker {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err("hledání zrušeno".to_string());
+        }
+
         let Ok(item) = item else { continue };
         // Kořen sám mezi výsledky nepatří, i kdyby se jménem trefil.
         if item.depth() == 0 {
@@ -1629,7 +1681,6 @@ fn apply_rounded_corners(_window: &tauri::WebviewWindow) {}
 
 fn main() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
@@ -1639,6 +1690,7 @@ fn main() {
             }
 
             let (sender, receiver) = std::sync::mpsc::channel();
+            app.manage(SearchState::default());
             app.manage(DirWatcher {
                 current: std::sync::Mutex::new(WatchState::default()),
                 changes: std::sync::Mutex::new(sender),
@@ -1669,7 +1721,8 @@ fn main() {
             watch_dirs,
             open_device,
             explorer_shows_hidden,
-            trash_is_permanent
+            trash_is_permanent,
+            cancel_search
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -49,7 +49,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 
 ## Instalace
 
-Stáhni nejnovější instalátor `.msi` (nebo `-setup.exe`) ze stránky [Releases](https://github.com/OWNER/finder-win/releases/latest) a spusť ho.
+Stáhni nejnovější `Finder-Win_…_x64-setup.exe` ze stránky [Releases](https://github.com/OWNER/finder-win/releases/latest) a spusť ho. Instaluje se jen pro aktuálního uživatele, práva administrátora nejsou potřeba.
 
 ### Varování Windows SmartScreen
 
@@ -70,7 +70,7 @@ npm run tauri dev     # vývojový režim
 npm run tauri build   # sestavení instalátorů
 ```
 
-Instalátory vzniknou v `src-tauri/target/release/bundle/msi/` a `src-tauri/target/release/bundle/nsis/`.
+Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 
 ## Známá omezení
 

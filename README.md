@@ -51,7 +51,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 
 ## Install
 
-Download the latest `.msi` (or `-setup.exe`) installer from the [Releases](https://github.com/OWNER/finder-win/releases/latest) page and run it.
+Download the latest `Finder-Win_…_x64-setup.exe` from the [Releases](https://github.com/OWNER/finder-win/releases/latest) page and run it. It installs for the current user only, no administrator rights needed.
 
 ### Windows SmartScreen warning
 
@@ -72,7 +72,7 @@ npm run tauri dev     # run in development mode
 npm run tauri build   # build installers
 ```
 
-Installers are written to `src-tauri/target/release/bundle/msi/` and `src-tauri/target/release/bundle/nsis/`.
+The installer is written to `src-tauri/target/release/bundle/nsis/`.
 
 ## Known limitations
 

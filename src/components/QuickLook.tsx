@@ -130,8 +130,33 @@ function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState 
   // takže výstup marked musí projít sanitizací, než se vloží jako HTML.
   const html = useMemo(() => {
     if (state.content === null) return "";
-    return DOMPurify.sanitize(marked.parse(state.content, { async: false }) as string);
+    return DOMPurify.sanitize(marked.parse(state.content, { async: false }) as string, {
+      // Obrázek z webu by při pouhém náhledu prozradil, že si uživatel soubor
+      // otevřel (sledovací pixel). Média a formuláře v náhledu nemají co dělat.
+      FORBID_TAGS: ["img", "picture", "source", "video", "audio", "iframe", "form", "input"],
+    });
   }, [state.content]);
+
+  /**
+   * Klik na odkaz by navigoval celé okno aplikace na web — bez cesty zpět.
+   * Webové odkazy se proto otevřou ve výchozím prohlížeči, kotvy (#nadpis)
+   * doscrollují uvnitř náhledu a zbytek (relativní cesty) se ignoruje.
+   */
+  function handleClick(event: React.MouseEvent<HTMLDivElement>) {
+    const link = (event.target as Element).closest("a");
+    if (!link) return;
+    event.preventDefault();
+
+    const href = link.getAttribute("href") ?? "";
+    if (href.startsWith("#")) {
+      const id = decodeURIComponent(href.slice(1));
+      event.currentTarget.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView();
+      return;
+    }
+    if (/^(https?:|mailto:)/i.test(href)) {
+      invoke("open_file", { path: href }).catch(() => undefined);
+    }
+  }
 
   if (state.loading) {
     return <Centered><p className="text-[13px] text-secondary">Načítám…</p></Centered>;
@@ -142,6 +167,7 @@ function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState 
 
   return (
     <div
+      onClick={handleClick}
       className="ql-markdown h-full w-full overflow-auto p-6 text-primary"
       dangerouslySetInnerHTML={{ __html: html }}
     />

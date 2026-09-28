@@ -3,10 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
 import { entryOpacity, formatModified } from "../format";
-import { relativeParent, searchRecursive } from "../fileops";
+import { cancelSearch, relativeParent, searchRecursive } from "../fileops";
 import { tagsOf } from "../lib/storage";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry } from "../types";
+
+/** Identita hledání pro backend — napříč všemi SearchView, proto modulová. */
+let nextSearchId = 1;
 
 /** Strop pro jedno hledání. Víc řádků stejně nikdo neprojde a průchod by rostl. */
 export const MAX_RESULTS = 500;
@@ -56,6 +59,7 @@ export function SearchView({
   // dotaz přepsala výsledky toho, co uživatel mezitím napsal.
   useEffect(() => {
     const id = ++requestId.current;
+    const searchId = nextSearchId++;
     setError(null);
 
     // Nový dotaz začíná načítací obrazovkou. Přenačtení po operaci (smazání,
@@ -67,7 +71,7 @@ export function SearchView({
       setSelected(null);
     }
 
-    searchRecursive(root, query, MAX_RESULTS, showHidden)
+    searchRecursive(root, query, MAX_RESULTS, showHidden, searchId)
       .then((found) => {
         if (requestId.current !== id) return;
 
@@ -81,6 +85,10 @@ export function SearchView({
         setError(String(err));
         setLoading(false);
       });
+
+    // Nový dotaz, zavření výsledků (Escape, vymazání pole) i odchod jinam
+    // zastaví průchod disku — jinak by na C:\ běžel dál naprázdno.
+    return () => void cancelSearch(searchId).catch(() => undefined);
   }, [root, query, refreshToken, showHidden]);
 
   useEffect(() => {

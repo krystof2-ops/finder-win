@@ -73,8 +73,14 @@ export function searchRecursive(
   query: string,
   maxResults: number,
   showHidden: boolean,
+  searchId: number,
 ): Promise<FileEntry[]> {
-  return invoke<FileEntry[]>("search_recursive", { root, query, maxResults, showHidden });
+  return invoke<FileEntry[]>("search_recursive", { root, query, maxResults, showHidden, searchId });
+}
+
+/** Zastaví běžící hledání — backend by jinak prošel celý disk až do konce. */
+export function cancelSearch(searchId: number): Promise<void> {
+  return invoke<void>("cancel_search", { searchId });
 }
 
 /** Nadřazená složka, nebo null pro kořen disku či síťového share. */
