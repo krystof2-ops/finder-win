@@ -236,10 +236,11 @@ function CustomFavorites({
   const [dropIndex, setDropIndex] = useState<number | null>(null);
 
   // Soubor i složka sem smí, ale co už v seznamu je, se podruhé nepřidává.
+  // U vícenásobného tažení stačí, když je aspoň jedna položka nová.
   const accepts =
     drag !== null &&
     (drag.kind === "favorite" ||
-      !items.some((item) => storage.samePath(item.path, drag.path)));
+      drag.items.some((dragged) => !items.some((item) => storage.samePath(item.path, dragged.path))));
 
   // Prázdná sekce se odhalí jen na dobu tažení, aby bylo kam pustit první složku.
   const visible = items.length > 0 || (accepts && drag?.kind === "entry");
@@ -283,15 +284,18 @@ function CustomFavorites({
       return;
     }
 
-    void storage.addFavorite(
-      {
-        label: payload.name,
-        path: payload.path,
-        icon: "Folder",
-        type: payload.isDir ? "folder" : "file",
-      },
-      target,
-    );
+    // Celý výběr na místo, kam ukazovala linka, v pořadí výpisu. Duplicity
+    // addFavorite sám odmítne — a pozice se posune jen o přidané.
+    void (async () => {
+      let at = target;
+      for (const item of payload.items) {
+        const added = await storage.addFavorite(
+          { label: item.name, path: item.path, icon: "Folder", type: item.isDir ? "folder" : "file" },
+          at,
+        );
+        if (added) at += 1;
+      }
+    })();
   }
 
   return (

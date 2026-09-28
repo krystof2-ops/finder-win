@@ -22,6 +22,8 @@ type SubmenuEntry = { type: "separator" } | ActionItem;
 
 export type MenuItem =
   | { type: "separator" }
+  /** Šedý popisek nahoře v menu ("3 položky") — nedá se na něj kliknout. */
+  | { type: "header"; label: string }
   | ActionItem
   /** Řádek s paletou barev v podmenu. Klik na barvu menu nezavírá. */
   | {
@@ -346,6 +348,18 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
               key={`separator-${index}`}
               style={{ height: 1, margin: "4px 0", background: "var(--border)" }}
             />
+          );
+        }
+
+        if (item.type === "header") {
+          return (
+            <div
+              key={`header-${index}`}
+              role="presentation"
+              className="px-3 pt-1 pb-0.5 text-[11px] font-medium text-secondary"
+            >
+              {item.label}
+            </div>
           );
         }
 

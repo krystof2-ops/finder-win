@@ -4,12 +4,14 @@ import { ChevronRight } from "lucide-react";
 import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
-import { endDrag, startDrag } from "../lib/dnd";
+import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
+import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../lib/rowDnd";
+import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
-import type { FileEntry, TagMap } from "../types";
+import type { FileEntry, SelectMods, TagMap } from "../types";
 
 /* --------------------------------- sloupec -------------------------------- */
 
@@ -20,8 +22,11 @@ type ColumnPaneProps = {
   index: number;
   isFocused: boolean;
   windowFocused: boolean;
-  onSelect: (columnIndex: number, entry: FileEntry) => void;
+  onSelect: (columnIndex: number, entry: FileEntry, mods?: SelectMods) => void;
   onOpen: (columnIndex: number, entry: FileEntry) => void;
+  onDropInto: DropInto;
+  onBandStart: (columnIndex: number, additive: boolean) => void;
+  onBandSelect: (columnIndex: number, paths: string[]) => void;
   onFocus: (columnIndex: number) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
   cutPaths: Set<string>;
@@ -50,9 +55,22 @@ function ColumnPane({
   onRenameSubmit,
   onRenameCancel,
   tags,
+  onDropInto,
+  onBandStart,
+  onBandSelect,
   exiting = false,
 }: ColumnPaneProps) {
   const selectedRef = useRef<HTMLDivElement>(null);
+  const { dropTarget, dropProps } = useFolderDrop(onDropInto);
+  const band = useRubberBand({
+    onStart: (additive) => onBandStart(index, additive),
+    onChange: (paths) => onBandSelect(index, paths),
+  });
+
+  const multi = column.selectedPaths;
+  const isInSelection = (path: string) =>
+    multi.length > 0 ? multi.includes(path) : path === column.selectedPath;
+  const selectedEntries = entries.filter((entry) => isInSelection(entry.path));
 
   // Když se výběr posune klávesnicí, musí zůstat vidět. Odcházející sloupec
   // by tím ale přetáhl scroll zpátky doprava, proto ne u něj.
@@ -65,7 +83,10 @@ function ColumnPane({
     <div
       // Podle tohohle App pozná, ve kterém sloupci padl pravý klik do volné plochy.
       data-column-path={column.path}
-      onMouseDown={() => onFocus(index)}
+      onMouseDown={(event) => {
+        onFocus(index);
+        if (!exiting) band.onMouseDown(event);
+      }}
       // Klik do prázdna pod řádky zruší výběr ve sloupci, jako ve Finderu.
       onClick={(event) => {
         if (!(event.target as Element).closest("[data-path]")) onClearSelection(index);
@@ -83,6 +104,8 @@ function ColumnPane({
         </div>
       )}
 
+      {band.overlay}
+
       {!column.loading && !column.error && entries.length === 0 && (
         <div className="px-2.5 py-1 text-[13px] text-secondary">
           {column.entries.length === 0 ? "Prázdná složka" : "Nic neodpovídá hledání"}
@@ -90,14 +113,14 @@ function ColumnPane({
       )}
 
       {entries.map((entry) => {
-        const isSelected = entry.path === column.selectedPath;
+        const isSelected = isInSelection(entry.path);
         const isRenaming = entry.path === renamingPath;
         const selectedClass = windowFocused ? "bg-selected" : "bg-selected-inactive";
 
         return (
           <div
             key={entry.path}
-            ref={isSelected ? selectedRef : undefined}
+            ref={entry.path === column.selectedPath ? selectedRef : undefined}
             data-path={entry.path}
             role="option"
             aria-selected={isSelected}
@@ -105,23 +128,29 @@ function ColumnPane({
             draggable={!isRenaming}
             onDragStart={(event) =>
               startDrag(
-                { kind: "entry", path: entry.path, name: entry.name, isDir: entry.is_dir },
+                { kind: "entry", items: dragItemsFor(entry, selectedEntries) },
                 event.dataTransfer,
               )
             }
             onDragEnd={endDrag}
-            onClick={() => onSelect(index, entry)}
+            {...dropProps(entry)}
+            onClick={(event) => onSelect(index, entry, selectMods(event))}
             onDoubleClick={() => onOpen(index, entry)}
             onContextMenu={(event) => {
               event.preventDefault();
               event.stopPropagation();
-              onSelect(index, entry);
+              // Pravý klik do vícenásobného výběru ho nezahazuje — menu pak
+              // míří na všechny vybrané položky.
+              if (!isSelected) onSelect(index, entry);
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className={`fw-col-row fw-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
               isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
-            style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}
+            style={{
+              opacity: entryOpacity(entry, cutPaths.has(entry.path)),
+              ...(dropTarget === entry.path ? DROP_TARGET_STYLE : null),
+            }}
           >
             <SmallEntryIcon entry={entry} />
             {isRenaming ? (
@@ -221,6 +250,7 @@ type ColumnViewProps = {
   /** Menu, dialog nebo přejmenování drží fokus u sebe. Po jejich zavření se
    *  fokus vrací sloupcům — jinak by šipky byly mrtvé do dalšího kliku. */
   suspended: boolean;
+  onDropInto: DropInto;
 };
 
 export function ColumnView({
@@ -234,8 +264,9 @@ export function ColumnView({
   onContextMenu,
   tags,
   suspended,
+  onDropInto,
 }: ColumnViewProps) {
-  const { columns, focusedIndex, select, openInto, focusColumn, move, clearSelection } = api;
+  const { columns, focusedIndex, select, openInto, focusColumn, move, clearSelection, extend } = api;
 
   const containerRef = useRef<HTMLDivElement>(null);
   /** Živé sloupce bez těch odcházejících — cíl pro doscrollování doprava. */
@@ -278,8 +309,11 @@ export function ColumnView({
   useEffect(() => () => window.clearTimeout(exitTimer.current), []);
 
   const lastColumn = columns.length > 0 ? columns[columns.length - 1] : null;
+  // Při výběru víc položek info panel nic neukazuje — nemá o čem.
   const selectedInLast =
-    lastColumn?.entries.find((entry) => entry.path === lastColumn.selectedPath) ?? null;
+    lastColumn && lastColumn.selectedPaths.length === 0
+      ? (lastColumn.entries.find((entry) => entry.path === lastColumn.selectedPath) ?? null)
+      : null;
   // Info panel patří jen souboru — složka místo něj vždycky otevře další sloupec.
   const infoEntry = selectedInLast && !selectedInLast.is_dir ? selectedInLast : null;
 
@@ -338,11 +372,13 @@ export function ColumnView({
         break;
       case "ArrowDown":
         event.preventDefault();
-        move(1);
+        if (event.shiftKey) extend(1);
+        else move(1);
         break;
       case "ArrowUp":
         event.preventDefault();
-        move(-1);
+        if (event.shiftKey) extend(-1);
+        else move(-1);
         break;
       case "Home":
         event.preventDefault();
@@ -389,6 +425,9 @@ export function ColumnView({
               onFocus={focusColumn}
               onClearSelection={clearSelection}
               onContextMenu={onContextMenu}
+              onDropInto={onDropInto}
+              onBandStart={api.startBand}
+              onBandSelect={api.bandSelect}
               cutPaths={cutPaths}
               renamingPath={renamingPath}
               onRenameSubmit={onRenameSubmit}
@@ -415,6 +454,9 @@ export function ColumnView({
             onOpen={() => undefined}
             onFocus={() => undefined}
             onClearSelection={() => undefined}
+            onDropInto={() => undefined}
+            onBandStart={() => undefined}
+            onBandSelect={() => undefined}
             cutPaths={cutPaths}
             renamingPath={null}
             onRenameSubmit={() => undefined}

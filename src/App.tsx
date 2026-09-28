@@ -46,10 +46,19 @@ import {
 import { isTypingTarget } from "./lib/dom";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
+import { useRubberBand } from "./lib/rubberBand";
 import { useStorage } from "./lib/useStorage";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
-import type { Clipboard, FavoriteSection, FileEntry, TagColor, Theme, ViewMode } from "./types";
+import type {
+  Clipboard,
+  FavoriteSection,
+  FileEntry,
+  SelectMods,
+  TagColor,
+  Theme,
+  ViewMode,
+} from "./types";
 
 /** Jak dlouho hláška zůstane, než sama odjede. Musí sedět s fw-toast-out. */
 const TOAST_VISIBLE_MS = 2000;
@@ -497,16 +506,109 @@ export default function App() {
     if (query.trim() === "") setSearch(null);
   }, [query]);
 
+  /** Kotva pro Shift+klik / Shift+šipky: poslední položka vybraná bez Shiftu. */
+  const anchorRef = useRef<string | null>(null);
+
   const selectEntry = useCallback((entry: FileEntry) => {
     setActive(entry);
     setSelection(new Set([entry.path]));
+    anchorRef.current = entry.path;
   }, []);
 
-  /** Položky, na které míří operace — v column view vždy jen ta zaměřená. */
+  /** Cesty mezi kotvou a `path` v pořadí výpisu (včetně obou konců). */
+  const rangeTo = useCallback(
+    (path: string): string[] => {
+      const anchor = anchorRef.current ?? path;
+      const from = visibleEntries.findIndex((entry) => entry.path === anchor);
+      const to = visibleEntries.findIndex((entry) => entry.path === path);
+      if (from < 0 || to < 0) return [path];
+      return visibleEntries
+        .slice(Math.min(from, to), Math.max(from, to) + 1)
+        .map((entry) => entry.path);
+    },
+    [visibleEntries],
+  );
+
+  /** Klik v Icon / List View: sám vybere, Ctrl přepne, Shift vybere rozsah. */
+  const clickSelect = useCallback(
+    (entry: FileEntry, mods: SelectMods) => {
+      if (mods.range) {
+        const range = rangeTo(entry.path);
+        // Ctrl+Shift přidává rozsah k dosavadnímu výběru.
+        setSelection((current) => new Set(mods.toggle ? [...current, ...range] : range));
+        setActive(entry);
+        return;
+      }
+
+      if (mods.toggle) {
+        anchorRef.current = entry.path;
+        const removing = selection.has(entry.path);
+        setSelection((current) => {
+          const next = new Set(current);
+          if (removing) next.delete(entry.path);
+          else next.add(entry.path);
+          return next;
+        });
+        // Odznačená položka nesmí zůstat cílem operací pro jednu položku.
+        setActive(removing ? null : entry);
+        return;
+      }
+
+      selectEntry(entry);
+    },
+    [rangeTo, selection, selectEntry],
+  );
+
+  /**
+   * Posun výběru klávesnicí o `delta` položek (Icon / List View). S Shiftem
+   * rozšiřuje od kotvy. Nová aktivní položka se vždy doscrolluje do obrazu.
+   */
+  const moveSelection = useCallback(
+    (delta: number, extend: boolean) => {
+      if (visibleEntries.length === 0) return;
+
+      const current = active ? visibleEntries.findIndex((entry) => entry.path === active.path) : -1;
+      const index =
+        current < 0
+          ? delta > 0
+            ? 0
+            : visibleEntries.length - 1
+          : Math.min(Math.max(current + delta, 0), visibleEntries.length - 1);
+      const next = visibleEntries[index];
+
+      if (extend) {
+        if (anchorRef.current === null && active) anchorRef.current = active.path;
+        setSelection(new Set(rangeTo(next.path)));
+        setActive(next);
+      } else {
+        selectEntry(next);
+      }
+
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-path="${CSS.escape(next.path)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [visibleEntries, active, rangeTo, selectEntry],
+  );
+
+  /**
+   * Položky, na které míří operace — výběr v Icon / List View, v column view
+   * vícenásobný výběr zaměřeného sloupce, nebo jen jeho aktivní položka.
+   */
   const targetEntries = useMemo((): FileEntry[] => {
-    if (isColumnView) return columnSelected ? [columnSelected] : [];
+    if (isColumnView) {
+      const multi = focusedColumn?.selectedPaths ?? [];
+      if (multi.length > 0) {
+        return columnsApi
+          .visibleEntries(columnsApi.focusedIndex)
+          .filter((entry) => multi.includes(entry.path));
+      }
+      return columnSelected ? [columnSelected] : [];
+    }
     return visibleEntries.filter((entry) => selection.has(entry.path));
-  }, [isColumnView, columnSelected, visibleEntries, selection]);
+  }, [isColumnView, focusedColumn, columnsApi, columnSelected, visibleEntries, selection]);
 
   const activeEntry = isColumnView ? columnSelected : active;
 
@@ -879,45 +981,76 @@ export default function App() {
     [targetEntries],
   );
 
-  /** Vloží do `into`, bez něj do složky, ve které uživatel stojí. */
-  const paste = useCallback((into?: string) => {
-    const target = into ?? currentDir;
-    if (!clipboard || target === null) return;
-    const { mode } = clipboard;
-    // Vyjmout a vložit do téže složky nic nedělá — dřív z toho byla "X (kopie)".
-    const paths =
-      mode === "cut"
-        ? clipboard.paths.filter((path) => {
-            const parent = parentPath(path);
-            return parent === null || !storage.samePath(parent, target);
-          })
-        : clipboard.paths;
+  /**
+   * Kopie nebo přesun cest do složky `target` — společné pro Vložit
+   * a přetažení na složku. Vrací, kolik položek prošlo.
+   */
+  const transfer = useCallback(
+    async (sources: string[], target: string, mode: "copy" | "cut"): Promise<number> => {
+      // Přesun tam, kde položka už je, nic nedělá — dřív z toho byla "X (kopie)".
+      const paths =
+        mode === "cut"
+          ? sources.filter((path) => {
+              const parent = parentPath(path);
+              return parent === null || !storage.samePath(parent, target);
+            })
+          : sources;
+      if (paths.length === 0) return 0;
 
-    if (paths.length === 0) {
-      setClipboard(null);
-      return;
-    }
+      let skipped = 0;
 
-    let skipped = 0;
+      const { ok } = await runBatch(
+        mode === "copy" ? "Kopírování selhalo" : "Přesun selhal",
+        paths,
+        async (path) => {
+          if (mode === "copy") {
+            const result = await copyPath(path, target);
+            await storage.copyTags(path, result.path);
+            skipped += result.skipped_links;
+          } else {
+            const result = await movePath(path, target);
+            await storage.remapPath(path, result.path);
+            skipped += result.skipped_links;
+          }
+        },
+      );
 
-    void runBatch("Vložení selhalo", paths, async (path) => {
-      if (mode === "copy") {
-        const result = await copyPath(path, target);
-        await storage.copyTags(path, result.path);
-        skipped += result.skipped_links;
-      } else {
-        const result = await movePath(path, target);
-        await storage.remapPath(path, result.path);
-        skipped += result.skipped_links;
-      }
-    }).then(({ ok }) => {
       noteSkippedLinks(skipped);
-      // Vyjmuté položky se dají vložit jen jednou. Schránka se ale čistí jen
-      // když se aspoň něco přesunulo — po úplném selhání by uživatel jinak
-      // přišel i o to, co měl vyjmuté.
-      if (mode === "cut" && ok > 0) setClipboard(null);
-    });
-  }, [clipboard, currentDir, runBatch, noteSkippedLinks]);
+      return ok;
+    },
+    [runBatch, noteSkippedLinks],
+  );
+
+  /** Vloží do `into`, bez něj do složky, ve které uživatel stojí. */
+  const paste = useCallback(
+    (into?: string) => {
+      const target = into ?? currentDir;
+      if (!clipboard || target === null) return;
+      const { paths, mode } = clipboard;
+
+      // Vyjmuto a vloženo tam, kde už to leží — není co přesouvat, schránka pryč.
+      const alreadyThere = paths.every((path) => {
+        const parent = parentPath(path);
+        return parent !== null && storage.samePath(parent, target);
+      });
+
+      void transfer(paths, target, mode).then((ok) => {
+        // Vyjmuté položky se dají vložit jen jednou. Schránka se ale čistí jen
+        // když se aspoň něco přesunulo — po úplném selhání by uživatel jinak
+        // přišel i o to, co měl vyjmuté.
+        if (mode === "cut" && (ok > 0 || alreadyThere)) setClipboard(null);
+      });
+    },
+    [clipboard, currentDir, transfer],
+  );
+
+  /** Přetažení na složku: přesun, s Ctrl kopie. */
+  const dropInto = useCallback(
+    (folder: string, paths: string[], copy: boolean) => {
+      void transfer(paths, folder, copy ? "copy" : "cut");
+    },
+    [transfer],
+  );
 
   const goToParent = useCallback(() => {
     if (currentDir === null) return;
@@ -928,8 +1061,27 @@ export default function App() {
   const selectAll = useCallback(() => {
     if (isColumnView) return;
     setSelection(new Set(visibleEntries.map((entry) => entry.path)));
-    if (visibleEntries.length > 0) setActive(visibleEntries[0]);
+    if (visibleEntries.length > 0) {
+      setActive(visibleEntries[0]);
+      anchorRef.current = visibleEntries[0].path;
+    }
   }, [isColumnView, visibleEntries]);
+
+  // Gumička v prázdné ploše Icon / List View. S Ctrl/Shift přidává k výběru,
+  // který byl na začátku tažení — ten musí zůstat stejný, jinak by výběr
+  // při couvání myší jen rostl.
+  const bandBase = useRef<Set<string>>(new Set());
+  const band = useRubberBand({
+    onStart: (additive) => {
+      bandBase.current = additive ? new Set(selection) : new Set();
+    },
+    onChange: (paths) => {
+      setSelection(new Set([...bandBase.current, ...paths]));
+      const first = visibleEntries.find((entry) => paths.includes(entry.path)) ?? null;
+      setActive(first);
+      anchorRef.current = first?.path ?? null;
+    },
+  });
 
   /* --------------------------- klávesové zkratky -------------------------- */
 
@@ -1050,6 +1202,19 @@ export default function App() {
             setQuickLookOpen(true);
           }
           break;
+        case "ArrowDown":
+        case "ArrowRight":
+          // Column view si šipky obsluhuje sám na svém kontejneru.
+          if (isColumnView) break;
+          event.preventDefault();
+          moveSelection(1, event.shiftKey);
+          break;
+        case "ArrowUp":
+        case "ArrowLeft":
+          if (isColumnView) break;
+          event.preventDefault();
+          moveSelection(-1, event.shiftKey);
+          break;
         case "Escape":
           // Zrušit výběr jako ve Finderu i Průzkumníku. Column view si Escape
           // obsluhuje sám (zruší výběr v zaměřeném sloupci).
@@ -1083,6 +1248,8 @@ export default function App() {
     refresh,
     deleteTargets,
     newFolder,
+    moveSelection,
+    toggleHidden,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -1435,7 +1602,16 @@ export default function App() {
 
     // null = položka, která se v tomhle menu nehodí (náhled u složky, oblíbené
     // u souboru). Vyfiltruje se až nakonec, aby se seznam dal psát lineárně.
+    // Tagy celého výběru: barva je "zapnutá", když ji mají všechny položky.
+    const targetPaths = targets.map((item) => item.path);
+    const sharedTags = TAG_COLORS.filter((color) =>
+      targetPaths.every((path) => storage.tagsOf(tags, path).includes(color)),
+    );
+    const anyTags = targetPaths.some((path) => storage.tagsOf(tags, path).length > 0);
+
     const items: (MenuItem | null)[] = [
+      // Menu nad výběrem víc položek řekne rovnou, na kolik míří.
+      single ? null : { type: "header", label: formatItemCount(count) },
       {
         type: "item",
         label: "Otevřít",
@@ -1572,15 +1748,21 @@ export default function App() {
       {
         type: "tags",
         label: "Tagy",
-        active: entryTags,
-        onToggle: (color) => void storage.toggleTag(entry.path, color),
+        active: single ? entryTags : sharedTags,
+        // U výběru se barva přidá všem (nebo všem odebere, když ji mají všichni).
+        onToggle: (color) =>
+          single
+            ? void storage.toggleTag(entry.path, color)
+            : void storage.setTag(targetPaths, color, !sharedTags.includes(color)),
       },
-      entryTags.length === 0
+      !anyTags
         ? null
         : {
             type: "item",
             label: "Odebrat tagy",
-            onSelect: () => void storage.clearTags(entry.path),
+            onSelect: () => {
+              for (const path of targetPaths) void storage.clearTags(path);
+            },
           },
       { type: "separator" },
       {
@@ -1808,6 +1990,7 @@ export default function App() {
           onContextMenu={openContextMenu}
           tags={tags}
           suspended={modalOpen || renamingPath !== null || pathEditing}
+          onDropInto={dropInto}
         />
       );
     }
@@ -1835,7 +2018,8 @@ export default function App() {
       renamingPath,
       onRenameSubmit: submitRename,
       onRenameCancel: () => setRenamingPath(null),
-      onSelect: selectEntry,
+      onSelect: clickSelect,
+      onDropInto: dropInto,
       onOpen: open,
       onContextMenu: openContextMenu,
       tags,
@@ -1917,11 +2101,17 @@ export default function App() {
             data-view={viewMode}
             onContextMenu={openBackgroundMenu}
             onClick={clearSelectionOnBackground}
+            onMouseDown={(event) => {
+              // Gumička jen nad výpisem složky — column view má vlastní po
+              // sloupcích, výsledky hledání a tag view výběr nemají.
+              if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
+            }}
             className={`min-h-0 flex-1 overflow-auto ${
               viewSwapping ? "fw-view-out" : "fw-view-swap"
             }`}
           >
             {renderContent()}
+            {band.overlay}
           </div>
         </main>
       </div>

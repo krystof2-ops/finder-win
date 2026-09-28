@@ -57,6 +57,9 @@ export type FileProperties = {
 
 export type ViewMode = "icon" | "list" | "column";
 
+/** Modifikátory kliku na položku: Ctrl = přepnout, Shift = rozsah od kotvy. */
+export type SelectMods = { toggle: boolean; range: boolean };
+
 /** Velikost složky z folder_stats — průběžně i na konci. */
 export type FolderStats = {
   files: number;

@@ -2,14 +2,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { sortEntries, type SortDirection, type SortKey } from "./format";
-import type { FileEntry } from "./types";
+import type { FileEntry, SelectMods } from "./types";
 
 export type Column = {
   path: string;
   entries: FileEntry[];
   loading: boolean;
   error: string | null;
+  /** Aktivní položka — ta, na které stojí klávesnice a kterou otevírá Enter. */
   selectedPath: string | null;
+  /** Vícenásobný výběr (Ctrl/Shift+klik, gumička). Prázdné = jen selectedPath. */
+  selectedPaths: string[];
+  /** Kotva pro Shift: poslední položka vybraná bez Shiftu. */
+  anchorPath: string | null;
   /** Identita posledního požadavku na výpis. Odpověď s jiným tokenem je stará
    *  (klik na složku a hned Enter spustí dva loady téhož sloupce) a zahodí se. */
   token: number;
@@ -25,8 +30,15 @@ export type ColumnsApi = {
   focusedIndex: number;
   /** Cesta nejhlubšího sloupce — to je "kde uživatel je", když se přepíná view mode. */
   activePath: string | null;
-  /** Klik na položku: vybere ji a u složky rovnou natáhne sloupec napravo. */
-  select: (columnIndex: number, entry: FileEntry) => void;
+  /** Klik na položku: vybere ji a u složky rovnou natáhne sloupec napravo.
+   *  S modifikátory přepíná (Ctrl) nebo vybírá rozsah od kotvy (Shift). */
+  select: (columnIndex: number, entry: FileEntry, mods?: SelectMods) => void;
+  /** Shift+↑/↓: rozšíří výběr od kotvy v zaměřeném sloupci. */
+  extend: (delta: 1 | -1) => void;
+  /** Gumička: začátek tažení (additive = Ctrl/Shift, přidává k výběru). */
+  startBand: (columnIndex: number, additive: boolean) => void;
+  /** Gumička: položky pod obdélníkem. */
+  bandSelect: (columnIndex: number, paths: string[]) => void;
   /** Šipka vpravo / Enter nad složkou: otevře ji a přesune fokus do nového sloupce. */
   openInto: (columnIndex: number, entry: FileEntry) => void;
   focusColumn: (columnIndex: number) => void;
@@ -49,8 +61,49 @@ function selectInColumn(columns: Column[], index: number, selectedPath: string |
   if (!column) return columns;
 
   const next = columns.slice(0, index + 1);
-  next[index] = { ...column, selectedPath };
+  next[index] = { ...column, selectedPath, selectedPaths: [], anchorPath: selectedPath };
   return next;
+}
+
+/**
+ * Vícenásobný výběr ve sloupci. Jedna položka se chová jako obyčejný výběr
+ * (selectedPaths prázdné), víc položek zahodí sloupce napravo — u výběru
+ * víc složek není co otevírat.
+ */
+function selectManyInColumn(
+  columns: Column[],
+  index: number,
+  paths: string[],
+  active: string | null,
+  anchor: string | null,
+): Column[] {
+  const column = columns[index];
+  if (!column) return columns;
+
+  const next = columns.slice(0, index + 1);
+  const single = paths.length <= 1;
+  next[index] = {
+    ...column,
+    selectedPath: single ? (paths[0] ?? null) : active,
+    selectedPaths: single ? [] : paths,
+    anchorPath: anchor,
+  };
+  return next;
+}
+
+/** Vybrané cesty sloupce — jedna i víc. */
+function selectionOf(column: Column): string[] {
+  if (column.selectedPaths.length > 0) return column.selectedPaths;
+  return column.selectedPath === null ? [] : [column.selectedPath];
+}
+
+/** Rozsah mezi dvěma cestami v pořadí `entries` (včetně obou konců). */
+function rangeBetween(entries: FileEntry[], from: string, to: string): string[] {
+  const start = entries.findIndex((entry) => entry.path === from);
+  const end = entries.findIndex((entry) => entry.path === to);
+  if (start < 0 || end < 0) return [to];
+  const [low, high] = start <= end ? [start, end] : [end, start];
+  return entries.slice(low, high + 1).map((entry) => entry.path);
 }
 
 function matchesFilter(entry: FileEntry, needle: string): boolean {
@@ -74,6 +127,13 @@ export function useColumns(
   // pracovat se stejným pořadím, jaké uživatel vidí.
   const [rawColumns, setColumns] = useState<Column[]>([]);
   const [focusedIndex, setFocusedIndex] = useState(0);
+
+  // Refresh a gumička potřebují aktuální sloupce, ale nesmí se kvůli nim
+  // překreslovat — jinak by se identita callbacků měnila při každém výběru.
+  const columnsRef = useRef<Column[]>([]);
+  useEffect(() => {
+    columnsRef.current = rawColumns;
+  }, [rawColumns]);
 
   // V refech, ať se kvůli nim nemění identita callbacků.
   const sortRef = useRef(sort);
@@ -115,6 +175,8 @@ export function useColumns(
           loading: true,
           error: null,
           selectedPath: null,
+          selectedPaths: [],
+          anchorPath: null,
           token,
           version: prev[index]?.path === path ? prev[index].version : 0,
         },
@@ -136,13 +198,17 @@ export function useColumns(
           path,
           showHidden: showHiddenRef.current,
         });
-        apply((column) => ({
-          ...column,
-          entries,
-          loading: false,
-          version: column.version + 1,
-          selectedPath: selectFirst ? (shown(entries, index)[0]?.path ?? null) : null,
-        }));
+        apply((column) => {
+          const first = selectFirst ? (shown(entries, index)[0]?.path ?? null) : null;
+          return {
+            ...column,
+            entries,
+            loading: false,
+            version: column.version + 1,
+            selectedPath: first,
+            anchorPath: first,
+          };
+        });
       } catch (err: unknown) {
         apply((column) => ({
           ...column,
@@ -170,14 +236,77 @@ export function useColumns(
   }, [enabled, rootPath, loadColumn]);
 
   const select = useCallback(
-    (columnIndex: number, entry: FileEntry) => {
-      setColumns((prev) => selectInColumn(prev, columnIndex, entry.path));
+    (columnIndex: number, entry: FileEntry, mods?: SelectMods) => {
       setFocusedIndex(columnIndex);
 
+      if (mods?.toggle || mods?.range) {
+        setColumns((prev) => {
+          const column = prev[columnIndex];
+          if (!column) return prev;
+
+          if (mods.range) {
+            const anchor = column.anchorPath ?? column.selectedPath ?? entry.path;
+            const range = rangeBetween(shown(column.entries, columnIndex), anchor, entry.path);
+            // Ctrl+Shift přidává rozsah k dosavadnímu výběru.
+            const paths = mods.toggle ? [...new Set([...selectionOf(column), ...range])] : range;
+            return selectManyInColumn(prev, columnIndex, paths, entry.path, anchor);
+          }
+
+          const current = selectionOf(column);
+          const paths = current.includes(entry.path)
+            ? current.filter((path) => path !== entry.path)
+            : [...current, entry.path];
+          return selectManyInColumn(prev, columnIndex, paths, entry.path, entry.path);
+        });
+        return;
+      }
+
+      setColumns((prev) => selectInColumn(prev, columnIndex, entry.path));
       if (entry.is_dir) void loadColumn(columnIndex + 1, entry.path, false);
     },
-    [loadColumn],
+    [loadColumn, shown],
   );
+
+  const extend = useCallback(
+    (delta: 1 | -1) => {
+      setColumns((prev) => {
+        const column = prev[focusedIndex];
+        if (!column) return prev;
+
+        const entries = shown(column.entries, focusedIndex);
+        if (entries.length === 0) return prev;
+
+        const current = entries.findIndex((entry) => entry.path === column.selectedPath);
+        const next = entries[Math.min(Math.max(current + delta, 0), entries.length - 1)];
+        const anchor = column.anchorPath ?? column.selectedPath ?? next.path;
+        return selectManyInColumn(
+          prev,
+          focusedIndex,
+          rangeBetween(entries, anchor, next.path),
+          next.path,
+          anchor,
+        );
+      });
+    },
+    [focusedIndex, shown],
+  );
+
+  // Výběr v okamžiku, kdy gumička začala — s Ctrl se k němu přidává, a musí
+  // zůstat stejný po celou dobu tažení (jinak by se výběr jen rozrůstal).
+  const bandBase = useRef<string[]>([]);
+
+  const startBand = useCallback((columnIndex: number, additive: boolean) => {
+    setFocusedIndex(columnIndex);
+    const column = columnsRef.current[columnIndex];
+    bandBase.current = additive && column ? selectionOf(column) : [];
+  }, []);
+
+  const bandSelect = useCallback((columnIndex: number, paths: string[]) => {
+    setColumns((prev) => {
+      const all = [...new Set([...bandBase.current, ...paths])];
+      return selectManyInColumn(prev, columnIndex, all, all[all.length - 1] ?? null, all[0] ?? null);
+    });
+  }, []);
 
   const openInto = useCallback(
     (columnIndex: number, entry: FileEntry) => {
@@ -228,13 +357,6 @@ export function useColumns(
     [focusedIndex, shown],
   );
 
-  // Refresh potřebuje aktuální sloupce, ale nesmí se kvůli nim překreslovat,
-  // jinak by se identita callbacku měnila při každém výběru.
-  const columnsRef = useRef<Column[]>([]);
-  useEffect(() => {
-    columnsRef.current = rawColumns;
-  }, [rawColumns]);
-
   const refresh = useCallback(() => {
     const snapshot = columnsRef.current;
 
@@ -265,12 +387,13 @@ export function useColumns(
             return column;
           }
 
-          const stillExists = result.entries.some((entry) => entry.path === column.selectedPath);
+          const alive = new Set(result.entries.map((entry) => entry.path));
           return {
             ...column,
             entries: result.entries,
             version: column.version + 1,
-            selectedPath: stillExists ? column.selectedPath : null,
+            selectedPath: column.selectedPath !== null && alive.has(column.selectedPath) ? column.selectedPath : null,
+            selectedPaths: column.selectedPaths.filter((path) => alive.has(path)),
           };
         });
 
@@ -314,6 +437,9 @@ export function useColumns(
       focusedIndex,
       activePath,
       select,
+      extend,
+      startBand,
+      bandSelect,
       openInto,
       focusColumn,
       move,
@@ -326,6 +452,9 @@ export function useColumns(
       focusedIndex,
       activePath,
       select,
+      extend,
+      startBand,
+      bandSelect,
       openInto,
       focusColumn,
       move,

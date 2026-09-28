@@ -3,7 +3,8 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
-import { endDrag, startDrag } from "../lib/dnd";
+import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
+import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../lib/rowDnd";
 import { tagsOf } from "../lib/storage";
 import {
   entryOpacity,
@@ -13,7 +14,7 @@ import {
   type SortDirection,
   type SortKey,
 } from "../format";
-import type { FileEntry, TagMap } from "../types";
+import type { FileEntry, SelectMods, TagMap } from "../types";
 
 const COLUMNS: { key: SortKey; label: string; width: string; align: "left" | "right" }[] = [
   { key: "name", label: "Název", width: "minmax(0, 1fr)", align: "left" },
@@ -38,9 +39,10 @@ type ListViewProps = {
   sortKey: SortKey;
   sortDirection: SortDirection;
   onSort: (key: SortKey) => void;
-  onSelect: (entry: FileEntry) => void;
+  onSelect: (entry: FileEntry, mods: SelectMods) => void;
   onOpen: (entry: FileEntry) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  onDropInto: DropInto;
   tags: TagMap;
 };
 
@@ -58,9 +60,12 @@ export function ListView({
   onSelect,
   onOpen,
   onContextMenu,
+  onDropInto,
   tags,
 }: ListViewProps) {
   const SortArrow = sortDirection === "asc" ? ChevronUp : ChevronDown;
+  const { dropTarget, dropProps } = useFolderDrop(onDropInto);
+  const selectedEntries = entries.filter((entry) => selectedPaths.has(entry.path));
 
   return (
     <div className="min-w-0">
@@ -105,12 +110,13 @@ export function ListView({
             draggable={!isRenaming}
             onDragStart={(event) =>
               startDrag(
-                { kind: "entry", path: entry.path, name: entry.name, isDir: entry.is_dir },
+                { kind: "entry", items: dragItemsFor(entry, selectedEntries) },
                 event.dataTransfer,
               )
             }
             onDragEnd={endDrag}
-            onClick={() => onSelect(entry)}
+            {...dropProps(entry)}
+            onClick={(event) => onSelect(entry, selectMods(event))}
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
               event.preventDefault();
@@ -123,6 +129,7 @@ export function ListView({
             style={{
               gridTemplateColumns: GRID_TEMPLATE,
               opacity: entryOpacity(entry, cutPaths.has(entry.path)),
+              ...(dropTarget === entry.path ? DROP_TARGET_STYLE : null),
             }}
           >
             {/* Obal drží buňku v gridu i pro netagované řádky, kde TagDots nic nevrátí. */}

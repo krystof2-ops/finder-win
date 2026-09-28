@@ -2,7 +2,8 @@ import { LargeEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { entryOpacity } from "../format";
-import { endDrag, startDrag } from "../lib/dnd";
+import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
+import { DROP_TARGET_STYLE, selectMods, useFolderDrop, type DropInto } from "../lib/rowDnd";
 import { tagsOf } from "../lib/storage";
 
 /**
@@ -17,7 +18,7 @@ function playPop(host: HTMLElement): void {
   void inner.offsetWidth;
   inner.classList.add("fw-pop");
 }
-import type { FileEntry, TagMap } from "../types";
+import type { FileEntry, SelectMods, TagMap } from "../types";
 
 type IconViewProps = {
   entries: FileEntry[];
@@ -27,9 +28,10 @@ type IconViewProps = {
   renamingPath: string | null;
   onRenameSubmit: (entry: FileEntry, name: string) => void;
   onRenameCancel: () => void;
-  onSelect: (entry: FileEntry) => void;
+  onSelect: (entry: FileEntry, mods: SelectMods) => void;
   onOpen: (entry: FileEntry) => void;
   onContextMenu?: (entry: FileEntry, x: number, y: number) => void;
+  onDropInto: DropInto;
   tags: TagMap;
 };
 
@@ -44,8 +46,12 @@ export function IconView({
   onSelect,
   onOpen,
   onContextMenu,
+  onDropInto,
   tags,
 }: IconViewProps) {
+  const { dropTarget, dropProps } = useFolderDrop(onDropInto);
+  const selectedEntries = entries.filter((entry) => selectedPaths.has(entry.path));
+
   return (
     <div
       className="grid gap-5 p-6"
@@ -75,14 +81,15 @@ export function IconView({
             draggable={!isRenaming}
             onDragStart={(event) =>
               startDrag(
-                { kind: "entry", path: entry.path, name: entry.name, isDir: entry.is_dir },
+                { kind: "entry", items: dragItemsFor(entry, selectedEntries) },
                 event.dataTransfer,
               )
             }
             onDragEnd={endDrag}
+            {...dropProps(entry)}
             onClick={(event) => {
               playPop(event.currentTarget);
-              onSelect(entry);
+              onSelect(entry, selectMods(event));
             }}
             onDoubleClick={() => onOpen(entry)}
             onContextMenu={(event) => {
@@ -93,7 +100,10 @@ export function IconView({
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className="fw-card fw-row flex h-[118px] w-full flex-col items-center gap-1"
-            style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}
+            style={{
+              opacity: entryOpacity(entry, cutPaths.has(entry.path)),
+              ...(dropTarget === entry.path ? DROP_TARGET_STYLE : null),
+            }}
           >
             {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —
                 obojí bere selectionBg, takže se to nemůže rozejít. */}
