@@ -44,7 +44,7 @@ function IconButton({
     <button
       type="button"
       aria-label={label}
-      title={label}
+      data-tooltip={label}
       disabled={disabled}
       onClick={onClick}
       onMouseDown={onMouseDown}
@@ -78,6 +78,8 @@ type ToolbarProps = {
   /** About dialog drží App, aby byl stav modálů na jednom místě — globální
    *  zkratky se pod otevřeným dialogem musí vypnout. */
   onShowAbout: () => void;
+  showHidden: boolean;
+  onToggleHidden: () => void;
 };
 
 export function Toolbar({
@@ -98,6 +100,8 @@ export function Toolbar({
   onGoToParent,
   canGoToParent,
   onShowAbout,
+  showHidden,
+  onToggleHidden,
 }: ToolbarProps) {
   // Menu se otevírá pod tlačítkem, proto se pozice bere z jeho rámečku.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null);
@@ -110,6 +114,13 @@ export function Toolbar({
       shortcut: "Ctrl+↑",
       disabled: !canGoToParent,
       onSelect: onGoToParent,
+    },
+    {
+      type: "item",
+      label: "Zobrazit skryté soubory",
+      shortcut: "Ctrl+H",
+      checked: showHidden,
+      onSelect: onToggleHidden,
     },
     { type: "separator" },
     { type: "item", label: "O aplikaci Finder-Win", onSelect: onShowAbout },

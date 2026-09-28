@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { breadcrumbs, formatFreeSpace, formatItemCount } from "../format";
+import { isTypingTarget } from "../lib/dom";
 
 /**
  * Vlastní komponenta schválně: mountuje se až ve chvíli editace, takže
@@ -94,6 +95,8 @@ type StatusBarProps = {
   onNavigate: (path: string) => void;
   editing: boolean;
   onEditingChange: (editing: boolean) => void;
+  /** Pravý klik kamkoliv do lišty mimo editaci cesty. */
+  onContextMenu: (x: number, y: number) => void;
 };
 
 export function StatusBar({
@@ -105,11 +108,19 @@ export function StatusBar({
   onNavigate,
   editing,
   onEditingChange,
+  onContextMenu,
 }: StatusBarProps) {
   const crumbs = path ? breadcrumbs(path) : [];
 
   return (
-    <footer className="surface flex h-6 shrink-0 items-center justify-between gap-4 border-t border-line bg-toolbar px-3 text-[11px] text-secondary">
+    <footer
+      onContextMenu={(event) => {
+        // V editaci cesty zůstává menu webview — kvůli Vložit.
+        if (isTypingTarget(event.target)) return;
+        event.preventDefault();
+        onContextMenu(event.clientX, event.clientY);
+      }}
+      className="surface flex h-6 shrink-0 items-center justify-between gap-4 border-t border-line bg-toolbar px-3 text-[11px] text-secondary">
       {editing ? (
         <PathInput
           initial={path ?? ""}

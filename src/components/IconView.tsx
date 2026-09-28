@@ -1,6 +1,7 @@
 import { LargeEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
+import { entryOpacity } from "../format";
 import { endDrag, startDrag } from "../lib/dnd";
 
 /**
@@ -67,7 +68,7 @@ export function IconView({
             data-path={entry.path}
             role="button"
             tabIndex={0}
-            title={entry.name}
+            data-tooltip={entry.name}
             // Přejmenovaný řádek se netahá — jinak by drag ukradl výběr v inputu.
             draggable={!isRenaming}
             onDragStart={(event) =>
@@ -90,7 +91,7 @@ export function IconView({
               onContextMenu?.(entry, event.clientX, event.clientY);
             }}
             className="fw-card flex h-[118px] w-full flex-col items-center gap-1 outline-none"
-            style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
+            style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}
           >
             {/* Dlaždice pod ikonou. Stejný odstín jako pilulka se jménem níž —
                 obojí bere selectionBg, takže se to nemůže rozejít. */}

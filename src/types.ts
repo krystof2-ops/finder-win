@@ -12,12 +12,16 @@ export type FileEntry = {
   created: number;
   /** Přípona bez tečky, malými písmeny. */
   extension: string | null;
+  /** Atribut skrytý — ve výpisu jen se zapnutým zobrazením skrytých souborů. */
+  hidden: boolean;
 };
 
 export type FavoriteEntry = {
   label: string;
   path: string;
   icon_name: string;
+  /** Telefon, fotoaparát — nemá souborový systém, otevírá se v Průzkumníku. */
+  external: boolean;
 };
 
 export type FavoriteSection = {

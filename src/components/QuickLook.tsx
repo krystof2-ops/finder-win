@@ -214,9 +214,11 @@ type QuickLookProps = {
   entry: FileEntry;
   onClose: () => void;
   onOpenFile: (entry: FileEntry) => void;
+  /** Pravý klik na kartu — menu pro právě zobrazený soubor. */
+  onContextMenu: (entry: FileEntry, x: number, y: number) => void;
 };
 
-export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProps) {
+export function QuickLook({ entries, entry, onClose, onOpenFile, onContextMenu }: QuickLookProps) {
   const files = useMemo(() => entries.filter((item) => !item.is_dir), [entries]);
 
   const [currentPath, setCurrentPath] = useState(entry.path);
@@ -367,6 +369,11 @@ export function QuickLook({ entries, entry, onClose, onOpenFile }: QuickLookProp
         ref={cardRef}
         tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onContextMenu(current, event.clientX, event.clientY);
+        }}
         className="flex flex-col overflow-hidden rounded-xl outline-none"
         style={{
           background: "var(--bg-main)",

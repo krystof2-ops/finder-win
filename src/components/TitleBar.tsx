@@ -13,7 +13,7 @@ function TrafficLight({ color, label, Icon, onClick }: TrafficLightProps) {
     <button
       type="button"
       aria-label={label}
-      title={label}
+      data-tooltip={label}
       onClick={onClick}
       className="fw-traffic flex h-3 w-3 items-center justify-center rounded-full"
       style={{ backgroundColor: color }}

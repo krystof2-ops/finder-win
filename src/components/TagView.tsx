@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
-import { formatModified } from "../format";
+import { entryOpacity, formatModified } from "../format";
 import { parentPath, statPaths } from "../fileops";
 import * as storage from "../lib/storage";
 import { TAG_LABEL } from "../lib/tags";
@@ -17,6 +17,10 @@ type TagViewProps = {
   /** Naviguje do rodičovské složky a označí tam položku. */
   onReveal: (path: string) => void;
   onOpen: (entry: FileEntry) => void;
+  /** Pravý klik — stejné menu jako u běžné položky. */
+  onContextMenu: (entry: FileEntry, x: number, y: number) => void;
+  /** Roste po každé souborové operaci; výsledky se pak načtou znovu. */
+  refreshToken: number;
   /** Ať status bar hlásí počet z tag view, ne z podkladové složky. */
   onCountChange: (count: number) => void;
 };
@@ -26,6 +30,8 @@ export function TagView({
   windowFocused,
   onReveal,
   onOpen,
+  onContextMenu,
+  refreshToken,
   onCountChange,
 }: TagViewProps) {
   const { tags } = useStorage();
@@ -81,7 +87,7 @@ export function TagView({
       });
     // paths je odvozené z pathsKey; závislost na klíči drží efekt stabilní.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathsKey]);
+  }, [pathsKey, refreshToken]);
 
   const sorted = useMemo(
     () => [...entries].sort((a, b) => a.name.localeCompare(b.name, "cs", { sensitivity: "base" })),
@@ -129,17 +135,23 @@ export function TagView({
             key={entry.path}
             role="button"
             tabIndex={0}
-            title={entry.path}
+            data-tooltip={entry.path}
             // Jeden klik odkrývá — tag view je rozcestník, ne obsah složky.
             onClick={() => {
               setSelected(entry.path);
               onReveal(entry.path);
             }}
             onDoubleClick={() => onOpen(entry)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSelected(entry.path);
+              onContextMenu(entry, event.clientX, event.clientY);
+            }}
             className={`grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${
               isSelected ? selectedClass : "hover:bg-hover"
             }`}
-            style={{ gridTemplateColumns: GRID_TEMPLATE }}
+            style={{ gridTemplateColumns: GRID_TEMPLATE, opacity: entryOpacity(entry, false) }}
           >
             <span className="flex items-center">
               <TagDots colors={tags[entry.path] ?? []} size={8} />

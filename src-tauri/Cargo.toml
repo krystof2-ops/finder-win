@@ -1,8 +1,10 @@
 [package]
 name = "finder-win"
-version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+version = "1.0.0"
+description = "A macOS Finder-like file explorer for Windows"
+authors = ["krystof2-ops"]
+license = "MIT"
+repository = "https://github.com/OWNER/finder-win"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -22,6 +24,8 @@ trash = "5.2.6"
 tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-store = "2"
 walkdir = "2"
+# Hlídání otevřených složek — výpis se obnoví sám, když se v nich něco změní.
+notify = "8"
 encoding_rs = "0.8"
 
 [target."cfg(windows)".dependencies]
@@ -31,6 +35,14 @@ windows = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     # ShellExecuteW s verbem "openas" (dialog Otevřít v aplikaci) a COM pro něj.
     "Win32_System_Com",
+    # Dotaz na sběrnici disku — USB SSD se hlásí jako pevný disk, ne jako výměnný.
+    "Win32_Security",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    # Výčet telefonů a fotoaparátů v „Tento počítač" (IShellItem::GetAttributes).
+    "Win32_System_SystemServices",
+    # Nastavení Průzkumníku „Zobrazovat skryté soubory" jako výchozí stav.
+    "Win32_System_Registry",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

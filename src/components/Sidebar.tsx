@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Folder } from "lucide-react";
+import { ChevronDown, Folder } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { fileVisual, sidebarIcon, sidebarIconColor } from "./icons";
-import { openInExplorer, openTerminal, parentPath } from "../fileops";
+import { openDevice, openInExplorer, openTerminal, parentPath } from "../fileops";
 import { formatRelative } from "../format";
 import { isTypingTarget } from "../lib/dom";
 import { endDrag, getDrag, startDrag, useDrag } from "../lib/dnd";
@@ -23,6 +23,11 @@ import type {
 
 /** Nedávných se ukládá 20, ale sidebar by z nich neúměrně narostl. */
 const RECENTS_SHOWN = 10;
+
+/** Klíče sekcí pro sbalení. Sekce od backendu mají klíč `system:<název>`. */
+const CUSTOM_ID = "custom";
+const RECENTS_ID = "recents";
+const TAGS_ID = "tags";
 
 type SidebarProps = {
   sections: FavoriteSection[];
@@ -47,13 +52,65 @@ function sectionHeading(label: string): string {
   return label === "iCloud" ? "iCLOUD" : label.toUpperCase();
 }
 
-function SectionHeading({ children }: { children: React.ReactNode }) {
+/** Sbalené sekce přežijí restart. Jde o pohodlí jednoho uživatele, ne o data,
+ *  takže stačí localStorage stejně jako u tématu. */
+const COLLAPSED_KEY = "finder-sidebar-collapsed";
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(COLLAPSED_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeCollapsed(ids: Set<string>) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...ids]));
+  } catch {
+    // Bez úložiště se sbalení prostě nezapamatuje.
+  }
+}
+
+/** Nadpis a pravý klik na něj — sdílí ho všechny sekce. */
+type HeadingControl = {
+  collapsed: boolean;
+  onToggle: () => void;
+  onContextMenu: (x: number, y: number) => void;
+};
+
+function SectionHeading({
+  children,
+  control,
+}: {
+  children: React.ReactNode;
+  control: HeadingControl;
+}) {
   return (
     <div
-      className="fw-section-heading px-4 pt-1.5 pb-1 text-[11px] font-semibold text-section"
+      role="button"
+      tabIndex={-1}
+      aria-expanded={!control.collapsed}
+      onClick={control.onToggle}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        control.onContextMenu(event.clientX, event.clientY);
+      }}
+      className="fw-section-heading group flex cursor-default items-center px-4 pt-1.5 pb-1 text-[11px] font-semibold text-section"
       style={{ letterSpacing: "0.5px" }}
     >
-      {children}
+      <span className="min-w-0 flex-1 truncate">{children}</span>
+      {/* Jako ve Finderu: šipka se ukáže až při najetí, sbalená sekce ji má pořád. */}
+      <ChevronDown
+        size={12}
+        strokeWidth={2.5}
+        className={`shrink-0 transition-[transform,opacity] duration-150 ${
+          control.collapsed ? "-rotate-90 opacity-100" : "opacity-0 group-hover:opacity-100"
+        }`}
+      />
     </div>
   );
 }
@@ -159,6 +216,7 @@ type CustomFavoritesProps = {
   renamingPath: string | null;
   onRenameSubmit: (path: string, label: string) => void;
   onRenameCancel: () => void;
+  heading: HeadingControl;
 };
 
 function CustomFavorites({
@@ -170,6 +228,7 @@ function CustomFavorites({
   renamingPath,
   onRenameSubmit,
   onRenameCancel,
+  heading,
 }: CustomFavoritesProps) {
   const drag = useDrag();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
@@ -242,75 +301,78 @@ function CustomFavorites({
       }}
       onDrop={handleDrop}
     >
-      <SectionHeading>MOJE OBLÍBENÉ</SectionHeading>
+      <SectionHeading control={heading}>MOJE OBLÍBENÉ</SectionHeading>
 
-      <nav className="flex flex-col pb-0.5">
-        {items.map((item, index) => {
-          // Soubor v sidebaru nikdy "nejsme uvnitř" — zvýrazňují se jen složky.
-          const isActive =
-            item.type === "folder" &&
-            currentPath !== null &&
-            storage.samePath(item.path, currentPath);
-          const isRenaming = item.path === renamingPath;
+      {/* Sbalená sekce se během tažení otevře — jinak by nebylo kam pustit. */}
+      {(!heading.collapsed || accepts) && (
+        <nav className="flex flex-col pb-0.5">
+          {items.map((item, index) => {
+            // Soubor v sidebaru nikdy "nejsme uvnitř" — zvýrazňují se jen složky.
+            const isActive =
+              item.type === "folder" &&
+              currentPath !== null &&
+              storage.samePath(item.path, currentPath);
+            const isRenaming = item.path === renamingPath;
 
-          return (
-            <div key={item.path}>
-              {dropIndex === index && <DropLine />}
+            return (
+              <div key={item.path}>
+                {dropIndex === index && <DropLine />}
 
-              <div
-                role="button"
-                tabIndex={0}
-                title={item.path}
-                draggable={!isRenaming}
-                onDragStart={(event) => {
-                  event.stopPropagation();
-                  setDropIndex(null);
-                  startDrag({ kind: "favorite", path: item.path, index }, event.dataTransfer);
-                }}
-                onDragEnd={() => {
-                  setDropIndex(null);
-                  endDrag();
-                }}
-                onDragOver={(event) => allowAtRow(event, positionFor(event, index))}
-                onClick={() => !isRenaming && onActivate(item)}
-                onContextMenu={(event) => {
-                  if (isTypingTarget(event.target)) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  onContextMenu(item, index, event.clientX, event.clientY);
-                }}
-                className={`${ROW_CLASS} ${rowStateClass(isActive && !isRenaming, windowFocused)}`}
-              >
-                <EntryIcon
-                  name={item.label}
-                  path={item.path}
-                  type={item.type}
-                  active={isActive}
-                  folderIcon={item.icon}
-                />
-
-                {isRenaming ? (
-                  <LabelInput
-                    initial={item.label}
-                    onSubmit={(label) => onRenameSubmit(item.path, label)}
-                    onCancel={onRenameCancel}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  data-tooltip={item.path}
+                  draggable={!isRenaming}
+                  onDragStart={(event) => {
+                    event.stopPropagation();
+                    setDropIndex(null);
+                    startDrag({ kind: "favorite", path: item.path, index }, event.dataTransfer);
+                  }}
+                  onDragEnd={() => {
+                    setDropIndex(null);
+                    endDrag();
+                  }}
+                  onDragOver={(event) => allowAtRow(event, positionFor(event, index))}
+                  onClick={() => !isRenaming && onActivate(item)}
+                  onContextMenu={(event) => {
+                    if (isTypingTarget(event.target)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onContextMenu(item, index, event.clientX, event.clientY);
+                  }}
+                  className={`${ROW_CLASS} ${rowStateClass(isActive && !isRenaming, windowFocused)}`}
+                >
+                  <EntryIcon
+                    name={item.label}
+                    path={item.path}
+                    type={item.type}
+                    active={isActive}
+                    folderIcon={item.icon}
                   />
-                ) : (
-                  <span className="truncate">{item.label}</span>
-                )}
+
+                  {isRenaming ? (
+                    <LabelInput
+                      initial={item.label}
+                      onSubmit={(label) => onRenameSubmit(item.path, label)}
+                      onCancel={onRenameCancel}
+                    />
+                  ) : (
+                    <span className="truncate">{item.label}</span>
+                  )}
+                </div>
               </div>
+            );
+          })}
+
+          {dropIndex === items.length && <DropLine />}
+
+          {items.length === 0 && (
+            <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
+              Přetáhni sem složku nebo soubor
             </div>
-          );
-        })}
-
-        {dropIndex === items.length && <DropLine />}
-
-        {items.length === 0 && (
-          <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
-            Přetáhni sem složku nebo soubor
-          </div>
-        )}
-      </nav>
+          )}
+        </nav>
+      )}
     </div>
   );
 }
@@ -360,6 +422,7 @@ function EntryIcon({
     modified: 0,
     created: 0,
     extension,
+    hidden: false,
   });
 
   return (
@@ -378,56 +441,66 @@ type RecentsProps = {
   windowFocused: boolean;
   onActivate: (entry: RecentEntry) => void;
   onContextMenu: (entry: RecentEntry, x: number, y: number) => void;
+  heading: HeadingControl;
 };
 
-function Recents({ items, currentPath, windowFocused, onActivate, onContextMenu }: RecentsProps) {
+function Recents({
+  items,
+  currentPath,
+  windowFocused,
+  onActivate,
+  onContextMenu,
+  heading,
+}: RecentsProps) {
   const shown = items.slice(0, RECENTS_SHOWN);
 
   return (
     <div>
-      <SectionHeading>NEDÁVNÉ</SectionHeading>
+      <SectionHeading control={heading}>NEDÁVNÉ</SectionHeading>
 
-      <nav className="flex flex-col pb-0.5">
-        {shown.length === 0 && (
-          <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">Zatím nic</div>
-        )}
+      {!heading.collapsed && (
+        <nav className="flex flex-col pb-0.5">
+          {shown.length === 0 && (
+            <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">Zatím nic</div>
+          )}
 
-        {shown.map((entry) => {
-          const isActive =
-            entry.type === "folder" &&
-            currentPath !== null &&
-            storage.samePath(entry.path, currentPath);
+          {shown.map((entry) => {
+            const isActive =
+              entry.type === "folder" &&
+              currentPath !== null &&
+              storage.samePath(entry.path, currentPath);
 
-          return (
-            <button
-              key={entry.path}
-              type="button"
-              title={entry.path}
-              onClick={() => onActivate(entry)}
-              onContextMenu={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onContextMenu(entry, event.clientX, event.clientY);
-              }}
-              className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
-            >
-              <EntryIcon
-                name={entry.name}
-                path={entry.path}
-                type={entry.type}
-                active={isActive}
-              />
-              {/* min-w-0 musí být, jinak se flex položka odmítne zkrátit pod obsah. */}
-              <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
-                {entry.name}
-              </span>
-              <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
-                {formatRelative(entry.opened_at)}
-              </span>
-            </button>
-          );
-        })}
-      </nav>
+            return (
+              <button
+                key={entry.path}
+                type="button"
+                data-tooltip={entry.path}
+                onClick={() => onActivate(entry)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onContextMenu(entry, event.clientX, event.clientY);
+                }}
+                className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
+              >
+                <EntryIcon
+                  name={entry.name}
+                  path={entry.path}
+                  type={entry.type}
+                  active={isActive}
+                />
+                {/* min-w-0 musí být, jinak se flex položka odmítne zkrátit pod obsah. */}
+                <span className="min-w-0 truncate" style={{ maxWidth: 160 }}>
+                  {entry.name}
+                </span>
+                <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
+                  {formatRelative(entry.opened_at)}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      )}
     </div>
   );
 }
@@ -440,6 +513,7 @@ type TagsSectionProps = {
   windowFocused: boolean;
   onSelectTag: (color: TagColor) => void;
   onContextMenu: (color: TagColor, x: number, y: number) => void;
+  heading: HeadingControl;
 };
 
 function TagsSection({
@@ -448,6 +522,7 @@ function TagsSection({
   windowFocused,
   onSelectTag,
   onContextMenu,
+  heading,
 }: TagsSectionProps) {
   // Jen barvy, které se opravdu používají — prázdná sekce se schová celá.
   const used = TAG_COLORS.filter((color) => (counts.get(color) ?? 0) > 0);
@@ -455,37 +530,39 @@ function TagsSection({
 
   return (
     <div>
-      <SectionHeading>TAGY</SectionHeading>
+      <SectionHeading control={heading}>TAGY</SectionHeading>
 
-      <nav className="flex flex-col pb-0.5">
-        {used.map((color) => (
-          <button
-            key={color}
-            type="button"
-            onClick={() => onSelectTag(color)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onContextMenu(color, event.clientX, event.clientY);
-            }}
-            className={`${ROW_CLASS} ${rowStateClass(activeTag === color, windowFocused)}`}
-          >
-            <span
-              className="shrink-0 rounded-full"
-              style={{
-                width: 12,
-                height: 12,
-                backgroundColor: TAG_HEX[color],
-                boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+      {!heading.collapsed && (
+        <nav className="flex flex-col pb-0.5">
+          {used.map((color) => (
+            <button
+              key={color}
+              type="button"
+              onClick={() => onSelectTag(color)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onContextMenu(color, event.clientX, event.clientY);
               }}
-            />
-            <span className="truncate">{TAG_LABEL[color]}</span>
-            <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
-              {counts.get(color)}
-            </span>
-          </button>
-        ))}
-      </nav>
+              className={`${ROW_CLASS} ${rowStateClass(activeTag === color, windowFocused)}`}
+            >
+              <span
+                className="shrink-0 rounded-full"
+                style={{
+                  width: 12,
+                  height: 12,
+                  backgroundColor: TAG_HEX[color],
+                  boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.15)",
+                }}
+              />
+              <span className="truncate">{TAG_LABEL[color]}</span>
+              <span className="ml-auto shrink-0 pl-1 text-[11px] text-secondary">
+                {counts.get(color)}
+              </span>
+            </button>
+          ))}
+        </nav>
+      )}
     </div>
   );
 }
@@ -498,7 +575,9 @@ type SidebarMenu =
   /** Položka ze sekcí od backendu (Downloads, iCloud, Zařízení …). */
   | { kind: "section"; x: number; y: number; item: FavoriteEntry }
   | { kind: "tag"; x: number; y: number; color: TagColor }
-  /** Nadpis sekce, prázdný stav nebo volná plocha pod poslední sekcí. */
+  /** Nadpis sekce — sbalit/rozbalit, u Nedávných i vymazat. */
+  | { kind: "heading"; x: number; y: number; id: string }
+  /** Prázdný stav nebo volná plocha pod poslední sekcí. */
   | { kind: "background"; x: number; y: number };
 
 export function Sidebar({
@@ -516,6 +595,25 @@ export function Sidebar({
   const [menu, setMenu] = useState<SidebarMenu | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [pathTip, setPathTip] = useState<{ x: number; y: number; path: string } | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(readCollapsed);
+
+  function toggleSection(id: string) {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      writeCollapsed(next);
+      return next;
+    });
+  }
+
+  function headingFor(id: string): HeadingControl {
+    return {
+      collapsed: collapsed.has(id),
+      onToggle: () => toggleSection(id),
+      onContextMenu: (x, y) => setMenu({ kind: "heading", id, x, y }),
+    };
+  }
 
   const tagCounts = useMemo(() => {
     const counts = new Map<TagColor, number>();
@@ -592,7 +690,34 @@ export function Sidebar({
       };
     };
 
-    // Nadpisy sekcí, prázdné stavy a plocha pod poslední sekcí. Bez tohohle
+    if (menu.kind === "heading") {
+      const { id } = menu;
+      const isCollapsed = collapsed.has(id);
+      const items: MenuItem[] = [
+        {
+          type: "item",
+          label: isCollapsed ? "Rozbalit sekci" : "Sbalit sekci",
+          onSelect: () => toggleSection(id),
+        },
+      ];
+
+      if (id === RECENTS_ID) {
+        items.push(
+          { type: "separator" },
+          {
+            type: "item",
+            label: "Vymazat nedávné",
+            disabled: recents.length === 0,
+            danger: true,
+            onSelect: () => void storage.clearRecents(),
+          },
+        );
+      }
+
+      return items;
+    }
+
+    // Prázdné stavy a plocha pod poslední sekcí. Bez tohohle
     // tam pravý klik neudělal vůbec nic — menu webview je globálně potlačené.
     if (menu.kind === "background") {
       const canAdd = currentPath !== null && !isFavorite(currentPath);
@@ -645,6 +770,17 @@ export function Sidebar({
     // pravý klik vytáhl menu webview.
     if (menu.kind === "section") {
       const { item } = menu;
+
+      // Telefon nemá cestu, se kterou by šlo cokoli dalšího dělat.
+      if (item.external) {
+        return [
+          {
+            type: "item",
+            label: "Otevřít v Průzkumníku",
+            onSelect: () => void openDevice(item.path).catch(() => undefined),
+          },
+        ];
+      }
 
       return [
         { type: "item", label: "Otevřít", onSelect: () => onNavigate(item.path) },
@@ -718,7 +854,9 @@ export function Sidebar({
         onSelect: () => void storage.clearRecents(),
       },
     ];
-  }, [menu, favorites, recents, currentPath, onNavigate, onReveal, onOpenFile, onSelectTag]);
+    // toggleSection jen zapisuje do stavu, jeho identita na výsledek nemá vliv.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu, favorites, recents, collapsed, currentPath, onNavigate, onReveal, onOpenFile, onSelectTag]);
 
   return (
     <aside
@@ -744,6 +882,7 @@ export function Sidebar({
           void storage.renameFavorite(path, label);
         }}
         onRenameCancel={() => setRenamingPath(null)}
+        heading={headingFor(CUSTOM_ID)}
       />
 
       <Recents
@@ -752,43 +891,55 @@ export function Sidebar({
         windowFocused={windowFocused}
         onActivate={activateRecent}
         onContextMenu={(entry, x, y) => setMenu({ kind: "recent", entry, x, y })}
+        heading={headingFor(RECENTS_ID)}
       />
 
-      {sections.map((section) => (
-        <div key={section.label}>
-          <SectionHeading>{sectionHeading(section.label)}</SectionHeading>
+      {sections.map((section) => {
+        const heading = headingFor(`system:${section.label}`);
 
-          <nav className="flex flex-col pb-0.5">
-            {section.items.map((item) => {
-              const Icon = sidebarIcon(item.icon_name);
-              const isActive = currentPath !== null && storage.samePath(item.path, currentPath);
+        return (
+          <div key={section.label}>
+            <SectionHeading control={heading}>{sectionHeading(section.label)}</SectionHeading>
 
-              return (
-                <button
-                  key={`${section.label}/${item.path}`}
-                  type="button"
-                  title={item.path}
-                  onClick={() => onNavigate(item.path)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
-                  }}
-                  className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
-                >
-                  <Icon
-                    size={16}
-                    strokeWidth={1.75}
-                    className="fw-sidebar-icon shrink-0"
-                    color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
-                  />
-                  <span className="truncate">{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
-      ))}
+            {!heading.collapsed && (
+              <nav className="flex flex-col pb-0.5">
+                {section.items.map((item) => {
+                  const Icon = sidebarIcon(item.icon_name);
+                  const isActive =
+                    !item.external && currentPath !== null && storage.samePath(item.path, currentPath);
+
+                  return (
+                    <button
+                      key={`${section.label}/${item.path}`}
+                      type="button"
+                      // Shellová cesta telefonu ("::{20D04FE0…}\\?\usb#…") nikomu nic neřekne.
+                      data-tooltip={item.external ? "Otevře se v Průzkumníku" : item.path}
+                      onClick={() => {
+                        if (item.external) void openDevice(item.path).catch(() => undefined);
+                        else onNavigate(item.path);
+                      }}
+                      onContextMenu={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
+                      }}
+                      className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
+                    >
+                      <Icon
+                        size={16}
+                        strokeWidth={1.75}
+                        className="fw-sidebar-icon shrink-0"
+                        color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
+                      />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            )}
+          </div>
+        );
+      })}
 
       <TagsSection
         counts={tagCounts}
@@ -796,6 +947,7 @@ export function Sidebar({
         windowFocused={windowFocused}
         onSelectTag={onSelectTag}
         onContextMenu={(color, x, y) => setMenu({ kind: "tag", color, x, y })}
+        heading={headingFor(TAGS_ID)}
       />
 
       {/* Roztáhne se přes zbytek sloupce, aby pravý klik dole padl do sidebaru

@@ -4,7 +4,14 @@ import { SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
-import { formatModified, formatSize, kindLabel, type SortDirection, type SortKey } from "../format";
+import {
+  entryOpacity,
+  formatModified,
+  formatSize,
+  kindLabel,
+  type SortDirection,
+  type SortKey,
+} from "../format";
 import type { FileEntry, TagMap } from "../types";
 
 const COLUMNS: { key: SortKey; label: string; width: string; align: "left" | "right" }[] = [
@@ -113,7 +120,7 @@ export function ListView({
             className={`fw-list-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${stripeClass} ${stateClass}`}
             style={{
               gridTemplateColumns: GRID_TEMPLATE,
-              opacity: cutPaths.has(entry.path) ? 0.5 : 1,
+              opacity: entryOpacity(entry, cutPaths.has(entry.path)),
             }}
           >
             {/* Obal drží buňku v gridu i pro netagované řádky, kde TagDots nic nevrátí. */}

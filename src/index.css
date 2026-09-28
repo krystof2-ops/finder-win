@@ -485,6 +485,20 @@ body {
   transform-origin: top left;
 }
 
+/* Tooltip jen zlehka vybledne — žádný pohyb, ukazuje se pod kurzorem. */
+@keyframes fw-tooltip-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fw-tooltip {
+  animation: fw-tooltip-in 120ms var(--ease-out);
+}
+
 @keyframes fw-menu-out {
   from {
     opacity: 1;

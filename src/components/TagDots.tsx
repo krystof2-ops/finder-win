@@ -20,7 +20,7 @@ export function TagDots({ colors, size = 8 }: TagDotsProps) {
     <span
       className="flex shrink-0 items-center"
       style={{ gap: Math.max(2, Math.round(size / 3)) }}
-      title={colors.map((color) => TAG_LABEL[color]).join(", ")}
+      data-tooltip={colors.map((color) => TAG_LABEL[color]).join(", ")}
     >
       {shown.map((color) => (
         <span

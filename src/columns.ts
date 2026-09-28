@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { sortEntries, type SortDirection, type SortKey } from "./format";
 import type { FileEntry } from "./types";
 
 export type Column = {
@@ -56,9 +57,38 @@ function selectInColumn(columns: Column[], index: number, selectedPath: string):
   return next;
 }
 
-export function useColumns(rootPath: string | null, enabled: boolean): ColumnsApi {
-  const [columns, setColumns] = useState<Column[]>([]);
+export type ColumnSort = { key: SortKey; direction: SortDirection };
+
+export function useColumns(
+  rootPath: string | null,
+  enabled: boolean,
+  sort: ColumnSort,
+  showHidden: boolean,
+): ColumnsApi {
+  // Ve stavu leží výpisy tak, jak přišly z backendu. Řadí se až na výstupu,
+  // takže změna řazení nic nepřenačítá — jen šipky a "vyber první" musí
+  // pracovat se stejným pořadím, jaké uživatel vidí.
+  const [rawColumns, setColumns] = useState<Column[]>([]);
   const [focusedIndex, setFocusedIndex] = useState(0);
+
+  const sortRef = useRef(sort);
+  sortRef.current = sort;
+  // V refu, ať se kvůli přepínači nemění identita loadColumn a refresh.
+  const showHiddenRef = useRef(showHidden);
+  showHiddenRef.current = showHidden;
+  const ordered = useCallback(
+    (entries: FileEntry[]) => sortEntries(entries, sortRef.current.key, sortRef.current.direction),
+    [],
+  );
+
+  const columns = useMemo(
+    () =>
+      rawColumns.map((column) => ({
+        ...column,
+        entries: sortEntries(column.entries, sort.key, sort.direction),
+      })),
+    [rawColumns, sort.key, sort.direction],
+  );
 
   const loadColumn = useCallback(
     async (index: number, path: string, selectFirst: boolean) => {
@@ -70,13 +100,16 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
       if (selectFirst) setFocusedIndex(index);
 
       try {
-        const entries = await invoke<FileEntry[]>("list_dir", { path });
+        const entries = await invoke<FileEntry[]>("list_dir", {
+          path,
+          showHidden: showHiddenRef.current,
+        });
         setColumns((prev) =>
           updateColumn(prev, index, path, (column) => ({
             ...column,
             entries,
             loading: false,
-            selectedPath: selectFirst ? (entries[0]?.path ?? null) : null,
+            selectedPath: selectFirst ? (ordered(entries)[0]?.path ?? null) : null,
           })),
         );
       } catch (err: unknown) {
@@ -90,7 +123,7 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
         );
       }
     },
-    [],
+    [ordered],
   );
 
   // Změna cesty zvenčí (sidebar, Back/Forward, breadcrumb) i vstup do column view
@@ -136,8 +169,9 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
         const column = prev[focusedIndex];
         if (!column || column.entries.length === 0) return prev;
 
-        const last = column.entries.length - 1;
-        const current = column.entries.findIndex((entry) => entry.path === column.selectedPath);
+        const entries = ordered(column.entries);
+        const last = entries.length - 1;
+        const current = entries.findIndex((entry) => entry.path === column.selectedPath);
 
         let next: number;
         if (target === "first") next = 0;
@@ -145,29 +179,32 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
         else if (current === -1) next = target === 1 ? 0 : last;
         else next = Math.min(Math.max(current + target, 0), last);
 
-        const chosen = column.entries[next];
+        const chosen = entries[next];
         if (chosen.path === column.selectedPath) return prev;
 
         // Posun výběru mění, co patří napravo — stejně jako klik myší.
         return selectInColumn(prev, focusedIndex, chosen.path);
       });
     },
-    [focusedIndex],
+    [focusedIndex, ordered],
   );
 
   // Refresh potřebuje aktuální sloupce, ale nesmí se kvůli nim překreslovat,
   // jinak by se identita callbacku měnila při každém výběru.
   const columnsRef = useRef<Column[]>([]);
   useEffect(() => {
-    columnsRef.current = columns;
-  }, [columns]);
+    columnsRef.current = rawColumns;
+  }, [rawColumns]);
 
   const refresh = useCallback(() => {
     const snapshot = columnsRef.current;
 
     void Promise.all(
       snapshot.map((column) =>
-        invoke<FileEntry[]>("list_dir", { path: column.path }).catch(() => null),
+        invoke<FileEntry[]>("list_dir", {
+          path: column.path,
+          showHidden: showHiddenRef.current,
+        }).catch(() => null),
       ),
     ).then((results) => {
       setColumns((prev) =>
@@ -183,6 +220,16 @@ export function useColumns(rootPath: string | null, enabled: boolean): ColumnsAp
       );
     });
   }, []);
+
+  // Přepnutí skrytých souborů přenačte otevřené sloupce, hierarchie zůstane.
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    refresh();
+  }, [showHidden, refresh]);
 
   const activePath = columns.length > 0 ? columns[columns.length - 1].path : rootPath;
 

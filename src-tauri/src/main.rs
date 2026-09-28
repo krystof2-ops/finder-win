@@ -1,5 +1,6 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Bez konzolového okna i v debug buildu — spouští se i dvojklikem na exe.
+// Výpisy pod `npm run tauri dev` dál tečou do terminálu přes zděděný výstup.
+#![windows_subsystem = "windows"]
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -22,6 +23,8 @@ struct FileEntry {
     created: i64,
     /// Přípona bez tečky, malými písmeny. None pro složky a soubory bez přípony.
     extension: Option<String>,
+    /// Atribut „skrytý" — frontend takové položky kreslí poloprůhledně.
+    hidden: bool,
 }
 
 /// Položka v postranním panelu.
@@ -30,6 +33,10 @@ struct FavoriteEntry {
     label: String,
     path: String,
     icon_name: String,
+    /// Zařízení bez souborového systému (telefon, fotoaparát). Cesta je
+    /// shellová („::{…}\\?\usb#…"), `list_dir` ji neotevře — klik ji pošle
+    /// do Průzkumníka.
+    external: bool,
 }
 
 /// Skupina položek v postranním panelu (Oblíbené, Cloud, …).
@@ -54,6 +61,7 @@ const SYSTEM_NAMES: [&str; 6] = [
 const SKIP_DIRS: [&str; 3] = [".git", "node_modules", "target"];
 
 const FILE_ATTRIBUTE_HIDDEN: u32 = 0x2;
+const FILE_ATTRIBUTE_SYSTEM: u32 = 0x4;
 
 fn is_system_name(name: &str) -> bool {
     SYSTEM_NAMES
@@ -62,13 +70,66 @@ fn is_system_name(name: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn is_hidden(metadata: &fs::Metadata) -> bool {
+fn attributes(metadata: &fs::Metadata) -> u32 {
     use std::os::windows::fs::MetadataExt;
-    metadata.file_attributes() & FILE_ATTRIBUTE_HIDDEN != 0
+    metadata.file_attributes()
 }
 
 #[cfg(not(windows))]
-fn is_hidden(_metadata: &fs::Metadata) -> bool {
+fn attributes(_metadata: &fs::Metadata) -> u32 {
+    0
+}
+
+fn is_hidden(metadata: &fs::Metadata) -> bool {
+    attributes(metadata) & FILE_ATTRIBUTE_HIDDEN != 0
+}
+
+/// „Chráněné soubory operačního systému" (skryté + systémové, např. desktop.ini).
+/// Průzkumník je neukazuje ani se zapnutým zobrazením skrytých souborů.
+fn is_protected(metadata: &fs::Metadata) -> bool {
+    let flags = FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM;
+    attributes(metadata) & flags == flags
+}
+
+/// Patří položka do výpisu? Stejná pravidla jako Průzkumník: skryté jen když
+/// je uživatel chce vidět, chráněné systémové a SYSTEM_NAMES nikdy.
+fn is_listed(name: &str, metadata: &fs::Metadata, show_hidden: bool) -> bool {
+    if is_system_name(name) || is_protected(metadata) {
+        return false;
+    }
+    show_hidden || !is_hidden(metadata)
+}
+
+/// Má Průzkumník zapnuté „Zobrazovat skryté soubory"? Podle toho se nastaví
+/// výchozí stav, dokud si uživatel přepínač v aplikaci nezmění sám.
+#[cfg(windows)]
+#[tauri::command(async)]
+fn explorer_shows_hidden() -> bool {
+    use windows::core::w;
+    use windows::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_DWORD};
+
+    let mut value: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced"),
+            w!("Hidden"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut _),
+            Some(&mut size),
+        )
+    };
+
+    // 1 = zobrazovat, 2 = nezobrazovat; chybějící hodnota = výchozí Windows (skrýt).
+    status.is_ok() && value == 1
+}
+
+#[cfg(not(windows))]
+#[tauri::command(async)]
+fn explorer_shows_hidden() -> bool {
     false
 }
 
@@ -103,6 +164,7 @@ fn make_entry(path: &Path, metadata: &fs::Metadata) -> FileEntry {
         size: if is_dir { 0 } else { metadata.len() },
         modified: to_unix_seconds(metadata.modified()),
         created: to_unix_seconds(metadata.created()),
+        hidden: is_hidden(metadata),
     }
 }
 
@@ -121,7 +183,8 @@ fn sort_entries(entries: &mut [FileEntry]) {
 // IPC, takže by uživatel nemohl ani zavřít appku. Těla zůstávají synchronní,
 // atribut je jen přesune na blocking pool.
 #[tauri::command(async)]
-fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
+fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FileEntry>, String> {
+    let show_hidden = show_hidden.unwrap_or(false);
     let dir = PathBuf::from(&path);
     let reader = fs::read_dir(&dir).map_err(|err| format!("{}: {}", path, err))?;
 
@@ -135,7 +198,7 @@ fn list_dir(path: String) -> Result<Vec<FileEntry>, String> {
         };
 
         let name = item.file_name().to_string_lossy().to_string();
-        if is_system_name(&name) || is_hidden(&metadata) {
+        if !is_listed(&name, &metadata, show_hidden) {
             continue;
         }
 
@@ -152,6 +215,7 @@ fn favorite(label: &str, path: impl AsRef<Path>, icon_name: &str) -> FavoriteEnt
         label: label.to_string(),
         path: path.as_ref().to_string_lossy().to_string(),
         icon_name: icon_name.to_string(),
+        external: false,
     }
 }
 
@@ -165,6 +229,347 @@ fn section(label: &str, items: Vec<FavoriteEntry>) -> Option<FavoriteSection> {
         label: label.to_string(),
         items,
     })
+}
+
+/// Bitová maska připojených písmen disků (bit 0 = A:). Levné volání — hlídač
+/// disků se ptá každou chvíli a porovnává jen tohle číslo.
+#[cfg(windows)]
+fn logical_drives() -> u32 {
+    unsafe { windows::Win32::Storage::FileSystem::GetLogicalDrives() }
+}
+
+#[cfg(not(windows))]
+fn logical_drives() -> u32 {
+    0
+}
+
+/// Visí disk na USB? GetDriveTypeW to nepozná — USB SSD i většina novějších
+/// flashek se hlásí jako pevný disk. Průzkumník se proto ptá na sběrnici.
+#[cfg(windows)]
+fn is_usb_drive(letter: char) -> bool {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::Storage::FileSystem::{
+        BusTypeUsb, CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING,
+    };
+    use windows::Win32::System::Ioctl::{
+        PropertyStandardQuery, StorageDeviceProperty, IOCTL_STORAGE_QUERY_PROPERTY,
+        STORAGE_DEVICE_DESCRIPTOR, STORAGE_PROPERTY_QUERY,
+    };
+    use windows::Win32::System::IO::DeviceIoControl;
+
+    let device = HSTRING::from(format!("\\\\.\\{}:", letter));
+
+    // Přístup 0 = jen dotazy na zařízení, bez čtení dat. Nepotřebuje admina.
+    let Ok(handle) = (unsafe {
+        CreateFileW(
+            &device,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            FILE_FLAGS_AND_ATTRIBUTES(0),
+            None,
+        )
+    }) else {
+        return false;
+    };
+
+    let query = STORAGE_PROPERTY_QUERY {
+        PropertyId: StorageDeviceProperty,
+        QueryType: PropertyStandardQuery,
+        ..Default::default()
+    };
+    let mut descriptor = STORAGE_DEVICE_DESCRIPTOR::default();
+    let mut returned = 0u32;
+
+    let ok = unsafe {
+        DeviceIoControl(
+            handle,
+            IOCTL_STORAGE_QUERY_PROPERTY,
+            Some(&query as *const STORAGE_PROPERTY_QUERY as *const _),
+            std::mem::size_of::<STORAGE_PROPERTY_QUERY>() as u32,
+            Some(&mut descriptor as *mut STORAGE_DEVICE_DESCRIPTOR as *mut _),
+            std::mem::size_of::<STORAGE_DEVICE_DESCRIPTOR>() as u32,
+            Some(&mut returned),
+            None,
+        )
+    }
+    .is_ok();
+
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+
+    ok && descriptor.BusType == BusTypeUsb
+}
+
+/// Všechny připojené disky s názvem svazku, jak je ukazuje Průzkumník:
+/// „OS (C:)", „Linux Mint 22.3 Xfce 64-bit (D:)", „Místní disk (E:)".
+#[cfg(windows)]
+fn drive_favorites() -> Vec<FavoriteEntry> {
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::{GetDriveTypeW, GetVolumeInformationW};
+
+    // Hodnoty GetDriveTypeW (DRIVE_REMOVABLE, DRIVE_REMOTE, DRIVE_CDROM).
+    const REMOVABLE: u32 = 2;
+    const REMOTE: u32 = 4;
+    const CDROM: u32 = 5;
+
+    let mask = logical_drives();
+
+    (0..26u8)
+        .filter(|index| mask & (1 << index) != 0)
+        .filter_map(|index| {
+            let letter = (b'A' + index) as char;
+            let root = format!("{}:\\", letter);
+            let root_w = HSTRING::from(root.as_str());
+
+            let kind = unsafe { GetDriveTypeW(&root_w) };
+            let (fallback, icon) = match kind {
+                REMOVABLE => ("USB disk", "Usb"),
+                REMOTE => ("Síťový disk", "Network"),
+                CDROM => ("Mechanika", "Disc"),
+                // Název jako v Průzkumníku („Místní disk"), ikona podle sběrnice.
+                _ if is_usb_drive(letter) => ("Místní disk", "Usb"),
+                _ => ("Místní disk", "HardDrive"),
+            };
+
+            // Prázdná čtečka karet nebo mechanika bez disku svazek nemá —
+            // do sidebaru nepatří, klik by jen skončil chybou.
+            let mut name = [0u16; 261];
+            unsafe { GetVolumeInformationW(&root_w, Some(&mut name), None, None, None, None) }
+                .ok()?;
+
+            let length = name.iter().position(|&c| c == 0).unwrap_or(name.len());
+            let label = String::from_utf16_lossy(&name[..length]);
+            let label = if label.trim().is_empty() { fallback.to_string() } else { label };
+
+            Some(favorite(&format!("{} ({}:)", label, letter), &root, icon))
+        })
+        .collect()
+}
+
+#[cfg(not(windows))]
+fn drive_favorites() -> Vec<FavoriteEntry> {
+    vec![favorite("/", "/", "HardDrive")]
+}
+
+/// Zařízení bez písmena jednotky — iPhone, Android, fotoaparát. Průzkumník
+/// je ukazuje v „Tento počítač", ale nejsou souborový systém (MTP), takže je
+/// shell vrátí se shellovou cestou místo `X:\`.
+///
+/// Musí běžet na vlákně s inicializovaným COM.
+#[cfg(windows)]
+unsafe fn portable_devices_com() -> Vec<FavoriteEntry> {
+    use windows::Win32::System::Com::{CoTaskMemFree, IBindCtx};
+    use windows::Win32::System::SystemServices::SFGAO_FILESYSTEM;
+    use windows::Win32::UI::Shell::{
+        BHID_EnumItems, FOLDERID_ComputerFolder, IEnumShellItems, IShellItem,
+        SHGetKnownFolderItem, KF_FLAG_DEFAULT, SIGDN, SIGDN_DESKTOPABSOLUTEPARSING,
+        SIGDN_NORMALDISPLAY,
+    };
+
+    fn name(item: &IShellItem, kind: SIGDN) -> Option<String> {
+        unsafe {
+            let raw = item.GetDisplayName(kind).ok()?;
+            let text = raw.to_string().ok();
+            CoTaskMemFree(Some(raw.0 as *const _));
+            text
+        }
+    }
+
+    let Ok(computer) =
+        (unsafe { SHGetKnownFolderItem::<IShellItem>(&FOLDERID_ComputerFolder, KF_FLAG_DEFAULT, None) })
+    else {
+        return Vec::new();
+    };
+    let Ok(items) =
+        (unsafe { computer.BindToHandler::<_, IEnumShellItems>(None::<&IBindCtx>, &BHID_EnumItems) })
+    else {
+        return Vec::new();
+    };
+
+    let mut devices = Vec::new();
+    loop {
+        let mut batch = [None];
+        let mut fetched = 0u32;
+        if unsafe { items.Next(&mut batch, Some(&mut fetched)) }.is_err() || fetched == 0 {
+            break;
+        }
+        let Some(item) = batch[0].take() else { break };
+
+        // Disky s písmenem už obstarává drive_favorites.
+        let filesystem = unsafe { item.GetAttributes(SFGAO_FILESYSTEM) }
+            .map(|attributes| attributes.0 & SFGAO_FILESYSTEM.0 != 0)
+            .unwrap_or(true);
+        if filesystem {
+            continue;
+        }
+
+        let (Some(label), Some(path)) =
+            (name(&item, SIGDN_NORMALDISPLAY), name(&item, SIGDN_DESKTOPABSOLUTEPARSING))
+        else {
+            continue;
+        };
+
+        let mut entry = favorite(&label, &path, "Smartphone");
+        entry.external = true;
+        devices.push(entry);
+    }
+
+    devices
+}
+
+/// portable_devices_com na vlastním vlákně s COM. Async runtime Tauri si COM
+/// na svých vláknech inicializuje po svém (trash), tam se sahat nesmí.
+#[cfg(windows)]
+fn portable_devices() -> Vec<FavoriteEntry> {
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+
+    std::thread::spawn(|| unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let devices = portable_devices_com();
+        CoUninitialize();
+        devices
+    })
+    .join()
+    .unwrap_or_default()
+}
+
+#[cfg(not(windows))]
+fn portable_devices() -> Vec<FavoriteEntry> {
+    Vec::new()
+}
+
+/// Otiskne sadu zařízení — hlídač pozná změnu porovnáním dvou otisků.
+fn devices_fingerprint(devices: &[FavoriteEntry]) -> String {
+    devices.iter().map(|device| device.path.as_str()).collect::<Vec<_>>().join("\n")
+}
+
+/// Po připojení nebo odpojení disku či telefonu pošle frontendu `drives-changed`.
+/// Maska písmen je levná a ptá se na ni každých 1,5 s; výčet telefonů přes
+/// shell je dražší, ten jde každé druhé kolo.
+fn spawn_drive_watcher(app: tauri::AppHandle) {
+    use tauri::Emitter;
+
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
+            // Vlákno běží po celou dobu aplikace, COM se uvolní s procesem.
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        }
+
+        let devices_now = || {
+            #[cfg(windows)]
+            let devices = unsafe { portable_devices_com() };
+            #[cfg(not(windows))]
+            let devices = Vec::new();
+            devices_fingerprint(&devices)
+        };
+
+        let mut last_mask = logical_drives();
+        let mut last_devices = devices_now();
+        let mut round = 0u32;
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            round = round.wrapping_add(1);
+
+            let mut changed = false;
+
+            let mask = logical_drives();
+            if mask != last_mask {
+                last_mask = mask;
+                changed = true;
+            }
+
+            if round % 2 == 0 {
+                let devices = devices_now();
+                if devices != last_devices {
+                    last_devices = devices;
+                    changed = true;
+                }
+            }
+
+            if changed {
+                let _ = app.emit("drives-changed", ());
+            }
+        }
+    });
+}
+
+/// Otevře zařízení bez souborového systému (telefon) v Průzkumníku.
+#[tauri::command(async)]
+fn open_device(path: String) -> Result<(), String> {
+    // Jen shellové cesty z portable_devices — nic jiného sem nepatří.
+    if !path.starts_with("::{") {
+        return Err(format!("{}: není cesta zařízení", path));
+    }
+
+    // Explorer vrací nenulový kód i při úspěchu, stav se proto nekontroluje.
+    std::process::Command::new("explorer.exe")
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|err| format!("Průzkumníka se nepodařilo spustit: {}", err))
+}
+
+/* ------------------------- hlídání otevřených složek ------------------------ */
+
+/// Hlídač složek, které má uživatel právě otevřené. Při každém `watch_dirs`
+/// se starý zahodí a vznikne nový nad aktuálním seznamem.
+struct DirWatcher {
+    watcher: std::sync::Mutex<Option<notify::RecommendedWatcher>>,
+    /// Kanál do vlákna, které změny sdružuje a posílá frontendu.
+    changes: std::sync::Mutex<std::sync::mpsc::Sender<()>>,
+}
+
+/// Sdružuje změny: kopírování tisíce souborů je tisíc událostí, frontend
+/// ale stačí obnovit jednou. Po první změně se čeká, až bude 250 ms klid
+/// (nejdéle ale 1 s, ať výpis při dlouhé operaci aspoň průběžně naskakuje).
+fn spawn_change_emitter(app: tauri::AppHandle, receiver: std::sync::mpsc::Receiver<()>) {
+    use std::time::{Duration, Instant};
+    use tauri::Emitter;
+
+    std::thread::spawn(move || {
+        while receiver.recv().is_ok() {
+            let started = Instant::now();
+            while started.elapsed() < Duration::from_secs(1)
+                && receiver.recv_timeout(Duration::from_millis(250)).is_ok()
+            {}
+            let _ = app.emit("dir-changed", ());
+        }
+    });
+}
+
+#[tauri::command(async)]
+fn watch_dirs(state: tauri::State<'_, DirWatcher>, paths: Vec<String>) -> Result<(), String> {
+    use notify::{EventKind, RecursiveMode, Watcher};
+
+    let sender = state.changes.lock().map_err(|err| err.to_string())?.clone();
+
+    let mut watcher = notify::recommended_watcher(move |result: notify::Result<notify::Event>| {
+        // Čtení souboru (náhled v Quick Look) výpis nemění.
+        if let Ok(event) = result {
+            if !matches!(event.kind, EventKind::Access(_)) {
+                let _ = sender.send(());
+            }
+        }
+    })
+    .map_err(|err| err.to_string())?;
+
+    // Složka, kterou hlídat nejde (odpojený disk, chybí práva), se přeskočí —
+    // ostatní se hlídat dál mají.
+    for path in &paths {
+        let _ = watcher.watch(Path::new(path), RecursiveMode::NonRecursive);
+    }
+
+    // Přiřazení zahodí předchozí hlídač, a tím i jeho sledování.
+    *state.watcher.lock().map_err(|err| err.to_string())? = Some(watcher);
+    Ok(())
 }
 
 #[tauri::command(async)]
@@ -195,7 +600,8 @@ fn get_favorites() -> Vec<FavoriteSection> {
     })
     .collect();
 
-    let mut devices = vec![favorite("Tento počítač (C:)", "C:\\", "HardDrive")];
+    let mut devices = drive_favorites();
+    devices.extend(portable_devices());
     if let Some(home) = home {
         devices.push(favorite("Home", home, "Home"));
     }
@@ -772,6 +1178,43 @@ fn create_folder(dir: String, name: String) -> Result<String, String> {
     Ok(target.to_string_lossy().to_string())
 }
 
+/// Vytvoří prázdný soubor a vrátí jeho cestu. Číslo při kolizi patří před
+/// příponu („Nový textový dokument 2.txt"), jinak by se přípona rozbila.
+#[tauri::command(async)]
+fn create_file(dir: String, name: String) -> Result<String, String> {
+    validate_name(&name)?;
+
+    let directory = PathBuf::from(&dir);
+    if !directory.is_dir() {
+        return Err(format!("{}: cílová složka neexistuje", dir));
+    }
+
+    let name = name.trim();
+    let (stem, extension) = match name.rfind('.') {
+        Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
+        _ => (name, ""),
+    };
+
+    for attempt in 1..10_000 {
+        let candidate = if attempt == 1 {
+            directory.join(name)
+        } else {
+            directory.join(format!("{} {}{}", stem, attempt, extension))
+        };
+
+        // create_new místo exists() + create — nic se nepřepíše ani při souběhu.
+        match fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(_) => return Ok(candidate.to_string_lossy().to_string()),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(format!("{}: {}", candidate.to_string_lossy(), describe_io(&err)))
+            }
+        }
+    }
+
+    Err("nepodařilo se najít volný název".to_string())
+}
+
 /// Načte metadata pro seznam cest naráz — jeden IPC skok místo N.
 ///
 /// Pozice ve vstupu se zachovávají a "neexistuje" se odlišuje od "nešlo
@@ -810,7 +1253,9 @@ fn search_recursive(
     root: String,
     query: String,
     max_results: usize,
+    show_hidden: Option<bool>,
 ) -> Result<Vec<FileEntry>, String> {
+    let show_hidden = show_hidden.unwrap_or(false);
     let needle = query.trim().to_lowercase();
     if needle.is_empty() {
         return Ok(Vec::new());
@@ -832,17 +1277,15 @@ fn search_recursive(
             }
 
             let name = item.file_name().to_string_lossy().to_string();
-            if is_system_name(&name) {
-                return false;
-            }
-
             if item.file_type().is_dir()
                 && SKIP_DIRS.iter().any(|skip| skip.eq_ignore_ascii_case(&name))
             {
                 return false;
             }
 
-            !item.metadata().map(|meta| is_hidden(&meta)).unwrap_or(false)
+            item.metadata()
+                .map(|meta| is_listed(&name, &meta, show_hidden))
+                .unwrap_or(!is_system_name(&name))
         });
 
     let mut entries = Vec::new();
@@ -1033,6 +1476,14 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 apply_rounded_corners(&window);
             }
+
+            let (sender, receiver) = std::sync::mpsc::channel();
+            app.manage(DirWatcher {
+                watcher: std::sync::Mutex::new(None),
+                changes: std::sync::Mutex::new(sender),
+            });
+            spawn_change_emitter(app.handle().clone(), receiver);
+            spawn_drive_watcher(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1052,7 +1503,11 @@ fn main() {
             search_recursive,
             open_with,
             open_terminal,
-            create_folder
+            create_folder,
+            create_file,
+            watch_dirs,
+            open_device,
+            explorer_shows_hidden
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

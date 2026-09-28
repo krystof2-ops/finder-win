@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
-import { formatModified } from "../format";
+import { entryOpacity, formatModified } from "../format";
 import { relativeParent, searchRecursive } from "../fileops";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry } from "../types";
@@ -21,6 +21,11 @@ type SearchViewProps = {
   /** Naviguje do rodičovské složky a označí tam položku. */
   onReveal: (path: string) => void;
   onOpen: (entry: FileEntry) => void;
+  /** Pravý klik — stejné menu jako u běžné položky. */
+  onContextMenu: (entry: FileEntry, x: number, y: number) => void;
+  /** Roste po každé souborové operaci; výsledky se pak načtou znovu. */
+  refreshToken: number;
+  showHidden: boolean;
   /** Ať status bar hlásí počet výsledků, ne obsah podkladové složky. */
   onCountChange: (count: number) => void;
 };
@@ -31,6 +36,9 @@ export function SearchView({
   windowFocused,
   onReveal,
   onOpen,
+  onContextMenu,
+  refreshToken,
+  showHidden,
   onCountChange,
 }: SearchViewProps) {
   const { tags } = useStorage();
@@ -41,16 +49,24 @@ export function SearchView({
   const [selected, setSelected] = useState<string | null>(null);
 
   const requestId = useRef(0);
+  const lastSearch = useRef<string | null>(null);
 
   // Průchod velkého stromu trvá; bez tohohle by pomalejší odpověď na starší
   // dotaz přepsala výsledky toho, co uživatel mezitím napsal.
   useEffect(() => {
     const id = ++requestId.current;
-    setLoading(true);
     setError(null);
-    setSelected(null);
 
-    searchRecursive(root, query, MAX_RESULTS)
+    // Nový dotaz začíná načítací obrazovkou. Přenačtení po operaci (smazání,
+    // přejmenování) nechá staré výsledky viset, dokud nedorazí nové.
+    const key = `${root}\0${query}`;
+    if (lastSearch.current !== key) {
+      lastSearch.current = key;
+      setLoading(true);
+      setSelected(null);
+    }
+
+    searchRecursive(root, query, MAX_RESULTS, showHidden)
       .then((found) => {
         if (requestId.current !== id) return;
 
@@ -64,7 +80,7 @@ export function SearchView({
         setError(String(err));
         setLoading(false);
       });
-  }, [root, query]);
+  }, [root, query, refreshToken, showHidden]);
 
   useEffect(() => {
     onCountChange(entries.length);
@@ -116,17 +132,23 @@ export function SearchView({
             key={entry.path}
             role="button"
             tabIndex={0}
-            title={entry.path}
+            data-tooltip={entry.path}
             // Jeden klik odkrývá — výsledky jsou rozcestník, ne obsah složky.
             onClick={() => {
               setSelected(entry.path);
               onReveal(entry.path);
             }}
             onDoubleClick={() => onOpen(entry)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSelected(entry.path);
+              onContextMenu(entry, event.clientX, event.clientY);
+            }}
             className={`grid h-6 items-center gap-3 px-3 text-[13px] text-primary outline-none transition-colors duration-100 ${
               isSelected ? selectedClass : "hover:bg-hover"
             }`}
-            style={{ gridTemplateColumns: GRID_TEMPLATE }}
+            style={{ gridTemplateColumns: GRID_TEMPLATE, opacity: entryOpacity(entry, false) }}
           >
             <span className="flex items-center">
               <TagDots colors={tags[entry.path] ?? []} size={8} />

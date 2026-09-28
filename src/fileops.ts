@@ -48,6 +48,15 @@ export function createFolder(dir: string, name: string): Promise<string> {
   return invoke<string>("create_folder", { dir, name });
 }
 
+export function createFile(dir: string, name: string): Promise<string> {
+  return invoke<string>("create_file", { dir, name });
+}
+
+/** Telefon nebo fotoaparát (shellová cesta) — prohlížet ho umí jen Průzkumník. */
+export function openDevice(path: string): Promise<void> {
+  return invoke("open_device", { path });
+}
+
 export function getFileProperties(path: string): Promise<FileProperties> {
   return invoke<FileProperties>("get_file_properties", { path });
 }
@@ -56,8 +65,9 @@ export function searchRecursive(
   root: string,
   query: string,
   maxResults: number,
+  showHidden: boolean,
 ): Promise<FileEntry[]> {
-  return invoke<FileEntry[]>("search_recursive", { root, query, maxResults });
+  return invoke<FileEntry[]>("search_recursive", { root, query, maxResults, showHidden });
 }
 
 /** Nadřazená složka, nebo null pro kořen disku. */

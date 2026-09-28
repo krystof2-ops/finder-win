@@ -222,3 +222,14 @@ export function sortEntries(
     }
   });
 }
+
+/* ------------------------------ průhlednost ------------------------------- */
+
+/**
+ * Vyjmuté položky čekají na vložení, skryté jsou vidět jen na přání — obojí
+ * se kreslí slaběji, jako v Průzkumníku. Vyjmutí má přednost, je čerstvější.
+ */
+export function entryOpacity(entry: FileEntry, cut: boolean): number {
+  if (cut) return 0.5;
+  return entry.hidden ? 0.55 : 1;
+}

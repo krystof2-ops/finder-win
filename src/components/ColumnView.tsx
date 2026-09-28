@@ -5,7 +5,7 @@ import { FolderIcon, SmallEntryIcon, fileVisual } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { endDrag, startDrag } from "../lib/dnd";
-import { formatModified, formatSize, kindLabel } from "../format";
+import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
 import type { FileEntry, TagMap } from "../types";
 
@@ -59,6 +59,8 @@ function ColumnPane({
 
   return (
     <div
+      // Podle tohohle App pozná, ve kterém sloupci padl pravý klik do volné plochy.
+      data-column-path={column.path}
       onMouseDown={() => onFocus(index)}
       className={`surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
         exiting ? "fw-column-out" : "fw-column-in"
@@ -89,7 +91,7 @@ function ColumnPane({
             key={entry.path}
             ref={isSelected ? selectedRef : undefined}
             data-path={entry.path}
-            title={entry.name}
+            data-tooltip={entry.name}
             draggable={!isRenaming}
             onDragStart={(event) =>
               startDrag(
@@ -109,7 +111,7 @@ function ColumnPane({
             className={`fw-col-row flex h-6 shrink-0 items-center gap-2 px-2.5 text-[13px] text-primary transition-colors duration-100 ${
               isSelected && !isRenaming ? selectedClass : "hover:bg-hover"
             }`}
-            style={{ opacity: cutPaths.has(entry.path) ? 0.5 : 1 }}
+            style={{ opacity: entryOpacity(entry, cutPaths.has(entry.path)) }}
           >
             <SmallEntryIcon entry={entry} />
             {isRenaming ? (

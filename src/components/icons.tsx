@@ -1,5 +1,6 @@
 import {
   Cloud,
+  Disc,
   Download,
   File,
   FileAudio,
@@ -12,6 +13,9 @@ import {
   Image as ImageIcon,
   Monitor,
   Music,
+  Network,
+  Smartphone,
+  Usb,
   Video,
   type LucideIcon,
 } from "lucide-react";
@@ -135,6 +139,10 @@ const SIDEBAR_ICONS: Record<string, LucideIcon> = {
   Cloud,
   Folder,
   HardDrive,
+  Usb,
+  Disc,
+  Network,
+  Smartphone,
   Home,
 };
 
