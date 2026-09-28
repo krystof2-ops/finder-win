@@ -1747,6 +1747,223 @@ fn search_recursive(
     Ok(entries)
 }
 
+/* ----------------------------- ikony ze shellu ---------------------------- */
+
+/// Přípony, jejichž ikona je v souboru samém (každý .exe i zástupce má jinou)
+/// — ty se cachují podle celé cesty a času změny. Ostatní sdílí ikonu podle
+/// přípony: všechna .pdf vypadají stejně.
+const OWN_ICON_EXTENSIONS: [&str; 7] = ["exe", "lnk", "ico", "url", "cpl", "msc", "scr"];
+
+/// Jak dlouho se na shell čeká. Síťový disk nebo líné rozšíření shellu umí
+/// ikonu vracet sekundy — frontend si mezitím nechá obecnou ikonu podle přípony.
+const ICON_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// FNV-1a — stabilní napříč spuštěními (DefaultHasher to nezaručuje),
+/// takže název souboru v cache zůstává platný.
+fn fnv1a(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ byte as u64).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+fn icon_cache_key(path: &Path, size: u32) -> String {
+    let extension = path
+        .extension()
+        .map(|ext| ext.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+
+    if OWN_ICON_EXTENSIONS.contains(&extension.as_str()) {
+        let modified = fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        format!("path:{}:{}:{}", path.to_string_lossy().to_lowercase(), modified, size)
+    } else {
+        format!("ext:{}:{}", extension, size)
+    }
+}
+
+fn png_data_url(bytes: &[u8]) -> String {
+    use base64::Engine;
+    format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
+fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().map_err(|err| err.to_string())?;
+        writer.write_image_data(rgba).map_err(|err| err.to_string())?;
+    }
+    Ok(out)
+}
+
+/// HBITMAP ze shellu → RGBA. Shell vrací 32bit BGRA s přednásobenou alfou;
+/// PNG chce alfu nepřednásobenou, jinak by měly okraje ikon tmavý lem.
+#[cfg(windows)]
+unsafe fn bitmap_rgba(
+    bitmap: windows::Win32::Graphics::Gdi::HBITMAP,
+) -> Result<(u32, u32, Vec<u8>), String> {
+    use windows::Win32::Graphics::Gdi::{
+        GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+        DIB_RGB_COLORS, HGDIOBJ,
+    };
+
+    let mut info = BITMAP::default();
+    let read = unsafe {
+        GetObjectW(
+            HGDIOBJ(bitmap.0),
+            std::mem::size_of::<BITMAP>() as i32,
+            Some(&mut info as *mut BITMAP as *mut _),
+        )
+    };
+    if read == 0 || info.bmWidth <= 0 || info.bmHeight == 0 {
+        return Err("ikona nemá obrazová data".to_string());
+    }
+
+    let width = info.bmWidth;
+    let height = info.bmHeight.abs();
+    let mut header = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            // Záporná výška = řádky shora dolů, jak je chce PNG.
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+    let lines = unsafe {
+        let dc = GetDC(None);
+        let lines = GetDIBits(
+            dc,
+            bitmap,
+            0,
+            height as u32,
+            Some(pixels.as_mut_ptr() as *mut _),
+            &mut header,
+            DIB_RGB_COLORS,
+        );
+        ReleaseDC(None, dc);
+        lines
+    };
+    if lines == 0 {
+        return Err("ikonu se nepodařilo přečíst".to_string());
+    }
+
+    // Některé ikony (staré .ico bez alfy) mají alfu všude 0 — ty jsou neprůhledné.
+    let has_alpha = pixels.chunks_exact(4).any(|pixel| pixel[3] != 0);
+    for pixel in pixels.chunks_exact_mut(4) {
+        let alpha = if has_alpha { pixel[3] } else { 255 };
+        let straight = |channel: u8| -> u8 {
+            if alpha == 0 || alpha == 255 {
+                channel
+            } else {
+                ((channel as u32 * 255 + alpha as u32 / 2) / alpha as u32).min(255) as u8
+            }
+        };
+        let (blue, green, red) = (pixel[0], pixel[1], pixel[2]);
+        pixel[0] = straight(red);
+        pixel[1] = straight(green);
+        pixel[2] = straight(blue);
+        pixel[3] = alpha;
+    }
+
+    Ok((width as u32, height as u32, pixels))
+}
+
+/// Ikona souboru tak, jak ji kreslí Průzkumník, jako PNG.
+/// Musí běžet na vlákně s inicializovaným COM (volá se z get_file_icon).
+#[cfg(windows)]
+fn render_shell_icon(path: &str, size: u32) -> Result<Vec<u8>, String> {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::SIZE;
+    use windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ};
+    use windows::Win32::System::Com::IBindCtx;
+    use windows::Win32::UI::Shell::{
+        IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF, SIIGBF_BIGGERSIZEOK,
+        SIIGBF_ICONONLY,
+    };
+
+    unsafe {
+        let factory: IShellItemImageFactory =
+            SHCreateItemFromParsingName(&HSTRING::from(path), None::<&IBindCtx>)
+                .map_err(|err| describe_win(&err))?;
+
+        // Jen ikona (ne náhled obsahu) a klidně větší — zmenší se v UI.
+        let flags = SIIGBF(SIIGBF_ICONONLY.0 | SIIGBF_BIGGERSIZEOK.0);
+        let bitmap = factory
+            .GetImage(SIZE { cx: size as i32, cy: size as i32 }, flags)
+            .map_err(|err| describe_win(&err))?;
+
+        let pixels = bitmap_rgba(bitmap);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+
+        let (width, height, rgba) = pixels?;
+        encode_png(width, height, &rgba)
+    }
+}
+
+#[cfg(not(windows))]
+fn render_shell_icon(_path: &str, _size: u32) -> Result<Vec<u8>, String> {
+    Err("ikony ze shellu jsou jen na Windows".to_string())
+}
+
+/// Ikona souboru jako data URL (PNG). Nejdřív z cache na disku, jinak ze
+/// shellu — na vlastním vlákně s COM a s časovým limitem, ať pomalý shell
+/// nezdrží výpis. Po limitu chyba a frontend nechá obecnou ikonu.
+#[tauri::command(async)]
+fn get_file_icon(path: String, size: u32) -> Result<String, String> {
+    if !matches!(size, 32 | 64 | 128) {
+        return Err("velikost ikony musí být 32, 64 nebo 128".to_string());
+    }
+
+    let key = icon_cache_key(Path::new(&path), size);
+    let cached = dirs::data_local_dir()
+        .map(|dir| dir.join("finder-win").join("icons").join(format!("{:016x}.png", fnv1a(&key))));
+
+    if let Some(file) = &cached {
+        if let Ok(bytes) = fs::read(file) {
+            return Ok(png_data_url(&bytes));
+        }
+    }
+
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let _ = sender.send(render_shell_icon(&path, size));
+            CoUninitialize();
+        }
+        #[cfg(not(windows))]
+        let _ = sender.send(render_shell_icon(&path, size));
+    });
+
+    let png = receiver
+        .recv_timeout(ICON_TIMEOUT)
+        .map_err(|_| "ikona nestihla doběhnout".to_string())??;
+
+    if let Some(file) = &cached {
+        if let Some(dir) = file.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        let _ = fs::write(file, &png);
+    }
+
+    Ok(png_data_url(&png))
+}
+
 /// Strop pro výpočet velikosti složky. C:\Windows má stovky tisíc souborů —
 /// dialog Vlastnosti na to nesmí čekat minuty; nad stropem ukáže "více než".
 const FOLDER_STATS_LIMIT: u64 = 200_000;
@@ -2025,7 +2242,8 @@ fn main() {
             trash_is_permanent,
             cancel_search,
             folder_stats,
-            cancel_folder_stats
+            cancel_folder_stats,
+            get_file_icon
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

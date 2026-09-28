@@ -1,4 +1,4 @@
-import { LargeEntryIcon } from "./icons";
+import { canThumbnail, LargeEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { entryOpacity } from "../format";
@@ -19,6 +19,9 @@ function playPop(host: HTMLElement): void {
   inner.classList.add("fw-pop");
 }
 import type { FileEntry, SelectMods, TagMap } from "../types";
+
+/** Strop náhledů obrázků v jedné složce. */
+const MAX_THUMBNAILS = 200;
 
 type IconViewProps = {
   entries: FileEntry[];
@@ -51,6 +54,14 @@ export function IconView({
 }: IconViewProps) {
   const { dropTarget, dropProps } = useFolderDrop(onDropInto);
   const selectedEntries = entries.filter((entry) => selectedPaths.has(entry.path));
+  // Náhledy jen prvních 200 obrázků ve složce — dál by dekódování tisíců
+  // fotek zabralo paměť i čas; zbytek má ikonu.
+  const thumbnailPaths = new Set(
+    entries
+      .filter(canThumbnail)
+      .slice(0, MAX_THUMBNAILS)
+      .map((entry) => entry.path),
+  );
 
   return (
     <div
@@ -111,7 +122,7 @@ export function IconView({
               className="fw-card-inner rounded-[10px] p-1"
               style={{ backgroundColor: selectionBg }}
             >
-              <LargeEntryIcon entry={entry} />
+              <LargeEntryIcon entry={entry} thumbnail={thumbnailPaths.has(entry.path)} />
             </div>
 
             {isRenaming ? (

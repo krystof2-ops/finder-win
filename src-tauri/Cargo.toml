@@ -24,12 +24,17 @@ tauri-plugin-store = "2"
 walkdir = "2"
 # Hlídání otevřených složek — výpis se obnoví sám, když se v nich něco změní.
 notify = "8"
+# Ikony ze shellu: HBITMAP → PNG → data URL.
+png = "0.18"
+base64 = "0.23"
 encoding_rs = "0.8"
 
 [target."cfg(windows)".dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    # Ikony souborů ze shellu (HBITMAP → pixely přes GetDIBits).
+    "Win32_Graphics_Gdi",
     "Win32_Storage_FileSystem",
     # ShellExecuteW s verbem "openas" (dialog Otevřít v aplikaci) a COM pro něj.
     "Win32_System_Com",

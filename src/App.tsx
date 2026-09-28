@@ -13,7 +13,6 @@ import {
 } from "./components/ConflictDialog";
 import { ConfirmDialog, type ConfirmRequest } from "./components/ConfirmDialog";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
-import { IconDefs } from "./components/icons";
 import { AboutDialog } from "./components/AboutDialog";
 import { PropertiesDialog } from "./components/PropertiesDialog";
 import { IconView } from "./components/IconView";
@@ -54,6 +53,7 @@ import { isTypingTarget } from "./lib/dom";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
+import { setSpecialFolders } from "./lib/specialFolders";
 import { useStorage } from "./lib/useStorage";
 import { INITIAL_NAV, navReducer } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
@@ -161,7 +161,12 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [windowFocused, setWindowFocused] = useState(true);
 
-  const [sections, setSections] = useState<FavoriteSection[]>([]);
+  const [sections, setSectionsState] = useState<FavoriteSection[]>([]);
+  /** Sekce sidebaru — a z Oblíbených se odvodí speciální složky s glyfem. */
+  const setSections = useCallback((next: FavoriteSection[]) => {
+    setSpecialFolders(next.find((section) => section.label === "Oblíbené")?.items ?? []);
+    setSectionsState(next);
+  }, []);
   const [nav, dispatch] = useReducer(navReducer, INITIAL_NAV);
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -2235,7 +2240,6 @@ export default function App() {
 
   return (
     <div className="surface flex h-screen w-screen flex-col overflow-hidden bg-window text-primary">
-      <IconDefs />
       <TitleBar />
 
       <div className="flex min-h-0 flex-1">

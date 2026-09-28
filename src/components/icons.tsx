@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   AppWindow,
   ArrowUpRight,
@@ -23,53 +25,33 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { iconRequestSize, useFileIcon, useVisible } from "../lib/fileIcons";
 import { fileType, type FileGroup } from "../lib/filetypes";
+import { specialFolderGlyph } from "../lib/specialFolders";
 import type { FileEntry } from "../types";
 
 /**
- * Gradienty pro složkovou ikonu se renderují jednou pro celou aplikaci,
- * jinak by každá z desítek položek v gridu tahala vlastní <defs>.
+ * Složka ve stylu macOS Sonoma: světlejší zadní deska se záložkou, sytější
+ * přední deska, zaoblení 3 px. V 64px boxu je 64×52. Speciální složky
+ * (Plocha, Dokumenty…) mají uprostřed bílý glyf jako ve Finderu.
  */
-export function IconDefs() {
-  return (
-    <svg width="0" height="0" aria-hidden className="absolute">
-      <defs>
-        <linearGradient id="fw-folder-back" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#5fa3dd" />
-          <stop offset="100%" stopColor="#3f88cc" />
-        </linearGradient>
-        <linearGradient id="fw-folder-front" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#6faee5" />
-          <stop offset="100%" stopColor="#4a94d6" />
-        </linearGradient>
-        <linearGradient id="fw-folder-shine" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
+export function FolderIcon({ size = 64, glyph }: { size?: number; glyph?: string | null }) {
+  // Glyf má smysl jen tam, kde je vidět — v 16px řádku by byl šum.
+  const Glyph = glyph && size >= 32 ? sidebarIcon(glyph) : null;
 
-/** Složka ve stylu macOS: zadní deska s ouškem + přední deska s lehce vyklenutou hranou. */
-export function FolderIcon({ size = 64 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 64 64" className="shrink-0">
-      {/* zadní deska s ouškem */}
+    <svg width={size} height={size} viewBox="0 0 64 64" className="shrink-0" aria-hidden>
       <path
-        d="M4 17.5A5.5 5.5 0 0 1 9.5 12h13.2a5.5 5.5 0 0 1 3.9 1.6l3.1 3.1a5.5 5.5 0 0 0 3.9 1.6H54.5A5.5 5.5 0 0 1 60 23.8V46.5A5.5 5.5 0 0 1 54.5 52h-45A5.5 5.5 0 0 1 4 46.5z"
-        fill="url(#fw-folder-back)"
+        d="M5 6h17.6a3 3 0 0 1 2.3 1.1l3.3 3.9H59a3 3 0 0 1 3 3V55a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V9a3 3 0 0 1 3-3z"
+        fill="var(--folder-back)"
       />
-      {/* přední deska — horní hrana je mírně vyklenutá, to dělá ten 3D dojem */}
       <path
-        d="M4 27Q32 24.2 60 27V46.5A5.5 5.5 0 0 1 54.5 52h-45A5.5 5.5 0 0 1 4 46.5z"
-        fill="url(#fw-folder-front)"
+        d="M5 17h54a3 3 0 0 1 3 3v35a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V20a3 3 0 0 1 3-3z"
+        fill="var(--folder-front)"
       />
-      {/* světelný odlesk na horní třetině přední desky */}
-      <path
-        d="M4 27Q32 24.2 60 27v6.5Q32 30.7 4 33.5z"
-        fill="url(#fw-folder-shine)"
-      />
+      {Glyph && (
+        <Glyph x={21} y={26.5} width={22} height={22} strokeWidth={2} color="var(--folder-glyph)" />
+      )}
     </svg>
   );
 }
@@ -78,16 +60,17 @@ export function FolderIcon({ size = 64 }: { size?: number }) {
 
 type FileVisual = { Icon: LucideIcon; tint: string };
 
-/** Ikona a barva podle skupiny z lib/filetypes.ts — stejná tabulka jako druh. */
+/** Obecná ikona podle skupiny z lib/filetypes.ts — ukazuje se, dokud nedorazí
+ *  ikona ze shellu, a zůstane, když ji shell nedá. Barvy jsou tokeny. */
 const GROUP_VISUALS: Record<FileGroup, FileVisual> = {
-  image: { Icon: ImageIcon, tint: "#ff9500" },
-  pdf: { Icon: FileText, tint: "#ff3b30" },
-  video: { Icon: FileVideo, tint: "#af52de" },
-  audio: { Icon: FileAudio, tint: "#30d158" },
-  code: { Icon: FileCode2, tint: "#0a84ff" },
+  image: { Icon: ImageIcon, tint: "var(--tint-image)" },
+  pdf: { Icon: FileText, tint: "var(--tint-pdf)" },
+  video: { Icon: FileVideo, tint: "var(--tint-video)" },
+  audio: { Icon: FileAudio, tint: "var(--tint-audio)" },
+  code: { Icon: FileCode2, tint: "var(--tint-code)" },
   text: { Icon: FileText, tint: "var(--text-secondary)" },
-  document: { Icon: FileText, tint: "#0a84ff" },
-  archive: { Icon: FileArchive, tint: "#a2845e" },
+  document: { Icon: FileText, tint: "var(--tint-document)" },
+  archive: { Icon: FileArchive, tint: "var(--tint-archive)" },
   app: { Icon: AppWindow, tint: "var(--text-secondary)" },
   other: { Icon: File, tint: "var(--text-secondary)" },
 };
@@ -95,9 +78,10 @@ const GROUP_VISUALS: Record<FileGroup, FileVisual> = {
 export function fileVisual(entry: FileEntry): FileVisual {
   return GROUP_VISUALS[fileType(entry.extension)?.group ?? "other"];
 }
+
 /**
- * Odkaz (symlink / junction) dostane v levém dolním rohu šipku jako alias
- * ve Finderu — jinak by nešlo poznat, že složka ve skutečnosti leží jinde.
+ * Odkaz (symlink / junction) dostane vpravo dole malou šipku jako ve
+ * Windows — jinak by nešlo poznat, že složka ve skutečnosti leží jinde.
  */
 function WithLinkBadge({
   entry,
@@ -110,72 +94,112 @@ function WithLinkBadge({
 }) {
   if (!entry.is_symlink) return <>{children}</>;
 
-  const badge = Math.max(8, Math.round(size * 0.4));
+  const badge = Math.max(7, Math.round(size * 0.32));
 
   return (
     <span className="relative inline-flex shrink-0" aria-label="Odkaz">
       {children}
       <span
-        className="absolute bottom-0 left-0 flex items-center justify-center rounded-sm"
+        className="absolute right-0 bottom-0 flex items-center justify-center rounded-[2px]"
         style={{
           width: badge,
           height: badge,
-          background: "var(--bg-main)",
-          boxShadow: "0 0 0 0.5px var(--paper-border)",
+          background: "var(--badge-bg)",
+          boxShadow: "0 0 0 0.5px var(--thumb-border)",
         }}
       >
-        <ArrowUpRight size={badge - 1} strokeWidth={2.5} color="var(--text-primary)" />
+        <ArrowUpRight size={badge - 1} strokeWidth={2.75} color="var(--badge-fg)" />
       </span>
     </span>
   );
 }
 
-/** Velká ikona pro icon view — soubory dostanou bílý "papírek". */
-export function LargeEntryIcon({ entry }: { entry: FileEntry }) {
+/**
+ * Ikona souboru ze shellu (jako v Průzkumníku) v boxu `size`×`size`. Dokud
+ * nedorazí, stojí na jejím místě obecná ikona podle přípony — box má pořád
+ * stejnou velikost, takže nic neposkočí.
+ */
+function ShellIcon({ entry, size }: { entry: FileEntry; size: number }) {
+  const { ref, url } = useFileIcon(entry, iconRequestSize(size));
+  const { Icon, tint } = fileVisual(entry);
+
+  return (
+    <span
+      ref={ref}
+      className="inline-flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      {url ? (
+        <img src={url} width={size} height={size} alt="" draggable={false} />
+      ) : (
+        <Icon size={Math.round(size * 0.75)} color={tint} strokeWidth={size > 32 ? 1.25 : 1.75} />
+      )}
+    </span>
+  );
+}
+
+/** Přípony, které webview umí vykreslit jako obrázek (heic jen s rozšířením
+ *  HEIF — když ne, onError spadne na ikonu). */
+const THUMBNAIL_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic"]);
+
+export function canThumbnail(entry: FileEntry): boolean {
+  return !entry.is_dir && THUMBNAIL_EXTENSIONS.has(entry.extension ?? "");
+}
+
+/** Náhled obrázku — líně, až když je vidět, jinak by složka s tisíci fotek
+ *  dekódovala všechny naráz. Když se nenačte, zůstane ikona. */
+function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
+  const [ref, visible] = useVisible();
+  const [failed, setFailed] = useState(false);
+
+  if (failed) return <ShellIcon entry={entry} size={size} />;
+
+  return (
+    <span
+      ref={ref}
+      className="inline-flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      {visible ? (
+        <img
+          src={convertFileSrc(entry.path)}
+          alt=""
+          draggable={false}
+          decoding="async"
+          onError={() => setFailed(true)}
+          className="h-full w-full rounded-[4px] object-cover"
+          style={{ border: "1px solid var(--thumb-border)" }}
+        />
+      ) : (
+        <ShellIcon entry={entry} size={size} />
+      )}
+    </span>
+  );
+}
+
+/** Velká ikona 64px pro icon view. `thumbnail` = u obrázku ukázat náhled. */
+export function LargeEntryIcon({ entry, thumbnail = false }: { entry: FileEntry; thumbnail?: boolean }) {
   return (
     <WithLinkBadge entry={entry} size={64}>
-      <LargeIcon entry={entry} />
+      {entry.is_dir ? (
+        <FolderIcon size={64} glyph={specialFolderGlyph(entry.path)} />
+      ) : thumbnail && canThumbnail(entry) ? (
+        <Thumbnail entry={entry} size={64} />
+      ) : (
+        <ShellIcon entry={entry} size={64} />
+      )}
     </WithLinkBadge>
   );
 }
 
-function LargeIcon({ entry }: { entry: FileEntry }) {
-  if (entry.is_dir) return <FolderIcon size={64} />;
-
-  const { Icon, tint } = fileVisual(entry);
-
-  return (
-    <div className="flex h-16 w-16 items-center justify-center">
-      <div
-        className="flex h-[60px] w-[46px] items-center justify-center rounded-lg"
-        style={{
-          background: "var(--paper)",
-          border: "1px solid var(--paper-border)",
-          boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-        }}
-      >
-        <Icon size={24} color={tint} strokeWidth={1.75} />
-      </div>
-    </div>
-  );
-}
-
-/** Malá ikona 16px pro list view. */
+/** Malá ikona 16px pro list view, sloupce a výsledky. */
 export function SmallEntryIcon({ entry }: { entry: FileEntry }) {
   return (
     <WithLinkBadge entry={entry} size={16}>
-      <SmallIcon entry={entry} />
+      {entry.is_dir ? <FolderIcon size={16} /> : <ShellIcon entry={entry} size={16} />}
     </WithLinkBadge>
   );
 }
-
-function SmallIcon({ entry }: { entry: FileEntry }) {
-  if (entry.is_dir) return <FolderIcon size={16} />;
-
-  const { Icon, tint } = fileVisual(entry);
-  return <Icon size={16} color={tint} strokeWidth={1.75} className="shrink-0" />;
-}
-
 /* ----------------------------- ikony sidebaru ----------------------------- */
 
 const SIDEBAR_ICONS: Record<string, LucideIcon> = {
@@ -223,7 +247,7 @@ export function sidebarIconColor(sectionLabel: string, itemLabel: string): strin
     case "Oblíbené":
       return "var(--accent)";
     case "Cloud":
-      return itemLabel === "iCloud Photos" ? "#af52de" : "#5eb5f0";
+      return itemLabel === "iCloud Photos" ? "var(--tint-photos)" : "var(--tint-cloud)";
     default:
       return "var(--text-secondary)";
   }

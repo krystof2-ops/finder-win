@@ -51,6 +51,31 @@
      pilulku se jménem, aby to drželo pohromadě jako jeden celek. */
   --icon-selection: rgba(0, 0, 0, 0.1);
 
+  /* Složka ve stylu macOS Sonoma — zadní záložka světlejší, přední deska
+     sytější. Glyf speciálních složek (Plocha, Dokumenty…) je bílý. */
+  --folder-back: #60a5fa;
+  --folder-front: #3b82f6;
+  --folder-glyph: rgba(255, 255, 255, 0.85);
+
+  /* Rámeček náhledu obrázku v icon view. */
+  --thumb-border: rgba(0, 0, 0, 0.12);
+
+  /* Odznak odkazu (symlink / junction) v rohu ikony. */
+  --badge-bg: #ffffff;
+  --badge-fg: #1d1d1f;
+
+  /* Barvy obecných ikon podle typu souboru (než dorazí ikona ze shellu)
+     a ikon v sidebaru — systémová paleta Applu, světlá varianta. */
+  --tint-image: #ff9500;
+  --tint-pdf: #ff3b30;
+  --tint-video: #af52de;
+  --tint-audio: #28a745;
+  --tint-code: #0a84ff;
+  --tint-document: #0a84ff;
+  --tint-archive: #a2845e;
+  --tint-cloud: #1e88e5;
+  --tint-photos: #af52de;
+
   /* Animační křivky. Nejsou v .dark — na motion nemá téma vliv.
      Pozor: --ease-out a --ease-in-out má i Tailwind ve své @layer theme.
      Tenhle blok je mimo vrstvy, takže v kaskádě vyhrává a přebíjí je.
@@ -82,6 +107,25 @@
   --paper-border: rgba(0, 0, 0, 0.2);
 
   --icon-selection: rgba(255, 255, 255, 0.14);
+
+  --folder-back: #60a5fa;
+  --folder-front: #3b82f6;
+  --folder-glyph: rgba(255, 255, 255, 0.85);
+
+  --thumb-border: rgba(255, 255, 255, 0.16);
+
+  --badge-bg: #2c2c2e;
+  --badge-fg: #f5f5f7;
+
+  --tint-image: #ff9f0a;
+  --tint-pdf: #ff453a;
+  --tint-video: #bf5af2;
+  --tint-audio: #32d74b;
+  --tint-code: #0a84ff;
+  --tint-document: #0a84ff;
+  --tint-archive: #ac8e68;
+  --tint-cloud: #5eb5f0;
+  --tint-photos: #bf5af2;
 }
 
 html,
