@@ -23,7 +23,8 @@ export type Column = {
   version: number;
 };
 
-export type MoveTarget = 1 | -1 | "first" | "last";
+/** Posun o počet řádků (šipky ±1, PgUp/PgDn o stránku) nebo na kraj. */
+export type MoveTarget = number | "first" | "last";
 
 export type ColumnsApi = {
   columns: Column[];
@@ -375,7 +376,7 @@ export function useColumns(
         let next: number;
         if (target === "first") next = 0;
         else if (target === "last") next = last;
-        else if (current === -1) next = target === 1 ? 0 : last;
+        else if (current === -1) next = target > 0 ? 0 : last;
         else next = Math.min(Math.max(current + target, 0), last);
 
         const chosen = entries[next];

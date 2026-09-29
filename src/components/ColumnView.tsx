@@ -147,6 +147,9 @@ type ColumnPaneProps = {
   onClearSelection: (index: number) => void;
   /** Sloupec, který se právě zahazuje — jen dohrává odchod, nereaguje. */
   exiting?: boolean;
+  /** Jak doscrollovat na výběr posunutý klávesnicí — "smooth" jen pro
+   *  PgUp/PgDn. Sdílený ref; sloupec si hodnotu po použití vrátí na "auto". */
+  scrollBehavior: { current: ScrollBehavior };
   /** Kam byl sloupec odscrollovaný (sdílená paměť view, klíč index/cesta).
    *  Odcházející kopie z ní převezme pozici, ať při zhasínání neskočí nahoru. */
   scrollMemory: Map<string, number>;
@@ -175,6 +178,7 @@ function ColumnPane({
   exiting = false,
   scrollMemory,
   memoryKey,
+  scrollBehavior,
 }: ColumnPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null);
 
@@ -220,7 +224,9 @@ function ColumnPane({
   useEffect(() => {
     if (exiting || column.selectedPath === null) return;
     const selected = entries.findIndex((entry) => entry.path === column.selectedPath);
-    if (selected >= 0) virtualizer.scrollToIndex(selected, { align: "auto" });
+    const behavior = scrollBehavior.current;
+    scrollBehavior.current = "auto";
+    if (selected >= 0) virtualizer.scrollToIndex(selected, { align: "auto", behavior });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [column.selectedPath, exiting]);
 
@@ -345,7 +351,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
   const colors = tagsOf(tags, entry.path);
 
   return (
-    <div className="fw-info-panel surface flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
+    <div className="fw-info-panel fw-scroll surface flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
       <div className="flex justify-center pt-2">
         <EntryIcon entry={entry} size={128} thumbnail />
       </div>
@@ -433,6 +439,8 @@ export function ColumnView({
   const previousColumns = useRef<Column[]>(columns);
   /** Pozice scrollu sloupců (klíč index/cesta) pro odcházející kopie. */
   const paneScroll = useRef(new Map<string, number>());
+  /** Šipky a type-ahead skáčou, PgUp/PgDn posouvají plynule. */
+  const scrollBehavior = useRef<ScrollBehavior>("auto");
   const exitTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -551,6 +559,15 @@ export function ColumnView({
         if (event.shiftKey) extend(-1);
         else move(-1);
         break;
+      case "PageDown":
+      case "PageUp": {
+        event.preventDefault();
+        const height = (liveRef.current?.firstElementChild as HTMLElement | null)?.clientHeight ?? 0;
+        const page = Math.max(1, Math.floor(height / ROW_HEIGHT) - 1);
+        scrollBehavior.current = smoothIfAllowed();
+        move(event.key === "PageDown" ? page : -page);
+        break;
+      }
       case "Home":
         event.preventDefault();
         move("first");
@@ -598,7 +615,7 @@ export function ColumnView({
       onKeyDown={handleKeyDown}
       className="flex h-full outline-none"
     >
-      <div className="relative flex min-w-0 flex-1 overflow-x-auto">
+      <div className="fw-scroll relative flex min-w-0 flex-1 overflow-x-auto">
         {/* Dohrávají odchod na svém původním místě, pod živými sloupci — nový
             sloupec přes ně přijede zprava. Pak zmizí. */}
         {exiting.columns.length > 0 && (
@@ -629,6 +646,7 @@ export function ColumnView({
                 exiting
                 scrollMemory={paneScroll.current}
                 memoryKey={`${exiting.from + index}/${column.path}`}
+                scrollBehavior={scrollBehavior}
               />
             ))}
           </div>
@@ -658,6 +676,7 @@ export function ColumnView({
               tags={tags}
               scrollMemory={paneScroll.current}
               memoryKey={`${index}/${column.path}`}
+              scrollBehavior={scrollBehavior}
             />
           ))}
 

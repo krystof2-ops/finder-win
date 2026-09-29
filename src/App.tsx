@@ -53,7 +53,7 @@ import {
   type SortKey,
 } from "./format";
 import { isTypingTarget } from "./lib/dom";
-import { motionMs } from "./lib/motion";
+import { motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
@@ -766,8 +766,9 @@ export default function App() {
   /** Kolik položek je v řádku a kolik řádků na obrazovce (pro šipky, PgUp/PgDn). */
   const viewMetrics = () => viewHandle.current?.metrics() ?? { columns: 1, rowsPerPage: 1 };
 
+  /** Šipky a type-ahead skočí (bez animace), PgUp/PgDn posunou plynule. */
   const selectIndex = useCallback(
-    (index: number, extend: boolean) => {
+    (index: number, extend: boolean, behavior: ScrollBehavior = "auto") => {
       if (visibleEntries.length === 0) return;
       const next = visibleEntries[Math.min(Math.max(index, 0), visibleEntries.length - 1)];
 
@@ -779,17 +780,17 @@ export default function App() {
         selectEntry(next);
       }
 
-      scrollToPath(next.path);
+      scrollToPath(next.path, behavior === "smooth" ? "smooth" : "auto");
     },
     [visibleEntries, active, rangeTo, selectEntry, scrollToPath],
   );
 
   /** Posun o `delta` položek od aktivní; bez aktivní začíná od kraje. */
   const moveSelection = useCallback(
-    (delta: number, extend: boolean) => {
+    (delta: number, extend: boolean, behavior: ScrollBehavior = "auto") => {
       const current = active ? visibleEntries.findIndex((entry) => entry.path === active.path) : -1;
-      if (current < 0) selectIndex(delta > 0 ? 0 : visibleEntries.length - 1, extend);
-      else selectIndex(current + delta, extend);
+      if (current < 0) selectIndex(delta > 0 ? 0 : visibleEntries.length - 1, extend, behavior);
+      else selectIndex(current + delta, extend, behavior);
     },
     [active, visibleEntries, selectIndex],
   );
@@ -1533,7 +1534,7 @@ export default function App() {
           event.preventDefault();
           const { columns, rowsPerPage } = viewMetrics();
           const page = columns * rowsPerPage;
-          moveSelection(event.key === "PageDown" ? page : -page, event.shiftKey);
+          moveSelection(event.key === "PageDown" ? page : -page, event.shiftKey, smoothIfAllowed());
           break;
         }
         default:
@@ -2520,7 +2521,7 @@ export default function App() {
                 // sloupcích, výsledky hledání a tag view výběr nemají.
                 if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
               }}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              className="fw-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
             >
               {renderContent()}
               {band.overlay}

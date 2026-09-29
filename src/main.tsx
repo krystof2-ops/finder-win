@@ -31,6 +31,18 @@ window.addEventListener(
   { capture: true, passive: true },
 );
 
+// Výběr z klávesnice (šipky, type-ahead) se zvýrazní okamžitě — plynulé
+// rozsvěcení podkladu patří jen myši; při držené šipce by za výběrem táhlo
+// stopu. Třída se přepíná jen při změně zdroje vstupu.
+let keyboardInput = false;
+function setKeyboardInput(value: boolean) {
+  if (keyboardInput === value) return;
+  keyboardInput = value;
+  document.documentElement.classList.toggle("fw-kbd", value);
+}
+window.addEventListener("keydown", () => setKeyboardInput(true), { capture: true, passive: true });
+window.addEventListener("pointerdown", () => setKeyboardInput(false), { capture: true, passive: true });
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <App />

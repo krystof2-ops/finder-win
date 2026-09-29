@@ -1032,7 +1032,7 @@ export function Sidebar({
         }}
         // Hodnoty vpravo (čas, počty) jsou u úzkého panelu vidět jen při najetí.
         data-wide={sidebarWidth > 240}
-        className="fw-sidebar surface flex w-full flex-col overflow-y-auto pt-1"
+        className="fw-sidebar fw-scroll surface flex w-full flex-col overflow-y-auto pt-1"
       >
         {favoritesSection && renderSystemSection(favoritesSection)}
 

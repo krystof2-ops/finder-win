@@ -110,7 +110,7 @@ function TextPreview({ entry, state }: { entry: FileEntry; state: TextState }) {
 
   return (
     <pre
-      className="h-full w-full overflow-auto p-5 text-primary"
+      className="fw-scroll h-full w-full overflow-auto p-5 text-primary"
       style={{
         fontFamily: 'Consolas, Monaco, "Courier New", monospace',
         fontSize: "12px",
@@ -168,7 +168,7 @@ function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState 
   return (
     <div
       onClick={handleClick}
-      className="ql-markdown h-full w-full overflow-auto p-6 text-primary"
+      className="ql-markdown fw-scroll h-full w-full overflow-auto p-6 text-primary"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

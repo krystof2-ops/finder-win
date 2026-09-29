@@ -132,6 +132,11 @@
   /* Doby animací. Jediné místo, kde v aplikaci stojí čas — komponenty berou
      tokeny (CSS) nebo motionMs() (lib/motion.ts). --motion-scale 0 = vypnuto. */
   --motion-scale: 1;
+
+  /* Geometrie scrollerů: lepkavá hlavička seznamu a odstup od hrany při
+     posunu klávesnicí (scroll-padding, virtualizace). */
+  --list-header-h: 24px;
+  --scroll-gap: 8px;
   --dur-press: calc(80ms * var(--motion-scale));
   --dur-quick: calc(100ms * var(--motion-scale));
   --dur-fade: calc(120ms * var(--motion-scale));
@@ -399,7 +404,30 @@ body {
 
 /* Scrollbary ve stylu macOS: 10 px, jezdec se 2px průhledným okrajem, dráha
    průhledná. Jezdec je vidět jen při najetí na posouvaný kontejner nebo
-   během posouvání (.is-scrolling přidává main.tsx na 800 ms). */
+   během posouvání (.is-scrolling přidává main.tsx na 800 ms) a rozsvěcí se /
+   zhasíná za 200 ms.
+
+   Pseudoprvky scrollbaru přechody neumí — plynule se proto mění registrovaná
+   vlastnost --thumb na samotném kontejneru a jezdec si ji jen čte. Každý prvek
+   má vlastní --thumb (pravidlo *), takže najetí na vnější kontejner nerozsvítí
+   jezdce vnořeným (sloupce v column view). Barva jezdce je jediná výjimka
+   z pravidla "animuje se jen transform a opacity": scrollbar průhlednost ani
+   transformaci nemá. */
+@property --thumb {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: transparent;
+}
+
+* {
+  --thumb: transparent;
+}
+
+*:hover,
+.is-scrolling {
+  --thumb: var(--scroll-thumb);
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -411,17 +439,26 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: transparent;
+  background-color: var(--thumb);
   border: 2px solid transparent;
   background-clip: content-box;
   border-radius: 5px;
 }
 
-:hover::-webkit-scrollbar-thumb,
-.is-scrolling::-webkit-scrollbar-thumb {
-  background-color: var(--scroll-thumb);
+/* Posouvané plochy aplikace. overscroll-behavior: contain — dojetí na konec
+   sloupce nebo sidebaru neroztočí scroll rodiče (ani gesto zpět ve webview).
+   scroll-padding: toolbar a status bar leží mimo scrollery (flex sourozenci),
+   takže nic nepřekrývají; odsazení drží položku posunutou klávesnicí o kus
+   od hrany a v seznamu pod lepkavou hlavičkou sloupců. */
+.fw-scroll {
+  overscroll-behavior: contain;
+  scroll-padding-block: var(--scroll-gap);
+  transition: --thumb var(--dur-slow) var(--ease-out);
 }
 
+.fw-scroll[data-view="list"] {
+  scroll-padding-top: calc(var(--list-header-h) + var(--scroll-gap));
+}
 
 /* ========================== animace a microinteractions =====================
    Všechno čistým CSS. Keyframes se pouštějí přes třídy, ať si komponenty
@@ -894,6 +931,14 @@ body {
   transition:
     background-color var(--dur-quick) var(--ease-out),
     scale var(--dur-fade) var(--ease-out);
+}
+
+.fw-kbd .fw-list-row,
+.fw-kbd .fw-col-row,
+.fw-kbd .fw-result-row,
+.fw-kbd .fw-icon-tile,
+.fw-kbd .fw-icon-name {
+  transition: none;
 }
 
 .fw-list-row.fw-stripe {
