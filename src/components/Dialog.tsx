@@ -1,5 +1,7 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+
+import { motionMs } from "../lib/motion";
 
 export type DialogAction = {
   label: string;
@@ -38,7 +40,12 @@ function actionClass(kind: DialogAction["kind"]): string {
 /**
  * Jeden vzhled a jedno chování pro všechny dialogy (Vlastnosti, O aplikaci,
  * Kolize, Potvrzení): 13px text, tlačítka 28 px, Enter = primární akce,
- * Escape = zavřít, podklad s rozmazáním, nástup scale .96 → 1 za 160 ms.
+ * Escape = zavřít, podklad s rozmazáním. Nástup: podklad 160 ms, karta
+ * scale(0.97)→1 za 180 ms; zavření 100 ms.
+ *
+ * Dialog se zavírá tak, že ho rodič odmountuje — nečeká se na žádnou animaci,
+ * takže Escape i Enter platí okamžitě, i uprostřed nástupu. Odchod dohraje
+ * jeho snímek (klon DOMu) nad aplikací, který už na nic nereaguje.
  */
 export function Dialog({
   label,
@@ -53,8 +60,31 @@ export function Dialog({
   children,
 }: DialogProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+
+  // Snímek pro odchod se dělá v úklidu layout efektu — DOM tou dobou ještě
+  // stojí. `settled` odfiltruje zkušební odmontování StrictMode hned po
+  // připojení (a dialog zavřený v prvním snímku animovat nemá co).
+  useLayoutEffect(() => {
+    let settled = false;
+    const frame = requestAnimationFrame(() => {
+      settled = true;
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      const overlay = overlayRef.current;
+      if (!settled || !overlay) return;
+      const ghost = overlay.cloneNode(true) as HTMLElement;
+      ghost.classList.add("fw-dialog-closing");
+      ghost.setAttribute("aria-hidden", "true");
+      ghost.inert = true;
+      for (const element of ghost.querySelectorAll("[id]")) element.removeAttribute("id");
+      document.body.appendChild(ghost);
+      window.setTimeout(() => ghost.remove(), motionMs("--dur-quick"));
+    };
+  }, []);
 
   // Fokus dovnitř a po zavření zpátky, odkud přišel.
   useEffect(() => {
@@ -104,6 +134,7 @@ export function Dialog({
 
   return createPortal(
     <div
+      ref={overlayRef}
       onMouseDown={closeOnOverlay ? onClose : undefined}
       className="fw-dialog-overlay fixed inset-0 z-[65] flex items-center justify-center"
     >

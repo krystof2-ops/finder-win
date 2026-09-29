@@ -155,7 +155,7 @@ export function ResultsView({
               onSelectionChange(entry);
               onContextMenu(entry, event.clientX, event.clientY);
             }}
-            className={`fw-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary transition-colors duration-100 ${
+            className={`fw-row fw-result-row grid h-6 items-center gap-3 px-3 text-[13px] text-primary ${
               isSelected ? selectedClass : "hover:bg-hover"
             }`}
             style={{ gridTemplateColumns: GRID_TEMPLATE, opacity: entryOpacity(entry, false) }}

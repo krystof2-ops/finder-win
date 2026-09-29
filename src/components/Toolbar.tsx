@@ -34,6 +34,8 @@ type IconButtonProps = {
   unavailable?: string;
   /** Vedlejší nástroj: menší tlumená ikona (15 px, tah 1.5). */
   secondary?: boolean;
+  /** Otevírá menu — kontextové menu ho při kliknutí mimo sebe nechá být. */
+  menuTrigger?: boolean;
 };
 
 function IconButton({
@@ -46,6 +48,7 @@ function IconButton({
   iconClassName,
   unavailable,
   secondary = false,
+  menuTrigger = false,
 }: IconButtonProps) {
   return (
     <button
@@ -53,6 +56,7 @@ function IconButton({
       aria-label={label}
       aria-disabled={unavailable !== undefined || undefined}
       data-tooltip={unavailable ?? label}
+      data-fw-menu-trigger={menuTrigger || undefined}
       disabled={disabled}
       onClick={unavailable === undefined ? onClick : undefined}
       onMouseDown={(event) => {
@@ -250,6 +254,7 @@ export function Toolbar({
         label="Seřadit"
         secondary
         active={menu?.kind === "sort"}
+        menuTrigger
         onMouseDown={toggleMenu("sort")}
       />
 
@@ -259,7 +264,8 @@ export function Toolbar({
           label="Sdílet"
           secondary
           active={menu?.kind === "share"}
-          onMouseDown={toggleMenu("share")}
+          menuTrigger
+        onMouseDown={toggleMenu("share")}
         />
         <IconButton
           Icon={Tag}
@@ -267,7 +273,8 @@ export function Toolbar({
           secondary
           active={menu?.kind === "tags"}
           unavailable={tagItems === null ? "Vyberte soubor" : undefined}
-          onMouseDown={toggleMenu("tags")}
+          menuTrigger
+        onMouseDown={toggleMenu("tags")}
         />
       </div>
 
@@ -276,6 +283,7 @@ export function Toolbar({
         label="Více"
         secondary
         active={menu?.kind === "more"}
+        menuTrigger
         onMouseDown={toggleMenu("more")}
       />
 
@@ -344,6 +352,7 @@ export function Toolbar({
                   : moreItems
           }
           onClose={() => setMenu(null)}
+          triggerSelector="[data-fw-menu-trigger]"
         />
       )}
     </header>

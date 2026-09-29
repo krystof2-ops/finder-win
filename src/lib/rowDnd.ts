@@ -38,7 +38,15 @@ export function useFolderDrop(onDropInto: DropInto) {
   const handlers = useMemo<FolderDropHandlers>(
     () => ({
       over: (entry, event) => {
-        if (!entry.is_dir || !canDropInto(entry.path, getDrag())) return;
+        if (!entry.is_dir) return;
+        if (!canDropInto(entry.path, getDrag())) {
+          // Složka sama do sebe nebo do svého potomka: výslovně "nelze" (kurzor
+          // not-allowed), ať se to nepřebije cílem někde nad řádkem.
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = "none";
+          return;
+        }
         // Bez preventDefault prohlížeč drop nepustí (a ukáže kurzor "nelze").
         event.preventDefault();
         event.stopPropagation();

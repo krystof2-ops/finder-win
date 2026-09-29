@@ -3,6 +3,9 @@ import { createPortal } from "react-dom";
 
 /** Stejná prodleva jako u macOS — rychlejší tooltip ruší při přejíždění myší. */
 const SHOW_DELAY_MS = 600;
+/** Jak dlouho po odjetí z bubliny zůstává vrstva "zahřátá": sousední tlačítko
+ *  ukáže svůj popisek hned, bez nové prodlevy. */
+const WARM_MS = 500;
 const MARGIN = 8;
 /** Odsazení pod kurzorem, ať bublina nezakrývá to, na co uživatel míří. */
 const CURSOR_OFFSET = 18;
@@ -26,15 +29,30 @@ export function TooltipLayer() {
     let timer: number | null = null;
     let owner: Element | null = null;
     let cursor = { x: 0, y: 0 };
+    /** Bublina je (nebo před chvílí byla) vidět. */
+    let showing = false;
+    let warmUntil = 0;
 
     const cancel = () => {
       if (timer !== null) window.clearTimeout(timer);
       timer = null;
     };
 
+    /** Klik, klávesa, scroll: bublina pryč a vrstva vychladne. */
     const hide = () => {
       cancel();
       owner = null;
+      showing = false;
+      warmUntil = 0;
+      setTip(null);
+    };
+
+    /** Přejezd myší jinam: když bublina svítila, další se ukáže hned. */
+    const leave = () => {
+      cancel();
+      owner = null;
+      if (showing) warmUntil = performance.now() + WARM_MS;
+      showing = false;
       setTip(null);
     };
 
@@ -42,22 +60,25 @@ export function TooltipLayer() {
       const target = (event.target as Element | null)?.closest?.("[data-tooltip]") ?? null;
       if (target === owner) return;
 
-      hide();
+      leave();
       if (target === null) return;
 
       const text = target.getAttribute("data-tooltip");
       if (!text) return;
 
       owner = target;
-      timer = window.setTimeout(() => {
+      const show = () => {
         timer = null;
         if (owner !== target) return;
         // Otevřené menu tooltipy pod sebou umlčí. Uvnitř menu (názvy barev
         // v paletě tagů) je naopak nechá — nic nepřekrývají.
         const menu = document.querySelector("[data-fw-menu]");
         if (menu !== null && !menu.contains(target)) return;
+        showing = true;
         setTip({ text, x: cursor.x, y: cursor.y });
-      }, SHOW_DELAY_MS);
+      };
+      if (performance.now() < warmUntil) show();
+      else timer = window.setTimeout(show, SHOW_DELAY_MS);
     }
 
     function onMouseMove(event: MouseEvent) {
@@ -65,7 +86,7 @@ export function TooltipLayer() {
     }
 
     function onMouseLeaveWindow(event: MouseEvent) {
-      if (event.relatedTarget === null) hide();
+      if (event.relatedTarget === null) leave();
     }
 
     document.addEventListener("mouseover", onMouseOver, true);

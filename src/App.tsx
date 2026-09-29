@@ -73,9 +73,8 @@ import type {
   ViewMode,
 } from "./types";
 
-/** Jak dlouho hláška zůstane, než sama odjede. Musí sedět s fw-toast-out. */
+/** Jak dlouho hláška zůstane, než sama odjede. */
 const TOAST_VISIBLE_MS = 2000;
-const TOAST_EXIT_MS = 240;
 
 /**
  * Kontextové menu hlavního panelu. Pravý klik na položku a pravý klik na
@@ -400,7 +399,7 @@ export default function App() {
   // Odjezd (automatický, křížkem i Escapem) dohraje animaci a pak hlášku zahodí.
   useEffect(() => {
     if (!noticeClosing) return;
-    const remove = window.setTimeout(() => setNoticeState(null), TOAST_EXIT_MS);
+    const remove = window.setTimeout(() => setNoticeState(null), motionMs("--dur-slow"));
     return () => window.clearTimeout(remove);
   }, [noticeClosing]);
 
@@ -2521,7 +2520,7 @@ export default function App() {
                 // sloupcích, výsledky hledání a tag view výběr nemají.
                 if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
               }}
-              className="min-h-0 flex-1 overflow-auto"
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
             >
               {renderContent()}
               {band.overlay}

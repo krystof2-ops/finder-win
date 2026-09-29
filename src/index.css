@@ -439,40 +439,6 @@ body {
   }
 }
 
-@keyframes fw-menu-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-
-@keyframes fw-toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(100%);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes fw-toast-out {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(100%);
-  }
-}
-
 /* --------------------------------- sidebar -------------------------------- */
 
 /* Panel: podklad s rozmazáním, jako macOS. */
@@ -482,7 +448,7 @@ body {
 }
 
 .fw-sidebar-row {
-  transition: background-color 140ms var(--ease-out);
+  transition: background-color var(--dur-quick) var(--ease-out);
 }
 
 .fw-sidebar-row:hover:not(.is-active):not(.is-active-dim) {
@@ -635,15 +601,14 @@ body {
   animation: fw-fade-in var(--dur-fade) var(--ease-out);
 }
 
-/* Tlačítka view mode v toolbaru. */
+/* Tlačítka toolbaru: najetí bez animace (jen podklad), stisk je o kousek
+   zmáčkne — 80 ms, jako fyzické tlačítko. */
 .fw-tool-btn {
-  transition:
-    background-color 180ms var(--ease-out),
-    transform 180ms var(--ease-out);
+  transition: transform var(--dur-press) var(--ease-out);
 }
 
-.fw-tool-btn:hover:not(:disabled) {
-  transform: scale(1.05);
+.fw-tool-btn:active:not(:disabled):not([aria-disabled="true"]) {
+  transform: scale(0.96);
 }
 
 /* Sun/Moon se při přepnutí protočí. Ikona mění typ komponenty, takže se
@@ -658,7 +623,7 @@ body {
 }
 
 .fw-theme-spin {
-  animation: fw-theme-spin 320ms var(--ease-out);
+  animation: fw-theme-spin var(--dur-slow) var(--ease-out);
 }
 
 @keyframes fw-column-in {
@@ -693,9 +658,17 @@ body {
   transform: translateX(3px);
 }
 
+/* Kontextové menu vyroste z místa kliknutí (transform-origin nastavuje
+   komponenta podle kurzoru). Zavírá se okamžitě, bez animace. */
+@keyframes fw-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
 .fw-menu {
-  animation: fw-menu-in 180ms var(--ease-out);
-  transform-origin: top left;
+  animation: fw-menu-in var(--dur-fade) var(--ease-out);
 }
 
 /* Řádky výpisu: bez obrysu po kliknutí myší, ale viditelný fokus z klávesnice
@@ -715,34 +688,58 @@ body {
 .fw-drop-target {
   box-shadow: inset 0 0 0 2px var(--accent);
   border-radius: 6px;
+  /* Samostatná vlastnost scale, ne transform — virtualizované řádky mají
+     v transform svou polohu (translateY) a ta se nesmí přepsat. */
+  scale: 1.03;
+}
+
+/* Řádek přes celou šířku by zvětšením přetekl do stran, kde ho scroller
+   ořízne — prstenec se proto kreslí dovnitř o ten přesah (1,5 % na stranu). */
+.fw-list-row.fw-drop-target,
+.fw-col-row.fw-drop-target {
+  box-shadow: none;
+}
+
+.fw-list-row.fw-drop-target::after,
+.fw-col-row.fw-drop-target::after {
+  content: "";
+  position: absolute;
+  inset: 0 1.5%;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 2px var(--accent);
+  pointer-events: none;
+}
+
+/* Každý cíl přetažení se zvětší plynule; zpátky taky. */
+.fw-row {
+  transition: scale var(--dur-fade) var(--ease-out);
 }
 
 /* ------------------------------- dialogy ---------------------------------- */
 
+/* Otevření: podklad 160 ms, karta scale(0.97)→1 za 180 ms. Zavření 100 ms
+   dohrává snímek dialogu (Dialog.tsx), komponenta je už pryč — klávesy
+   i kliky tak patří aplikaci hned. */
 @keyframes fw-dialog-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
-
-@keyframes fw-overlay-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    transform: scale(0.97);
   }
 }
 
 .fw-dialog-overlay {
   background: var(--overlay);
   backdrop-filter: blur(2px);
-  animation: fw-overlay-in 160ms var(--ease-out);
+  animation: fw-fade-in var(--dur-nav) var(--ease-out);
+}
+
+.fw-dialog-closing {
+  pointer-events: none;
+  animation: fw-fade-out var(--dur-quick) var(--ease-out) forwards;
+}
+
+.fw-dialog-closing .fw-dialog {
+  animation: none;
 }
 
 .fw-dialog {
@@ -751,7 +748,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 12px;
   box-shadow: var(--shadow-dialog);
-  animation: fw-dialog-in 160ms var(--ease-out);
+  animation: fw-dialog-in var(--dur-enter) var(--ease-out);
 }
 
 /* Tlačítka dialogů: 28 px, zaoblení 6 px. Primární akcent s bílým textem,
@@ -763,9 +760,7 @@ body {
   font-size: 13px;
   color: var(--text-primary);
   background: var(--hover);
-  transition:
-    opacity 100ms linear,
-    background-color 100ms linear;
+  transition: opacity var(--dur-quick) var(--ease-out);
 }
 
 .fw-button:hover:not(:disabled) {
@@ -858,36 +853,9 @@ body {
 }
 
 /* Tooltip jen zlehka vybledne — žádný pohyb, ukazuje se pod kurzorem. */
-@keyframes fw-tooltip-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
 .fw-tooltip {
-  animation: fw-tooltip-in 120ms var(--ease-out);
+  animation: fw-fade-in var(--dur-quick) var(--ease-out);
 }
-
-@keyframes fw-menu-out {
-  from {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: scale(0.96) translateY(-4px);
-  }
-}
-
-.fw-menu-out {
-  animation: fw-menu-out 140ms var(--ease-out) forwards;
-  transform-origin: top left;
-  pointer-events: none;
-}
-
 
 /* Icon view jako ve Finderu: ikona stojí volně, bez rámečku a bez hover
    efektu. Výběr = zaoblený obdélník za ikonou + název na pilulce. */
@@ -902,7 +870,7 @@ body {
 
 .fw-icon-tile {
   border-radius: 8px;
-  transition: background-color 100ms linear;
+  transition: background-color var(--dur-quick) var(--ease-out);
 }
 
 .fw-icon-name {
@@ -911,13 +879,23 @@ body {
   border-radius: 4px;
   padding: 0 4px;
   transition:
-    background-color 100ms linear,
-    color 100ms linear;
+    background-color var(--dur-quick) var(--ease-out),
+    color var(--dur-quick) var(--ease-out);
 }
 
 /* Řádky v list view. Pořadí pravidel je tu nosné: všechna mají stejnou
    specificitu (0,2,0), takže rozhoduje pořadí zápisu — pruh, přes něj hover,
    přes něj výběr. V Tailwindu by to chtělo utility s ručním !important. */
+/* Výběr řádku se rozsvítí za 100 ms. Mění se jen podklad — poloha, velikost
+   ani písmo řádku nikdy. */
+.fw-list-row,
+.fw-col-row,
+.fw-result-row {
+  transition:
+    background-color var(--dur-quick) var(--ease-out),
+    scale var(--dur-fade) var(--ease-out);
+}
+
 .fw-list-row.fw-stripe {
   background-color: var(--row-stripe);
 }
@@ -932,6 +910,26 @@ body {
 
 .fw-list-row.is-selected-dim {
   background-color: var(--row-selected-inactive);
+}
+
+/* Přejmenování na místě: input kopíruje metriky názvu, který nahrazuje.
+   Řádek (seznam, sloupec): 13 px, řádkování jako label, text začíná
+   na stejném pixelu — rámeček 1 px + okraj 4 px vyrovná margin -5 px.
+   Ikona: 12/15 px jako .fw-icon-name, 1px rámeček nahoře vyrovná margin. */
+.fw-rename {
+  margin: 0 -5px;
+  padding: 0 4px;
+  font-size: 13px;
+  line-height: inherit;
+}
+
+.fw-rename.is-icon {
+  /* Blokově — jako inline prvek by seděl na účaří řádku obalu a spadl níž. */
+  display: block;
+  width: calc(100% + 10px);
+  margin: -1px -5px;
+  font-size: 12px;
+  line-height: 15px;
 }
 
 /* Semafor v titlebaru. */
@@ -988,7 +986,7 @@ body {
   border-radius: 5px;
   background-color: var(--segment-active);
   box-shadow: var(--segment-shadow);
-  transition: transform 160ms var(--ease-out);
+  transition: transform var(--dur-nav) var(--ease-out);
 }
 
 .fw-segment {
@@ -999,7 +997,6 @@ body {
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
-  transition: color 160ms var(--ease-out);
 }
 
 .fw-segment[aria-checked="true"] {
@@ -1016,13 +1013,28 @@ body {
   color: var(--text-primary);
 }
 
-/* Hlášky nad status barem. */
+/* Hlášky nad status barem (position: fixed — nic neodsouvají). Přijede
+   zdola o 16 px, odjede stejnou cestou. */
+@keyframes fw-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+@keyframes fw-toast-out {
+  to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
 .fw-toast-in {
-  animation: fw-toast-in 300ms var(--ease-bounce);
+  animation: fw-toast-in var(--dur-slow) var(--ease-out);
 }
 
 .fw-toast-out {
-  animation: fw-toast-out 240ms var(--ease-out) forwards;
+  animation: fw-toast-out var(--dur-slow) var(--ease-out) forwards;
   pointer-events: none;
 }
 

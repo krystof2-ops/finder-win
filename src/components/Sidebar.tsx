@@ -134,15 +134,8 @@ function iconColor(base: string, active: boolean): string {
   return active ? `color-mix(in srgb, ${base} 85%, white)` : base;
 }
 
-/** Vodorovná linka ukazující, kam se přetahovaná položka vloží. */
-function DropLine() {
-  return (
-    <div
-      className="pointer-events-none mx-1.5"
-      style={{ height: 0, borderTop: "2px solid var(--accent)" }}
-    />
-  );
-}
+/** Výška řádku (ROW_CLASS h-[28px]) — posuny při přerovnání počítají s ní. */
+const ROW_HEIGHT = 28;
 
 /** Popisek se edituje volně — na rozdíl od názvu souboru ho Windows neomezují. */
 function LabelInput({
@@ -233,6 +226,7 @@ function CustomFavorites({
 }: CustomFavoritesProps) {
   const drag = useDrag();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const navRef = useRef<HTMLElement>(null);
 
   // Soubor i složka sem smí, ale co už v seznamu je, se podruhé nepřidává.
   // U vícenásobného tažení stačí, když je aspoň jedna položka nová.
@@ -245,27 +239,39 @@ function CustomFavorites({
   const visible = items.length > 0 || (accepts && drag?.kind === "entry");
   if (!visible) return null;
 
-  function positionFor(event: React.DragEvent, index: number): number {
-    const rect = event.currentTarget.getBoundingClientRect();
-    return event.clientY > rect.top + rect.height / 2 ? index + 1 : index;
+  /**
+   * Pozice mezi řádky podle výšky kurzoru. Počítá se z geometrie seznamu, ne
+   * z řádku pod myší — řádky během tažení uhýbají transformací a hit-test by
+   * mezi dvěma pozicemi přeskakoval.
+   */
+  function indexAt(clientY: number): number {
+    const top = navRef.current?.getBoundingClientRect().top ?? clientY;
+    return Math.max(0, Math.min(items.length, Math.round((clientY - top) / ROW_HEIGHT)));
   }
 
-  /** Řádek zná přesnou pozici, proto bublinu zastaví — jinak by ji obal přepsal. */
-  function allowAtRow(event: React.DragEvent, index: number) {
+  function allowInSection(event: React.DragEvent) {
     if (!accepts) return;
-    event.stopPropagation();
     // Bez preventDefault prohlížeč drop vůbec nepustí — tím se odmítají soubory.
     event.preventDefault();
     event.dataTransfer.dropEffect = drag?.kind === "favorite" ? "move" : "copy";
-    setDropIndex(index);
+    setDropIndex(indexAt(event.clientY));
   }
 
-  /** Nadpis a volné místo pod řádky: doplní pozici, jen když ji nikdo neurčil. */
-  function allowInSection(event: React.DragEvent) {
-    if (!accepts) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = drag?.kind === "favorite" ? "move" : "copy";
-    setDropIndex((current) => current ?? items.length);
+  // Přerovnání: tažený řádek zůstává jako průsvitný duch a odjede na cílové
+  // místo, řádky mezi uhnou o jeden. Zvenku (ze složky) uhnou řádky pod
+  // pozicí a do mezery se vloží duch přidávané položky. Jen transformace —
+  // layout seznamu se během tažení nehne.
+  const source = drag?.kind === "favorite" ? drag.index : null;
+  const incoming = drag?.kind === "entry" && dropIndex !== null ? drag.items : null;
+
+  function offsetOf(index: number): number {
+    if (dropIndex === null) return 0;
+    if (source === null) return index >= dropIndex ? ROW_HEIGHT : 0;
+    const final = dropIndex > source ? dropIndex - 1 : dropIndex;
+    if (index === source) return (final - source) * ROW_HEIGHT;
+    if (index > source && index <= final) return -ROW_HEIGHT;
+    if (index < source && index >= final) return ROW_HEIGHT;
+    return 0;
   }
 
   function handleDrop(event: React.DragEvent) {
@@ -310,7 +316,7 @@ function CustomFavorites({
 
       {/* Sbalená sekce se během tažení otevře — jinak by nebylo kam pustit. */}
       {(!heading.collapsed || accepts) && (
-        <nav className="flex flex-col pb-0.5">
+        <nav ref={navRef} className="relative flex flex-col pb-0.5">
           {items.map((item, index) => {
             // Soubor v sidebaru nikdy "nejsme uvnitř" — zvýrazňují se jen složky.
             const isActive =
@@ -320,9 +326,16 @@ function CustomFavorites({
             const isRenaming = item.path === renamingPath;
 
             return (
-              <div key={item.path}>
-                {dropIndex === index && <DropLine />}
-
+              <div
+                key={item.path}
+                style={{
+                  transform: `translateY(${offsetOf(index)}px)`,
+                  // Jen během tažení. Po puštění se pořadí změní v DOM a posun
+                  // spadne na nulu naráz — řádek už stojí na svém novém místě.
+                  transition: drag !== null ? "transform var(--dur-shift) var(--ease-out)" : undefined,
+                  opacity: index === source ? 0.45 : undefined,
+                }}
+              >
                 <div
                   role="button"
                   tabIndex={0}
@@ -337,7 +350,6 @@ function CustomFavorites({
                     setDropIndex(null);
                     endDrag();
                   }}
-                  onDragOver={(event) => allowAtRow(event, positionFor(event, index))}
                   onClick={() => !isRenaming && onActivate(item)}
                   onContextMenu={(event) => {
                     if (isTypingTarget(event.target)) return;
@@ -369,9 +381,30 @@ function CustomFavorites({
             );
           })}
 
-          {dropIndex === items.length && <DropLine />}
+          {/* Duch položky, která se sem přidává — v mezeře, kterou řádky udělaly. */}
+          {incoming && dropIndex !== null && incoming[0] && (
+            <>
+              <div
+                aria-hidden
+                className={`${ROW_CLASS} pointer-events-none absolute right-0 left-0`}
+                style={{ top: dropIndex * ROW_HEIGHT, opacity: 0.45 }}
+              >
+                <EntryIcon
+                  name={incoming[0].name}
+                  path={incoming[0].path}
+                  type={incoming[0].isDir ? "folder" : "file"}
+                  active={false}
+                />
+                <span className="truncate">
+                  {incoming.length > 1 ? `${incoming[0].name} +${incoming.length - 1}` : incoming[0].name}
+                </span>
+              </div>
+              {/* Místo pro řádek navíc, ať poslední uhnutý nevjede do další sekce. */}
+              <div aria-hidden style={{ height: ROW_HEIGHT }} />
+            </>
+          )}
 
-          {items.length === 0 && (
+          {items.length === 0 && !incoming && (
             <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
               Přetáhni sem složku nebo soubor
             </div>

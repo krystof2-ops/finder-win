@@ -69,8 +69,13 @@ export function RenameInput({ entry, onSubmit, onCancel, variant = "row" }: Rena
           cancel();
         }
       }}
-      className={`min-w-0 rounded-sm px-1 text-[13px] text-primary outline-none ${
-        centered ? "w-full text-center" : "flex-1"
+      // Text v inputu musí ležet přesně tam, kde byl název: stejné písmo
+      // a řádkování jako label, a rámeček s vnitřním okrajem (1 + 4 px) se
+      // vyrovná záporným okrajem — input se roztáhne do mezery za ikonou,
+      // písmena zůstanou na pixelu. U ikon totéž svisle (1px rámeček nahoře)
+      // a vodorovně na střed.
+      className={`fw-rename min-w-0 rounded-sm text-primary outline-none ${
+        centered ? "is-icon w-full text-center" : "flex-1"
       }`}
       style={{
         background: "var(--bg-main)",

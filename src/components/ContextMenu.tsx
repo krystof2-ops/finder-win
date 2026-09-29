@@ -40,13 +40,14 @@ type ContextMenuProps = {
   y: number;
   items: MenuItem[];
   onClose: () => void;
+  /** Prvky, které menu otevírají a zavírají samy (tlačítka toolbaru). Klik
+   *  na ně menu nezavře — jinak by ho posluchač zavřel a klik hned otevřel. */
+  triggerSelector?: string;
 };
 
 const MARGIN = 8;
 const PALETTE_WIDTH = 152;
 const SUBMENU_WIDTH = 180;
-/** Musí sedět s délkou fw-menu-out v CSS. */
-const CLOSE_MS = 140;
 
 /* ------------------------------ paleta tagů ------------------------------- */
 
@@ -234,12 +235,11 @@ function SubmenuRow({
 
 /* -------------------------------- menu ------------------------------------ */
 
-export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
+export function ContextMenu({ x, y, items, onClose, triggerSelector }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: x, top: y });
   const [flip, setFlip] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
-  const [closing, setClosing] = useState(false);
   /** Kurzor klávesnice (index v `items`), -1 = nikde. */
   const [cursor, setCursor] = useState(-1);
 
@@ -250,34 +250,16 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
-  // Menu si odchod dohraje samo a teprve pak řekne rodiči, ať ho odmountuje.
-  // Volající tak dál píše jen {menu && <ContextMenu onClose={...} />}.
-  const closeTimer = useRef<number | null>(null);
+  // Zavírá se okamžitě — menu, které po výběru ještě chvíli dohasíná, působí
+  // líně a kurzor pod ním už míří jinam.
+  const requestClose = useCallback(() => onClose(), [onClose]);
 
-  const requestClose = useCallback(() => {
-    if (closeTimer.current !== null) return;
-    setClosing(true);
-    closeTimer.current = window.setTimeout(onClose, CLOSE_MS);
-  }, [onClose]);
-
-  useEffect(
-    () => () => {
-      if (closeTimer.current !== null) window.clearTimeout(closeTimer.current);
-    },
-    [],
-  );
-
-  // Pravý klik jinam, když je menu otevřené: mousedown spustí zavírání, hned
-  // nato rodič pošle nové menu do téže instance. Bez zrušení by dobíhající
-  // časovač zavřel i to nové — druhý pravý klik po sobě by nic neukázal.
+  // Pravý klik jinam, když je menu otevřené: mousedown ho zavře a rodič hned
+  // pošle nové do téže instance — stav kurzoru a podmenu patří tomu starému.
   useEffect(() => {
-    if (closeTimer.current === null) return;
-    window.clearTimeout(closeTimer.current);
-    closeTimer.current = null;
-    setClosing(false);
     setOpenSubmenu(null);
     setCursor(-1);
-  }, [x, y, items]);
+  }, [x, y]);
 
   // Po vykreslení se menu posune dovnitř okna, kdyby přetékalo.
   useLayoutEffect(() => {
@@ -289,12 +271,17 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
     const top = Math.max(MARGIN, Math.min(y, window.innerHeight - height - MARGIN));
 
     setPosition({ left, top });
+    // Menu vyroste z místa kliknutí, i když se kvůli okraji okna posunulo.
+    menu.style.transformOrigin = `${x - left}px ${y - top}px`;
     setFlip(left + width + Math.max(PALETTE_WIDTH, SUBMENU_WIDTH) + MARGIN > window.innerWidth);
   }, [x, y]);
 
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) requestClose();
+      const target = event.target as Element | null;
+      if (menuRef.current?.contains(target)) return;
+      if (triggerSelector && target?.closest?.(triggerSelector)) return;
+      requestClose();
     }
     function onKeyDown(event: KeyboardEvent) {
       const list = itemsRef.current;
@@ -375,7 +362,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       window.removeEventListener("resize", requestClose);
       window.removeEventListener("blur", requestClose);
     };
-  }, [requestClose]);
+  }, [requestClose, triggerSelector]);
 
   return createPortal(
     <div
@@ -383,9 +370,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       // Podle atributu tooltipy poznají, že je otevřené menu, a neukážou se.
       data-fw-menu=""
       role="menu"
-      className={`fw-popover fixed z-[60] rounded-[8px] p-1 text-[13px] ${
-        closing ? "fw-menu-out" : "fw-menu"
-      }`}
+      className="fw-popover fw-menu fixed z-[60] rounded-[8px] p-1 text-[13px]"
       style={{
         left: position.left,
         top: position.top,

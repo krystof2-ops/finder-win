@@ -115,7 +115,7 @@ const IconCell = memo(
         </div>
 
         {renaming ? (
-          <div className="w-full px-0.5">
+          <div className="w-full">
             <RenameInput
               entry={entry}
               onSubmit={handlers.renameSubmit}

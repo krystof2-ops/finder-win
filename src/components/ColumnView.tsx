@@ -261,7 +261,7 @@ function ColumnPane({
       onClick={(event) => {
         if (!(event.target as Element).closest("[data-path]")) onClearSelection(index);
       }}
-      className={`fw-scroll surface flex w-[240px] shrink-0 flex-col overflow-y-auto border-r border-line py-1 ${
+      className={`fw-scroll surface flex w-[240px] shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-line py-1 ${
         exiting ? "fw-column-out" : "fw-column-in"
       }`}
       style={{ backgroundColor: isFocused ? "var(--bg-toolbar)" : "var(--bg-main)" }}
