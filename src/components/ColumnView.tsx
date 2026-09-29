@@ -191,6 +191,9 @@ function ColumnPane({
 
   // Každý sloupec má vlastní virtualizaci — posouvá se nezávisle.
   const virtualizer = useVirtualizer({
+    // Bez flushSync v obsluze scrollu: React 19 posun nových řádků slije do
+    // jednoho vykreslení a hlavní vlákno nebrzdí začátek scrollovacího gesta.
+    useFlushSync: false,
     count: entries.length,
     getScrollElement: () => paneRef.current,
     estimateSize: () => ROW_HEIGHT,
@@ -386,7 +389,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
       <button
         type="button"
         onClick={() => onOpen(entry)}
-        className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-[color:var(--accent-fill)] text-[13px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
+        className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-[color:var(--accent-fill)] text-[13px] font-medium text-[color:var(--on-accent)] fw-t-opacity hover:opacity-90"
       >
         Otevřít
       </button>

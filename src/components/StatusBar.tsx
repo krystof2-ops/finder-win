@@ -118,6 +118,19 @@ export function StatusBar({
 }: StatusBarProps) {
   const crumbs = path ? breadcrumbs(path) : [];
 
+  // Jeden řetězec: dva textové uzly vedle sebe (počet + volné místo) by při
+  // změně počtu posunuly ten druhý — layout shift.
+  const counts = path
+    ? streamingCount !== null
+      ? `načítám… ${streamingCount.toLocaleString("cs-CZ")} položek`
+      : selectedCount > 0
+        ? `Vybráno ${selectedCount} z ${itemCount}`
+        : filtered
+          ? `${itemCount} z ${totalCount} (filtr)`
+          : formatItemCount(itemCount)
+    : "";
+  const summary = path && freeSpace !== null ? `${counts}, ${formatFreeSpace(freeSpace)}` : counts;
+
   return (
     // 22 px, 11 px písmo; drobky s › a podtržením při najetí, vpravo počty.
     <footer
@@ -135,14 +148,16 @@ export function StatusBar({
           onDone={() => onEditingChange(false)}
         />
       ) : (
-        <div className="flex min-w-0 items-center">
+        // key: jiná cesta = nové drobky. Přeskládání starých uzlů by se
+        // počítalo jako posun obsahu (layout shift).
+        <div key={path ?? ""} className="flex min-w-0 items-center">
           {crumbs.map((crumb, index) => (
             <span key={crumb.path} className="flex min-w-0 items-center">
               {index > 0 && <span className="px-1 opacity-60">›</span>}
               <button
                 type="button"
                 onClick={() => onNavigate(crumb.path)}
-                className="truncate rounded px-0.5 underline-offset-2 transition-colors duration-100 hover:text-primary hover:underline"
+                className="truncate rounded px-0.5 underline-offset-2 hover:text-primary hover:underline"
               >
                 {crumb.label}
               </button>
@@ -151,16 +166,12 @@ export function StatusBar({
         </div>
       )}
 
-      <div className="shrink-0 whitespace-nowrap tabular-nums">
-        {path &&
-          (streamingCount !== null
-            ? `načítám… ${streamingCount.toLocaleString("cs-CZ")} položek`
-            : selectedCount > 0
-            ? `Vybráno ${selectedCount} z ${itemCount}`
-            : filtered
-              ? `${itemCount} z ${totalCount} (filtr)`
-              : formatItemCount(itemCount))}
-        {path && freeSpace !== null && `, ${formatFreeSpace(freeSpace)}`}
+      {/* Pevná šířka: počty se při výběru mění ("Vybráno 1 z 2000") a pružný
+          blok by pokaždé posunul a přezkrátil drobky vlevo (layout shift). */}
+      <div className="w-[260px] shrink-0 overflow-hidden text-right whitespace-nowrap tabular-nums">
+        {/* key: nový uzel pro nový text. Přepsaný text zarovnaný vpravo by
+            se posunul (jiná šířka) a hlásil se jako layout shift. */}
+        <span key={summary}>{summary}</span>
       </div>
     </footer>
   );

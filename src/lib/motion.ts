@@ -28,6 +28,17 @@ export function motionEnabled(): boolean {
   return motionMs("--dur-nav") > 0;
 }
 
+/**
+ * Volba z menu Více → Animace. "system" = řídí se omezením animací ve
+ * Windows (prefers-reduced-motion), "on"/"off" ho přebíjí. CSS podle
+ * atributu nastaví --motion-scale, z něj se počítají všechny doby.
+ */
+export function applyMotion(preference: "system" | "on" | "off"): void {
+  const root = document.documentElement;
+  if (preference === "system") delete root.dataset.motion;
+  else root.dataset.motion = preference;
+}
+
 /** "smooth", jen když animace nejsou vypnuté (systémem nebo volbou). */
 export function smoothIfAllowed(): ScrollBehavior {
   return motionEnabled() ? "smooth" : "auto";

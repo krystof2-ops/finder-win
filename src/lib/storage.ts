@@ -21,6 +21,10 @@ const KEY_RECENTS = "recents";
 const KEY_TAGS = "tags";
 const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_SIDEBAR_WIDTH = "sidebarWidth";
+const KEY_MOTION = "motion";
+
+/** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
+export type MotionPreference = "system" | "on" | "off";
 
 /** Rozsah šířky sidebaru při tažení za hranu; dvojklik vrací výchozí. */
 export const SIDEBAR_MIN = 180;
@@ -37,6 +41,7 @@ export type Snapshot = {
   /** null = uživatel přepínač ještě nezměnil, platí nastavení Průzkumníku. */
   showHidden: boolean | null;
   sidebarWidth: number;
+  motion: MotionPreference;
 };
 
 const EMPTY: Snapshot = {
@@ -45,6 +50,7 @@ const EMPTY: Snapshot = {
   tags: {},
   showHidden: null,
   sidebarWidth: SIDEBAR_DEFAULT,
+  motion: "system",
 };
 
 function clampSidebar(width: number): number {
@@ -170,12 +176,13 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth] = await Promise.all([
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
       store.get<unknown>(KEY_SHOW_HIDDEN),
       store.get<unknown>(KEY_SIDEBAR_WIDTH),
+      store.get<unknown>(KEY_MOTION),
     ]);
 
     commit({
@@ -184,6 +191,7 @@ export function init(): Promise<void> {
       tags: sanitizeTags(tags),
       showHidden: typeof showHidden === "boolean" ? showHidden : null,
       sidebarWidth: typeof sidebarWidth === "number" ? clampSidebar(sidebarWidth) : SIDEBAR_DEFAULT,
+      motion: motion === "on" || motion === "off" ? motion : "system",
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -219,6 +227,13 @@ export async function setShowHidden(value: boolean): Promise<void> {
 export async function setSidebarWidth(width: number, persistNow = true): Promise<void> {
   commit({ sidebarWidth: clampSidebar(width) });
   if (persistNow) await persist(KEY_SIDEBAR_WIDTH, cache.sidebarWidth);
+}
+
+/* -------------------------------- animace ----------------------------------- */
+
+export async function setMotion(value: MotionPreference): Promise<void> {
+  commit({ motion: value });
+  await persist(KEY_MOTION, value);
 }
 
 /* ------------------------------- oblíbené ---------------------------------- */

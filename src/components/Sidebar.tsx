@@ -108,7 +108,7 @@ function SectionHeading({
       <ChevronDown
         size={12}
         strokeWidth={2.5}
-        className={`shrink-0 opacity-0 transition-[transform,opacity] duration-150 group-hover:opacity-100 ${
+        className={`fw-t-reveal shrink-0 opacity-0 group-hover:opacity-100 ${
           control.collapsed ? "-rotate-90" : ""
         }`}
       />

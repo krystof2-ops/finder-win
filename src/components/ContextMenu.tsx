@@ -90,7 +90,7 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
                 aria-label={`Tag ${TAG_LABEL[color]}`}
                 // Menu po kliknutí schválně zůstává — tagů jde přidat víc najednou.
                 onClick={() => onToggle(color)}
-                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full transition-transform duration-100 hover:scale-110"
+                className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full fw-t-transform hover:scale-110"
                 style={{
                   border: isActive ? "2px solid var(--text-primary)" : "2px solid transparent",
                 }}

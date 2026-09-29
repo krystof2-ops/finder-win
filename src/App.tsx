@@ -54,7 +54,7 @@ import {
   type SortKey,
 } from "./format";
 import { isTypingTarget } from "./lib/dom";
-import { motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
+import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
@@ -146,23 +146,28 @@ const SKELETON_DELAY_MS = 400;
  * nepřevezme, proto se kopírují ručně.
  */
 function spawnViewGhost(source: HTMLElement, host: HTMLElement) {
+  // Posuny se čtou předem a najednou — střídání čtení se zápisem by nutilo
+  // prohlížeč přepočítat layout u každého prvku. Posouvat se dají jen
+  // .fw-scroll prvky, jinde není co kopírovat.
+  const scrollers = [source, ...source.querySelectorAll<HTMLElement>(".fw-scroll")];
+  const offsets = scrollers.map((element) => [element.scrollTop, element.scrollLeft] as const);
+
   const ghost = source.cloneNode(true) as HTMLElement;
-  for (const element of [ghost, ...ghost.querySelectorAll<HTMLElement>("*")]) {
-    for (const name of ["id", "data-path", "data-column-path", "data-tooltip", "role", "tabindex"]) {
-      element.removeAttribute(name);
-    }
+  const identifying = ["id", "data-path", "data-column-path", "data-tooltip", "role", "tabindex"];
+  for (const element of ghost.querySelectorAll<HTMLElement>(identifying.map((name) => `[${name}]`).join(","))) {
+    for (const name of identifying) element.removeAttribute(name);
   }
+  for (const name of identifying) ghost.removeAttribute(name);
   ghost.className = "fw-view-ghost";
   ghost.setAttribute("aria-hidden", "true");
   ghost.inert = true;
   host.appendChild(ghost);
 
-  const sources = [source, ...source.querySelectorAll<HTMLElement>("*")];
-  const copies = [ghost, ...ghost.querySelectorAll<HTMLElement>("*")];
-  sources.forEach((element, index) => {
-    if (element.scrollTop === 0 && element.scrollLeft === 0) return;
-    copies[index].scrollTop = element.scrollTop;
-    copies[index].scrollLeft = element.scrollLeft;
+  const copies = [ghost, ...ghost.querySelectorAll<HTMLElement>(".fw-scroll")];
+  offsets.forEach(([top, left], index) => {
+    if (top === 0 && left === 0) return;
+    copies[index].scrollTop = top;
+    copies[index].scrollLeft = left;
   });
 
   const remove = () => ghost.remove();
@@ -272,7 +277,8 @@ export default function App() {
   }>({ path: null, seq: 0, direction: null });
   const loadedPath = loaded.path;
 
-  const { tags, favorites } = useStorage();
+  const { tags, favorites, motion } = useStorage();
+  useEffect(() => applyMotion(motion), [motion]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
   const [sortKey, setSortKey] = useState<SortKey>("name");
@@ -421,6 +427,8 @@ export default function App() {
     let active = true;
     Promise.all([storage.init(), document.fonts?.ready])
       .catch(() => undefined)
+      // Volba animací musí platit už pro rozsvícení okna.
+      .then(() => applyMotion(storage.getSnapshot().motion))
       .then(() => invoke("app_ready"))
       .catch(() => undefined)
       .finally(() => {
@@ -2537,6 +2545,8 @@ export default function App() {
             onShowAbout={() => setAboutOpen(true)}
             showHidden={showHidden ?? false}
             onToggleHidden={toggleHidden}
+            motion={motion}
+            onMotionChange={(value) => void storage.setMotion(value)}
             sortItems={toolbarSortItems}
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
@@ -2625,7 +2635,7 @@ export default function App() {
               type="button"
               aria-label="Zavřít"
               onClick={() => setNoticeClosing(true)}
-              className="shrink-0 text-secondary transition-colors duration-100 hover:text-primary"
+              className="shrink-0 text-secondary hover:text-primary"
             >
               <X size={12} strokeWidth={2.5} />
             </button>

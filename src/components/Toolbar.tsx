@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
+import type { MotionPreference } from "../lib/storage";
 import type { Theme, ViewMode } from "../types";
 
 type IconButtonProps = {
@@ -146,6 +147,9 @@ type ToolbarProps = {
   onShowAbout: () => void;
   showHidden: boolean;
   onToggleHidden: () => void;
+  /** Animace: systém / zapnuto / vypnuto (uloženo v settings.json). */
+  motion: MotionPreference;
+  onMotionChange: (value: MotionPreference) => void;
   /** Položky menu Seřadit / Sdílet / Štítky — sestavuje je App, zná výběr. */
   sortItems: MenuItem[];
   shareItems: MenuItem[];
@@ -179,6 +183,8 @@ export function Toolbar({
   onShowAbout,
   showHidden,
   onToggleHidden,
+  motion,
+  onMotionChange,
   sortItems,
   shareItems,
   tagItems,
@@ -219,6 +225,22 @@ export function Toolbar({
       shortcut: "Ctrl+Shift+.",
       checked: showHidden,
       onSelect: onToggleHidden,
+    },
+    {
+      type: "submenu",
+      label: "Animace",
+      items: (
+        [
+          ["system", "Podle systému"],
+          ["on", "Zapnuto"],
+          ["off", "Vypnuto"],
+        ] as const
+      ).map(([value, label]) => ({
+        type: "item" as const,
+        label,
+        checked: motion === value,
+        onSelect: () => onMotionChange(value),
+      })),
     },
     { type: "separator" },
     { type: "item", label: "O aplikaci Finder-Win", onSelect: onShowAbout },
@@ -295,33 +317,36 @@ export function Toolbar({
         iconClassName="fw-theme-spin"
       />
 
-      <div className="fw-search group flex shrink-0 items-center gap-1.5 bg-hover px-2.5">
-        <Search size={14} strokeWidth={2} className="shrink-0 text-secondary" />
-        <input
-          ref={searchRef}
-          type="text"
-          value={query}
-          onChange={(event) => onQueryChange(event.target.value)}
-          onKeyDown={(event) => {
-            event.stopPropagation();
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onQueryChange("");
-              event.currentTarget.blur();
-            }
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onSearchSubmit();
-            }
-            if (event.key === "ArrowDown") {
-              event.preventDefault();
-              onSearchArrowDown();
-            }
-          }}
-          placeholder="Hledat"
-          className="min-w-0 flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-secondary"
-          style={{ userSelect: "text" }}
-        />
+      <div className="fw-search shrink-0">
+        <div className="fw-search-bg" aria-hidden />
+        <div className="fw-search-content">
+          <Search size={14} strokeWidth={2} className="shrink-0 text-secondary" />
+          <input
+            ref={searchRef}
+            type="text"
+            value={query}
+            onChange={(event) => onQueryChange(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onQueryChange("");
+                event.currentTarget.blur();
+              }
+              if (event.key === "Enter") {
+                event.preventDefault();
+                onSearchSubmit();
+              }
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                onSearchArrowDown();
+              }
+            }}
+            placeholder="Hledat"
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-secondary"
+            style={{ userSelect: "text" }}
+          />
+        </div>
 
         {query.length > 0 && (
           <button
@@ -331,7 +356,7 @@ export function Toolbar({
               onQueryChange("");
               searchRef.current?.focus();
             }}
-            className="shrink-0 text-secondary transition-colors duration-100 hover:text-primary"
+            className="fw-search-clear text-secondary hover:text-primary"
           >
             <XCircle size={14} strokeWidth={2} />
           </button>

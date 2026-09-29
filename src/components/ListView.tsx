@@ -216,6 +216,9 @@ export function ListView({
   // Jen viditelné řádky + 10 navíc. Řádky začínají pod lepkavou hlavičkou,
   // proto scrollMargin; scrollPaddingStart drží vybraný řádek pod ní.
   const virtualizer = useVirtualizer({
+    // Bez flushSync v obsluze scrollu: React 19 posun nových řádků slije do
+    // jednoho vykreslení a hlavní vlákno nebrzdí začátek scrollovacího gesta.
+    useFlushSync: false,
     count: entries.length,
     getScrollElement: () => scrollRef.current,
     initialOffset,
@@ -293,7 +296,7 @@ export function ListView({
             key={column.key}
             type="button"
             onClick={() => onSort(column.key)}
-            className={`flex items-center gap-0.5 truncate transition-colors duration-100 hover:text-primary ${
+            className={`flex items-center gap-0.5 truncate hover:text-primary ${
               column.align === "right" ? "justify-end" : "justify-start"
             }`}
           >

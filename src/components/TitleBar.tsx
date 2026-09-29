@@ -22,7 +22,7 @@ function TrafficLight({ color, label, Icon, onClick }: TrafficLightProps) {
       <Icon
         size={8}
         strokeWidth={3}
-        className="text-black opacity-0 transition-opacity duration-150 group-hover:opacity-60"
+        className="text-black fw-t-opacity opacity-0 group-hover:opacity-60"
       />
     </button>
   );

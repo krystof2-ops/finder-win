@@ -128,7 +128,6 @@
      se někdy použila, dostane tyhle křivky, ne ty od Tailwindu. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* Doby animací. Jediné místo, kde v aplikaci stojí čas — komponenty berou
      tokeny (CSS) nebo motionMs() (lib/motion.ts). --motion-scale 0 = vypnuto. */
@@ -309,7 +308,7 @@ body {
 }
 
 .ql-fade {
-  animation: ql-fade-in 140ms var(--ease-out);
+  animation: ql-fade-in var(--dur-fade) var(--ease-out);
 }
 
 /* Markdown náhled — preflight shodí výchozí styly nadpisů i seznamů,
@@ -477,6 +476,9 @@ body {
    takže nic nepřekrývají; odsazení drží položku posunutou klávesnicí o kus
    od hrany a v seznamu pod lepkavou hlavičkou sloupců. */
 .fw-scroll {
+  /* Scroller je kompozitovaný od začátku. Jinak ho prohlížeč povýší až
+     prvním posunem a první snímek gesta vypadne (33 ms, změřeno). */
+  will-change: scroll-position;
   overscroll-behavior: contain;
   scroll-padding-block: var(--scroll-gap);
   transition: --thumb var(--dur-slow) var(--ease-out);
@@ -526,10 +528,6 @@ body {
   background-color: var(--row-selected-inactive);
 }
 
-.fw-sidebar-icon {
-  transition: color 140ms var(--ease-out);
-}
-
 /* Nadpis sekce: 11 px polotučně, barva --text-section (kontrast hlídá
    token, ne průhlednost). */
 .fw-section-heading {
@@ -570,6 +568,22 @@ body {
 }
 
 /* ------------------------------- ostatní ---------------------------------- */
+
+/* Drobné přechody pro komponenty — ať v nich nestojí žádný čas natvrdo
+   (Tailwind duration-*). */
+.fw-t-opacity {
+  transition: opacity var(--dur-quick) var(--ease-out);
+}
+
+.fw-t-transform {
+  transition: transform var(--dur-quick) var(--ease-out);
+}
+
+.fw-t-reveal {
+  transition:
+    transform var(--dur-fade) var(--ease-out),
+    opacity var(--dur-fade) var(--ease-out);
+}
 
 /* ---------------------------- přechody obsahu ------------------------------
    Navigace nevyprazdňuje panel: starý výpis zůstane (inert, pod proužkem
@@ -709,12 +723,12 @@ body {
 }
 
 .fw-info-panel {
-  animation: fw-info-in 220ms var(--ease-out);
+  animation: fw-info-in var(--dur-enter) var(--ease-out);
 }
 
 /* Šipka u složky se pod kurzorem odlepí doprava — naznačuje "jde otevřít". */
 .fw-chevron {
-  transition: transform 160ms var(--ease-out);
+  transition: transform var(--dur-nav) var(--ease-out);
 }
 
 .fw-col-row:hover .fw-chevron {
@@ -932,6 +946,10 @@ body {
 }
 
 .fw-icon-tile {
+  /* Flex, ne blok: ikona je inline-flex a v bloku by seděla na účaří řádku.
+     Obecná ikona (svg) a ikona ze shellu (img) mají účaří jinde — příchod
+     ikony by posunul název pod ní o 6 px. */
+  display: flex;
   border-radius: 8px;
   transition: background-color var(--dur-quick) var(--ease-out);
 }
@@ -1003,32 +1021,81 @@ body {
   line-height: 15px;
 }
 
-/* Semafor v titlebaru. */
-.fw-traffic {
-  transition: filter 120ms var(--ease-out);
-}
-
+/* Semafor v titlebaru — zjasnění při najetí bez přechodu (filter se
+   neanimuje, jen transform a opacity). */
 .fw-traffic:hover {
   filter: brightness(1.08);
 }
 
 /* Pole hledání: 28 px, zaoblení 7 px, při fokusu 180 → 260 px a tenký
-   prstenec akcentu. Rámeček je průhledný i v klidu, ať se nic neposouvá. */
+   prstenec akcentu. Šířka se neanimuje (layout v každém snímku) — pole má
+   v toolbaru pevné místo 260 px a roste jen jeho podklad (scaleX od pravé
+   hrany) a obsah, který se posune doleva (translateX). */
 .fw-search {
+  /* 180 / 260 px: podklad v klidu, obsah posunutý o rozdíl. */
+  --search-rest-scale: 0.6923;
+  --search-shift: 80px;
+  position: relative;
   height: 28px;
-  width: 180px;
-  border-radius: 7px;
-  border: 1px solid transparent;
-  transition:
-    width 260ms var(--ease-out),
-    border-color 200ms var(--ease-out),
-    box-shadow 200ms var(--ease-out);
+  width: 260px;
+  overflow: hidden;
 }
 
-.fw-search:focus-within {
-  width: 260px;
-  border-color: var(--focus-ring);
-  box-shadow: 0 0 0 1px var(--focus-ring);
+.fw-search-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 7px;
+  background-color: var(--hover);
+  transform-origin: right center;
+  transform: scaleX(var(--search-rest-scale));
+  transition: transform var(--dur-enter) var(--ease-out);
+}
+
+/* Prstenec fokusu zvlášť, aby se jen rozsvítil (opacity). */
+.fw-search-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 0 0 1px var(--focus-ring),
+    0 0 0 1px var(--focus-ring);
+  opacity: 0;
+  transition: opacity var(--dur-slow) var(--ease-out);
+}
+
+.fw-search-content {
+  position: relative;
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 6px;
+  padding: 0 28px 0 10px;
+  transform: translateX(var(--search-shift));
+  transition: transform var(--dur-enter) var(--ease-out);
+}
+
+.fw-search:focus-within .fw-search-bg,
+.fw-search:focus-within .fw-search-content {
+  transform: none;
+}
+
+.fw-search:focus-within .fw-search-bg::after {
+  opacity: 1;
+}
+
+/* V klidu je pravých 80 px obsahu za hranou — text nesmí zajet pod křížek.
+   Mění se jen při fokusu (jeden layout), ne v každém snímku. */
+.fw-search:not(:focus-within) .fw-search-content {
+  padding-right: calc(28px + var(--search-shift));
+}
+
+/* Křížek stojí u pravé hrany, mimo posouvaný obsah — vidět je i v klidu. */
+.fw-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  translate: 0 -50%;
 }
 
 /* Toolbar jako macOS: průsvitný s rozmazaným a sytějším pozadím. */
@@ -1150,16 +1217,17 @@ body {
   }
 }
 
-/* --------------------------- respekt k nastavení -------------------------- */
-
-/* Windows: Nastavení → Přizpůsobení → Vizuální efekty → Efekty animace. */
+/* --------------------------- respekt k nastavení --------------------------
+   Všechny doby jsou násobky --motion-scale (tokeny --dur-* nahoře). Systémové
+   "omezit animace" (Windows: Nastavení → Přístupnost → Vizuální efekty →
+   Efekty animace) je srazí na nulu, pokud si uživatel v menu Více → Animace
+   nezvolil "Zapnuto"; volba "Vypnuto" je vypne i bez systému. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  :root:not([data-motion="on"]) {
+    --motion-scale: 0;
   }
+}
+
+:root[data-motion="off"] {
+  --motion-scale: 0;
 }

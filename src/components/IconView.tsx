@@ -210,11 +210,16 @@ export function IconView({
 
   const rowCount = Math.ceil(entries.length / columns);
   const virtualizer = useVirtualizer({
+    // Bez flushSync v obsluze scrollu: React 19 posun nových řádků slije do
+    // jednoho vykreslení a hlavní vlákno nebrzdí začátek scrollovacího gesta.
+    useFlushSync: false,
     count: rowCount,
     getScrollElement: () => scrollRef.current,
     initialOffset,
     estimateSize: () => ROW_PITCH,
-    overscan: 10,
+    // Řádek mřížky nese až desítku buněk — 3 řádky navíc stačí na plynulé
+    // kolečko a první vykreslení (přepnutí view) je o polovinu lehčí.
+    overscan: 3,
     paddingStart: PADDING,
     paddingEnd: PADDING - GAP_Y,
     scrollPaddingStart: 8,

@@ -7,16 +7,18 @@ import { Music, X } from "lucide-react";
 
 import { SmallEntryIcon, fileVisual } from "./icons";
 import { formatSize, kindLabel, previewKind, type PreviewKind } from "../format";
+import { motionMs } from "../lib/motion";
 import type { FileEntry } from "../types";
 
 const MAX_PREVIEW_BYTES = 1_048_576;
 
-/** Zoom z ikony. Zavření je o kus rychlejší, ať to neubíjí. */
-const OPEN_MS = 320;
-const CLOSE_MS = 280;
+/** Zoom z ikony (260 ms — karta letí přes půl okna). Zavření je o kus
+ *  rychlejší, ať to neubíjí. Doby jsou tokeny z index.css. */
+const OPEN = "--dur-zoom";
+const CLOSE = "--dur-slow";
 /** Když se ikona nenajde, jede se jen jemný zoom uprostřed. */
-const FALLBACK_MS = 200;
-const OVERLAY_IN_MS = 200;
+const FALLBACK = "--dur-enter";
+const OVERLAY_IN = "--dur-slow";
 
 type Origin = { x: number; y: number };
 
@@ -280,7 +282,7 @@ export function QuickLook({
 
     setVisible(false);
     const zooming = (target ?? origin) !== null;
-    closeTimer.current = window.setTimeout(onClose, zooming ? CLOSE_MS : FALLBACK_MS);
+    closeTimer.current = window.setTimeout(onClose, motionMs(zooming ? CLOSE : FALLBACK));
   }, [onClose, currentPath, origin]);
 
   const step = useCallback(
@@ -375,15 +377,9 @@ export function QuickLook({
       ? "translate(0px, 0px) scale(0.9)"
       : `translate(${origin.x}px, ${origin.y}px) scale(0.1)`;
 
-  const duration = visible
-    ? origin === null
-      ? FALLBACK_MS
-      : OPEN_MS
-    : origin === null
-      ? FALLBACK_MS
-      : CLOSE_MS;
-  const closeMs = origin === null ? FALLBACK_MS : CLOSE_MS;
-  const curve = visible ? "var(--ease-out)" : "var(--ease-in-out)";
+  const duration = `var(${origin === null ? FALLBACK : visible ? OPEN : CLOSE})`;
+  const closeDuration = `var(${origin === null ? FALLBACK : CLOSE})`;
+  const curve = "var(--ease-out)";
 
   return createPortal(
     <div
@@ -399,7 +395,7 @@ export function QuickLook({
         opacity: visible ? 1 : 0,
         // Pozadí stmívá vlastním tempem, ale při zavírání nesmí zmizet dřív
         // než karta — jinak by karta chvíli visela nad nezastřeným oknem.
-        transition: `opacity ${visible ? OVERLAY_IN_MS : closeMs}ms var(--ease-in-out)`,
+        transition: `opacity ${visible ? `var(${OVERLAY_IN})` : closeDuration} var(--ease-out)`,
       }}
     >
       <div
@@ -423,7 +419,7 @@ export function QuickLook({
           maxHeight: "85%",
           opacity: visible ? 1 : 0,
           transform: visible ? "translate(0px, 0px) scale(1)" : closedTransform,
-          transition: `opacity ${duration}ms ${curve}, transform ${duration}ms ${curve}`,
+          transition: `opacity ${duration} ${curve}, transform ${duration} ${curve}`,
           willChange: "transform, opacity",
           boxShadow: "var(--shadow-dialog)",
         }}
@@ -440,7 +436,7 @@ export function QuickLook({
           <button
             type="button"
             onClick={handleOpen}
-            className="shrink-0 rounded-full bg-[color:var(--accent-fill)] px-3 py-1 text-[12px] font-medium text-[color:var(--on-accent)] transition-opacity duration-100 hover:opacity-90"
+            className="shrink-0 rounded-full bg-[color:var(--accent-fill)] px-3 py-1 text-[12px] font-medium text-[color:var(--on-accent)] fw-t-opacity hover:opacity-90"
           >
             Otevřít
           </button>
@@ -449,7 +445,7 @@ export function QuickLook({
             type="button"
             aria-label="Zavřít"
             onClick={requestClose}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary transition-colors duration-100 hover:bg-hover"
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-hover"
           >
             <X size={14} strokeWidth={2} />
           </button>

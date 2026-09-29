@@ -94,7 +94,10 @@ export function TooltipLayer() {
     document.addEventListener("mouseout", onMouseLeaveWindow, true);
     // Každá interakce bublinu shodí — tooltip patří jen ke klidnému najetí.
     const hideEvents = ["mousedown", "contextmenu", "wheel", "scroll", "keydown", "dragstart"];
-    for (const name of hideEvents) window.addEventListener(name, hide, true);
+    // Pasivně: nepasivní "wheel" na window by každé otočení kolečkem nechal
+    // čekat na hlavní vlákno, než se smí scrollovat (škubnutí na začátku gesta).
+    const options = { capture: true, passive: true };
+    for (const name of hideEvents) window.addEventListener(name, hide, options);
     window.addEventListener("blur", hide);
 
     return () => {
@@ -102,7 +105,7 @@ export function TooltipLayer() {
       document.removeEventListener("mouseover", onMouseOver, true);
       document.removeEventListener("mousemove", onMouseMove, true);
       document.removeEventListener("mouseout", onMouseLeaveWindow, true);
-      for (const name of hideEvents) window.removeEventListener(name, hide, true);
+      for (const name of hideEvents) window.removeEventListener(name, hide, options);
       window.removeEventListener("blur", hide);
     };
   }, []);
