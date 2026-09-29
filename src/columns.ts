@@ -30,6 +30,8 @@ export type ColumnsApi = {
   focusedIndex: number;
   /** Cesta nejhlubšího sloupce — to je "kde uživatel je", když se přepíná view mode. */
   activePath: string | null;
+  /** Načítá se nový kořen (navigace). Dosavadní sloupce do té doby zůstávají. */
+  rootLoading: boolean;
   /** Klik na položku: vybere ji a u složky rovnou natáhne sloupec napravo.
    *  S modifikátory přepíná (Ctrl) nebo vybírá rozsah od kotvy (Shift). */
   select: (columnIndex: number, entry: FileEntry, mods?: SelectMods) => void;
@@ -127,6 +129,9 @@ export function useColumns(
   // pracovat se stejným pořadím, jaké uživatel vidí.
   const [rawColumns, setColumns] = useState<Column[]>([]);
   const [focusedIndex, setFocusedIndex] = useState(0);
+  const [rootLoading, setRootLoading] = useState(false);
+  /** Token posledního požadavku na kořen — starší odpověď se zahodí. */
+  const rootToken = useRef(0);
 
   // Refresh a gumička potřebují aktuální sloupce, ale nesmí se kvůli nim
   // překreslovat — jinak by se identita callbacků měnila při každém výběru.
@@ -223,17 +228,43 @@ export function useColumns(
   );
 
   // Změna cesty zvenčí (sidebar, Back/Forward, breadcrumb) i vstup do column view
-  // začínají vždy jedním sloupcem.
+  // začínají vždy jedním sloupcem. Dosavadní sloupce ale zůstanou vidět, dokud
+  // nový kořen nedorazí — panel se při navigaci nevyprazdňuje.
   useEffect(() => {
-    setFocusedIndex(0);
+    const token = nextToken++;
+    rootToken.current = token;
 
     if (!enabled || rootPath === null) {
+      setFocusedIndex(0);
       setColumns([]);
+      setRootLoading(false);
       return;
     }
 
-    void loadColumn(0, rootPath, false);
-  }, [enabled, rootPath, loadColumn]);
+    setRootLoading(true);
+    const finish = (entries: FileEntry[], error: string | null) => {
+      if (rootToken.current !== token) return;
+      setRootLoading(false);
+      setFocusedIndex(0);
+      setColumns((prev) => [
+        {
+          path: rootPath,
+          entries,
+          loading: false,
+          error,
+          selectedPath: null,
+          selectedPaths: [],
+          anchorPath: null,
+          token,
+          version: (prev[0]?.path === rootPath ? prev[0].version : 0) + 1,
+        },
+      ]);
+    };
+
+    invoke<FileEntry[]>("list_dir", { path: rootPath, showHidden: showHiddenRef.current })
+      .then((entries) => finish(entries, null))
+      .catch((err: unknown) => finish([], String(err)));
+  }, [enabled, rootPath]);
 
   const select = useCallback(
     (columnIndex: number, entry: FileEntry, mods?: SelectMods) => {
@@ -436,6 +467,7 @@ export function useColumns(
       columns,
       focusedIndex,
       activePath,
+      rootLoading,
       select,
       extend,
       startBand,
@@ -451,6 +483,7 @@ export function useColumns(
       columns,
       focusedIndex,
       activePath,
+      rootLoading,
       select,
       extend,
       startBand,

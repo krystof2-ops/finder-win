@@ -1,13 +1,37 @@
+import { pathKey } from "./lib/storage";
+
+/**
+ * Odkud se do složky přišlo — podle toho se vybere přechod obsahu:
+ * zpět/vpřed posun do strany, vnoření a výstup nahoru zoom, skok jinam
+ * (sidebar, zadaná cesta) jen prolnutí.
+ */
+export type NavDirection = "back" | "forward" | "into" | "up" | "jump";
+
 /** Historie navigace jako dva zásobníky, stejně jako to dělá prohlížeč. */
 export type NavState = {
   current: string | null;
   back: string[];
   forward: string[];
+  direction: NavDirection;
 };
 
 export type NavAction = { type: "go"; path: string } | { type: "back" } | { type: "forward" };
 
-export const INITIAL_NAV: NavState = { current: null, back: [], forward: [] };
+export const INITIAL_NAV: NavState = { current: null, back: [], forward: [], direction: "jump" };
+
+/** Leží `path` někde uvnitř `ancestor` (ne ona sama)? */
+function isInside(path: string, ancestor: string): boolean {
+  const child = pathKey(path);
+  const parent = pathKey(ancestor);
+  return child !== parent && child.startsWith(parent.endsWith("\\") ? parent : `${parent}\\`);
+}
+
+function directionOf(from: string | null, to: string): NavDirection {
+  if (from === null) return "jump";
+  if (isInside(to, from)) return "into";
+  if (isInside(from, to)) return "up";
+  return "jump";
+}
 
 export function navReducer(state: NavState, action: NavAction): NavState {
   switch (action.type) {
@@ -17,6 +41,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         current: action.path,
         back: state.current === null ? state.back : [...state.back, state.current],
         forward: [],
+        direction: directionOf(state.current, action.path),
       };
     }
     case "back": {
@@ -26,6 +51,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         current: previous,
         back: state.back.slice(0, -1),
         forward: [state.current, ...state.forward],
+        direction: "back",
       };
     }
     case "forward": {
@@ -35,6 +61,7 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         current: next,
         back: [...state.back, state.current],
         forward: rest,
+        direction: "forward",
       };
     }
   }

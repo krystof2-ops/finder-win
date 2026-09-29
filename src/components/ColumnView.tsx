@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight } from "lucide-react";
 
@@ -18,6 +18,7 @@ import { sameEntry } from "../lib/rows";
 import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
+import { motionMs, smoothIfAllowed } from "../lib/motion";
 import { TAG_HEX, TAG_LABEL } from "../lib/tags";
 import { getFileProperties } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
@@ -27,6 +28,8 @@ import type { FileEntry, FileProperties, SelectMods, TagColor, TagMap } from "..
 /** Výška řádku a horní okraj sloupce (py-1) — virtualizace i gumička z nich počítají. */
 const ROW_HEIGHT = 24;
 const PANE_PADDING = 4;
+/** Šířka sloupce (w-[240px]) — odcházející sloupce zhasínají na svém místě. */
+const PANE_WIDTH = 240;
 
 /* ---------------------------------- řádek ---------------------------------- */
 
@@ -144,6 +147,10 @@ type ColumnPaneProps = {
   onClearSelection: (index: number) => void;
   /** Sloupec, který se právě zahazuje — jen dohrává odchod, nereaguje. */
   exiting?: boolean;
+  /** Kam byl sloupec odscrollovaný (sdílená paměť view, klíč index/cesta).
+   *  Odcházející kopie z ní převezme pozici, ať při zhasínání neskočí nahoru. */
+  scrollMemory: Map<string, number>;
+  memoryKey: string;
 };
 
 function ColumnPane({
@@ -166,8 +173,16 @@ function ColumnPane({
   onBandStart,
   onBandSelect,
   exiting = false,
+  scrollMemory,
+  memoryKey,
 }: ColumnPaneProps) {
   const paneRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    if (exiting && paneRef.current) paneRef.current.scrollTop = scrollMemory.get(memoryKey) ?? 0;
+    // Jen při připojení odcházející kopie.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
 
   // Každý sloupec má vlastní virtualizaci — posouvá se nezávisle.
@@ -235,6 +250,9 @@ function ColumnPane({
       ref={paneRef}
       // Podle tohohle App pozná, ve kterém sloupci padl pravý klik do volné plochy.
       data-column-path={column.path}
+      onScroll={(event) => {
+        if (!exiting) scrollMemory.set(memoryKey, event.currentTarget.scrollTop);
+      }}
       onMouseDown={(event) => {
         onFocus(index);
         if (!exiting) band.onMouseDown(event);
@@ -408,8 +426,13 @@ export function ColumnView({
 
   // Zahozené sloupce se ještě chvíli dorenderují, aby stihly odjet doprava.
   // useColumns je zahazuje okamžitě, o odchod se proto musí postarat view.
-  const [exiting, setExiting] = useState<Column[]>([]);
+  const [exiting, setExiting] = useState<{ from: number; columns: Column[] }>({
+    from: 0,
+    columns: [],
+  });
   const previousColumns = useRef<Column[]>(columns);
+  /** Pozice scrollu sloupců (klíč index/cesta) pro odcházející kopie. */
+  const paneScroll = useRef(new Map<string, number>());
   const exitTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -429,7 +452,15 @@ export function ColumnView({
 
     if (changed < 0) return;
 
-    setExiting(previous.slice(changed));
+    // Nový kořen (navigace jinam) staré sloupce vymění rovnou — zhasínání
+    // celé řady pod novou složkou by jen zdržovalo.
+    if (changed === 0) {
+      window.clearTimeout(exitTimer.current);
+      setExiting({ from: 0, columns: [] });
+      return;
+    }
+
+    setExiting({ from: changed, columns: previous.slice(changed) });
 
     // Časovač visí v refu, ne v cleanupu efektu. React pouští cleanup před
     // každým dalším během, a běh, který skončí na `changed < 0` (což dělá každé
@@ -437,7 +468,10 @@ export function ColumnView({
     // nenastavil. Odcházející sloupce by tak zůstaly navždy: fw-column-out je
     // forwards na opacity 0, takže neviditelné, ale pořád zabírají 240 px.
     window.clearTimeout(exitTimer.current);
-    exitTimer.current = window.setTimeout(() => setExiting([]), 180);
+    exitTimer.current = window.setTimeout(
+      () => setExiting({ from: 0, columns: [] }),
+      motionMs("--dur-fade"),
+    );
   }, [columns]);
 
   useEffect(() => () => window.clearTimeout(exitTimer.current), []);
@@ -477,7 +511,7 @@ export function ColumnView({
     liveRef.current?.lastElementChild?.scrollIntoView({
       inline: "end",
       block: "nearest",
-      behavior: "smooth",
+      behavior: smoothIfAllowed(),
     });
   }, [columns.length, infoEntry?.path]);
 
@@ -564,8 +598,43 @@ export function ColumnView({
       onKeyDown={handleKeyDown}
       className="flex h-full outline-none"
     >
-      <div className="flex min-w-0 flex-1 overflow-x-auto">
-        <div ref={liveRef} className="flex shrink-0">
+      <div className="relative flex min-w-0 flex-1 overflow-x-auto">
+        {/* Dohrávají odchod na svém původním místě, pod živými sloupci — nový
+            sloupec přes ně přijede zprava. Pak zmizí. */}
+        {exiting.columns.length > 0 && (
+          <div
+            className="pointer-events-none absolute top-0 bottom-0 flex"
+            style={{ left: exiting.from * PANE_WIDTH }}
+          >
+            {exiting.columns.map((column, index) => (
+              <ColumnPane
+                key={`exit-${index}-${column.path}`}
+                column={column}
+                entries={column.entries}
+                index={-1}
+                isFocused={false}
+                windowFocused={windowFocused}
+                onSelect={() => undefined}
+                onOpen={() => undefined}
+                onFocus={() => undefined}
+                onClearSelection={() => undefined}
+                onDropInto={() => undefined}
+                onBandStart={() => undefined}
+                onBandSelect={() => undefined}
+                cutPaths={cutPaths}
+                renamingPath={null}
+                onRenameSubmit={() => undefined}
+                onRenameCancel={() => undefined}
+                tags={tags}
+                exiting
+                scrollMemory={paneScroll.current}
+                memoryKey={`${exiting.from + index}/${column.path}`}
+              />
+            ))}
+          </div>
+        )}
+
+        <div ref={liveRef} className="relative flex shrink-0">
           {columns.map((column, index) => (
             <ColumnPane
               key={`${index}/${column.path}`}
@@ -587,6 +656,8 @@ export function ColumnView({
               onRenameSubmit={onRenameSubmit}
               onRenameCancel={onRenameCancel}
               tags={tags}
+              scrollMemory={paneScroll.current}
+              memoryKey={`${index}/${column.path}`}
             />
           ))}
 
@@ -594,31 +665,6 @@ export function ColumnView({
             <InfoPanel entry={infoEntry} onOpen={onOpenFile} tags={tags} />
           )}
         </div>
-
-        {/* Dohrávají odchod napravo od živých sloupců, pak zmizí. */}
-        {exiting.map((column, index) => (
-          <ColumnPane
-            key={`exit-${index}-${column.path}`}
-            column={column}
-            entries={column.entries}
-            index={-1}
-            isFocused={false}
-            windowFocused={windowFocused}
-            onSelect={() => undefined}
-            onOpen={() => undefined}
-            onFocus={() => undefined}
-            onClearSelection={() => undefined}
-            onDropInto={() => undefined}
-            onBandStart={() => undefined}
-            onBandSelect={() => undefined}
-            cutPaths={cutPaths}
-            renamingPath={null}
-            onRenameSubmit={() => undefined}
-            onRenameCancel={() => undefined}
-            tags={tags}
-            exiting
-          />
-        ))}
       </div>
     </div>
   );

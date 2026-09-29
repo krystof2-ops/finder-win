@@ -166,6 +166,9 @@ type IconViewProps = {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   /** Ovládání výpisu pro App (posun na položku, gumička, klávesnice). */
   handleRef: ViewHandleRef;
+  /** Počáteční posun (návrat Zpět). Virtualizace si při připojení scroller
+   *  sama nastaví na svou pozici — bez tohohle by ho vrátila na začátek. */
+  initialOffset?: number;
 };
 
 export function IconView({
@@ -183,6 +186,7 @@ export function IconView({
   tags,
   scrollRef,
   handleRef,
+  initialOffset = 0,
 }: IconViewProps) {
   const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
 
@@ -208,6 +212,7 @@ export function IconView({
   const virtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => scrollRef.current,
+    initialOffset,
     estimateSize: () => ROW_PITCH,
     overscan: 10,
     paddingStart: PADDING,

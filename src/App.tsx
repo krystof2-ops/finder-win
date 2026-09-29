@@ -27,6 +27,7 @@ import { FolderIcon, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { TooltipLayer } from "./components/Tooltip";
+import { Skeleton, ViewTransition } from "./components/ViewTransition";
 import { useColumns } from "./columns";
 import {
   copyPath,
@@ -52,13 +53,14 @@ import {
   type SortKey,
 } from "./format";
 import { isTypingTarget } from "./lib/dom";
+import { motionMs } from "./lib/motion";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
 import { setSpecialFolders } from "./lib/specialFolders";
 import { useStorage } from "./lib/useStorage";
 import type { ViewHandle } from "./lib/viewHandle";
-import { INITIAL_NAV, navReducer } from "./navigation";
+import { INITIAL_NAV, navReducer, type NavDirection } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
 import type {
   Clipboard,
@@ -133,6 +135,41 @@ const FILTER_DEBOUNCE_MS = 100;
 
 /** Psaní písmen skáče na položku; po téhle pauze začíná nové slovo. */
 const TYPE_AHEAD_RESET_MS = 1000;
+
+/** Do téhle doby zůstává při navigaci vidět starý výpis; déle = kostra. */
+const SKELETON_DELAY_MS = 400;
+
+/**
+ * Snímek view, které se právě opouští (ikony / seznam / sloupce). Klon DOMu
+ * bez identifikátorů — querySelector na data-path ani role nesmí najít jeho
+ * řádky místo skutečných. Posuny vnořených scrollerů (sloupce) klon sám
+ * nepřevezme, proto se kopírují ručně.
+ */
+function spawnViewGhost(source: HTMLElement, host: HTMLElement) {
+  const ghost = source.cloneNode(true) as HTMLElement;
+  for (const element of [ghost, ...ghost.querySelectorAll<HTMLElement>("*")]) {
+    for (const name of ["id", "data-path", "data-column-path", "data-tooltip", "role", "tabindex"]) {
+      element.removeAttribute(name);
+    }
+  }
+  ghost.className = "fw-view-ghost";
+  ghost.setAttribute("aria-hidden", "true");
+  ghost.inert = true;
+  host.appendChild(ghost);
+
+  const sources = [source, ...source.querySelectorAll<HTMLElement>("*")];
+  const copies = [ghost, ...ghost.querySelectorAll<HTMLElement>("*")];
+  sources.forEach((element, index) => {
+    if (element.scrollTop === 0 && element.scrollLeft === 0) return;
+    copies[index].scrollTop = element.scrollTop;
+    copies[index].scrollLeft = element.scrollLeft;
+  });
+
+  const remove = () => ghost.remove();
+  ghost.addEventListener("animationend", remove, { once: true });
+  // Pojistka: s vypnutými animacemi (0 ms) se animationend nemusí dostavit.
+  window.setTimeout(remove, motionMs("--dur-nav") + 50);
+}
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -227,17 +264,17 @@ export default function App() {
   /** Složka, ke které patří obsah `entries`, a pořadí jejího načtení. Cesta
    *  není totéž co nav.current — ten se změní hned, kdežto entries dojedou až
    *  po odpovědi backendu. */
-  const [loaded, setLoaded] = useState<{ path: string | null; seq: number }>({
-    path: null,
-    seq: 0,
-  });
+  /** `direction` = jak se do složky přišlo (null u přenačtení a přepnutí view). */
+  const [loaded, setLoaded] = useState<{
+    path: string | null;
+    seq: number;
+    direction: NavDirection | null;
+  }>({ path: null, seq: 0, direction: null });
   const loadedPath = loaded.path;
 
   const { tags, favorites } = useStorage();
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
-  /** Krátká fáze, kdy starý obsah dohasíná, než se vymění za nový. */
-  const [viewSwapping, setViewSwapping] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
   const [query, setQuery] = useState("");
@@ -269,7 +306,13 @@ export default function App() {
   /** Složka, jejíž výpis je právě v `entries` — pozná přenačtení od navigace. */
   const loadedPathRef = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const viewSwapTimer = useRef<number | null>(null);
+  /** Vrstva nad obsahem pro snímek opouštěného view (cross-fade). */
+  const ghostHost = useRef<HTMLDivElement>(null);
+  /** Kde byl výpis odscrollovaný, podle složky — Zpět / Vpřed se vrací na místo. */
+  const scrollMemory = useRef(new Map<string, number>());
+  /** View mode posledního načtení — přepnutí view není navigace, nic nepřijíždí. */
+  const lastLoadView = useRef<ViewMode | null>(null);
+  const navDirectionRef = useRef<NavDirection>("jump");
 
   /**
    * Opustí režimy, které překrývají obsah složky (tag view, výsledky hledání).
@@ -424,6 +467,7 @@ export default function App() {
   // Kde uživatel právě je — pro odpovědi, které dorazí se zpožděním.
   const navCurrentRef = useRef(nav.current);
   navCurrentRef.current = nav.current;
+  navDirectionRef.current = nav.direction;
 
   useEffect(() => {
     invoke<FavoriteSection[]>("get_favorites")
@@ -476,7 +520,11 @@ export default function App() {
 
     // Column view si sloupce načítá sám (columns.ts) — výpis nav.current by
     // se tu stahoval podruhé a nikde nepoužil. Při přepnutí zpátky se načte.
-    if (viewMode === "column") return;
+    if (viewMode === "column") {
+      // Přerušené načtení v jiném view by jinak nechalo proužek svítit.
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError(null);
@@ -486,6 +534,9 @@ export default function App() {
     // samé složky (hlídač, operace) až celek — jinak by výpis na okamžik
     // spadl na 300 položek a zase narostl.
     const refresh = loadedPathRef.current !== null && storage.samePath(loadedPathRef.current, path);
+    const viewChanged = lastLoadView.current !== null && lastLoadView.current !== viewMode;
+    lastLoadView.current = viewMode;
+    const direction = refresh || viewChanged ? null : navDirectionRef.current;
     const collected: FileEntry[] = [];
     let first = true;
     let done = false;
@@ -497,9 +548,13 @@ export default function App() {
       setEntries(collected.slice());
       setStreamingCount(done ? null : collected.length);
       if (first || done) {
+        // Směr patří k první výměně obsahu. Doběhnutí dávek ho nechává být —
+        // odebraná třída by animaci utnula uprostřed.
+        const seq = (loadSeq.current += 1);
+        const isFirst = first;
+        setLoaded((previous) => ({ path, seq, direction: isFirst ? direction : previous.direction }));
         first = false;
         loadedPathRef.current = path;
-        setLoaded({ path, seq: (loadSeq.current += 1) });
       }
     };
     const received = (batch: FileEntry[], last: boolean) => {
@@ -539,7 +594,8 @@ export default function App() {
         setStreamingCount(null);
         setEntries([]);
         // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
-        setLoaded({ path, seq: (loadSeq.current += 1) });
+        loadedPathRef.current = path;
+        setLoaded({ path, seq: (loadSeq.current += 1), direction: null });
         setError(String(err));
       })
       .finally(() => {
@@ -552,6 +608,16 @@ export default function App() {
       if (!done) setStreamingCount(null);
     };
   }, [nav.current, refreshToken, showHidden, viewMode]);
+
+  // Navigace čeká na data: starý výpis zůstává, kostra až po 400 ms.
+  const awaitingFolder = viewMode !== "column" && nav.current !== null && loadedPath !== nav.current;
+  const [skeletonShown, setSkeletonShown] = useState(false);
+  useEffect(() => {
+    setSkeletonShown(false);
+    if (!awaitingFolder) return;
+    const timer = window.setTimeout(() => setSkeletonShown(true), SKELETON_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [awaitingFolder, nav.current]);
 
   const sortedEntries = useMemo(
     () => sortEntries(entries, sortKey, sortDirection),
@@ -937,7 +1003,7 @@ export default function App() {
       const column = columnsApi.columns[index];
       if (!column || column.version <= pendingSelect.columnVersion) return;
 
-      const found = column.entries.find((entry) => entry.path === pendingSelect.path);
+      const found = column.entries.find((entry) => storage.samePath(entry.path, pendingSelect.path));
       if (found) columnsApi.select(index, found);
       finish(found);
       return;
@@ -950,7 +1016,7 @@ export default function App() {
     )
       return;
 
-    const found = entries.find((entry) => entry.path === pendingSelect.path);
+    const found = entries.find((entry) => storage.samePath(entry.path, pendingSelect.path));
     if (found) {
       setActive(found);
       setSelection(new Set([found.path]));
@@ -1242,11 +1308,14 @@ export default function App() {
     [transfer],
   );
 
+  /** Nahoru o úroveň — a v rodiči se označí složka, ze které se přišlo. */
   const goToParent = useCallback(() => {
     if (currentDir === null) return;
     const parent = parentPath(currentDir);
-    if (parent !== null) navigate(parent);
-  }, [currentDir, navigate]);
+    if (parent === null) return;
+    navigate(parent);
+    requestSelect(parent, currentDir);
+  }, [currentDir, navigate, requestSelect]);
 
   const selectAll = useCallback(() => {
     if (isColumnView) return;
@@ -1557,40 +1626,40 @@ export default function App() {
 
   /* ----------------------------- view mode -------------------------------- */
 
-  // Výměna view běží až za 120 ms, takže hodnoty zachycené při vytvoření
-  // callbacku můžou být do té doby neplatné — navigace uvnitř toho okna by
-  // uživatele poslala na cestu, ze které už odešel. Čte se proto z refu.
-  const latestPaths = useRef({ navPath: nav.current, activePath: columnsApi.activePath });
-  latestPaths.current = { navPath: nav.current, activePath: columnsApi.activePath };
-
+  /**
+   * Přepnutí ikony / seznam / sloupce: nové view se vykreslí hned a starý
+   * snímek nad ním zhasne (cross-fade, oba chvíli v DOM). Vybraná položka
+   * zůstane vybraná a doscrolluje se do obrazu.
+   */
   const changeViewMode = useCallback(
     (mode: ViewMode) => {
       if (mode === viewMode) return;
 
-      const swap = () => {
-        const { navPath, activePath } = latestPaths.current;
-        if (viewMode === "column" && mode !== "column" && activePath && activePath !== navPath) {
-          navigate(activePath);
-        }
-        setViewMode(mode);
-        setViewSwapping(false);
-      };
+      const scroller = scrollRef.current;
+      if (scroller && ghostHost.current) spawnViewGhost(scroller, ghostHost.current);
 
-      // Obsah nejdřív dohasne, teprve pak se vymění — bez toho by nové view
-      // skočilo doprostřed animace a cross-fade by nebyl vidět.
-      setViewSwapping(true);
-      if (viewSwapTimer.current !== null) window.clearTimeout(viewSwapTimer.current);
-      viewSwapTimer.current = window.setTimeout(swap, 120);
+      if (viewMode === "column") {
+        // Ze sloupců do složky zaměřeného sloupce s jeho výběrem; bez výběru
+        // do nejhlubšího sloupce, jako dřív.
+        const column = columnsApi.columns[columnsApi.focusedIndex];
+        const target = column?.selectedPath ? column.path : columnsApi.activePath;
+        if (target !== null && target !== nav.current) navigate(target);
+        if (column?.selectedPath) requestSelect(column.path, column.selectedPath);
+      } else if (mode === "column" && active !== null && nav.current !== null) {
+        requestSelect(nav.current, active.path);
+      }
+
+      setViewMode(mode);
     },
-    [viewMode, navigate],
+    [viewMode, columnsApi, nav.current, navigate, requestSelect, active],
   );
 
-  useEffect(
-    () => () => {
-      if (viewSwapTimer.current !== null) window.clearTimeout(viewSwapTimer.current);
-    },
-    [],
-  );
+  // Ikony ↔ seznam: výběr zůstává, jen se musí doscrollovat v novém view.
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  useEffect(() => {
+    if (viewMode !== "column" && activeRef.current) scrollToPath(activeRef.current.path);
+  }, [viewMode, scrollToPath]);
 
   const sortBy = useCallback((key: SortKey) => {
     setSortKey((currentKey) => {
@@ -2295,12 +2364,33 @@ export default function App() {
       );
     }
 
-    // Placeholder patří jen k navigaci do *jiné* složky. Při přenačtení té
-    // stejné (po přejmenování, smazání, vložení, F5) zůstanou řádky namontované
-    // — jinak se pokaždé resetoval scroll a uživatel ztratil místo ve složce.
-    // Podmínka zároveň brání tomu, aby se během navigace na okamžik ukázal
-    // obsah předchozí složky pod už novým nadpisem.
-    if (loadedPath !== nav.current) return <Placeholder>Načítám…</Placeholder>;
+    // Navigace obsah nevyprazdňuje: dokud nedorazí nová složka, zůstává
+    // (neaktivní) ta předchozí pod proužkem načítání. Kostra až po 400 ms,
+    // a hned jen tam, kde žádný předchozí obsah není (start aplikace).
+    if (awaitingFolder && (skeletonShown || loadedPath === null)) {
+      return skeletonShown ? <Skeleton view={viewMode === "list" ? "list" : "icon"} /> : null;
+    }
+
+    // Zpět / Vpřed se vrací tam, kde uživatel ve složce byl; jinak od začátku.
+    const restoreTop =
+      loaded.direction === "back" || loaded.direction === "forward"
+        ? (scrollMemory.current.get(storage.pathKey(loadedPath ?? "")) ?? 0)
+        : 0;
+
+    return (
+      <ViewTransition
+        id={loadedPath}
+        direction={loaded.direction}
+        scrollTop={restoreTop}
+        inert={awaitingFolder}
+      >
+        {renderFolder(restoreTop)}
+      </ViewTransition>
+    );
+  }
+
+  /** Obsah načtené složky v Icon / List View. */
+  function renderFolder(initialOffset: number) {
     if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
     if (visibleEntries.length === 0) {
       return query ? (
@@ -2333,6 +2423,7 @@ export default function App() {
       tags,
       scrollRef,
       handleRef: viewHandle,
+      initialOffset,
     };
 
     if (viewMode === "list") {
@@ -2401,34 +2492,44 @@ export default function App() {
             onMenuOpenChange={setToolbarMenuOpen}
           />
 
-          {/* Přenačtení už zobrazené složky obsah nevyhazuje (viz renderContent),
-              takže by jinak nebylo nijak poznat, že se něco děje. */}
-          {loading && loadedPath === nav.current && (
-            <div className="fw-busy-line" aria-hidden />
-          )}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            {/* Navigace i přenačtení nechávají obsah na místě, takže by jinak
+                nebylo nijak poznat, že se něco děje. */}
+            {(loading || (isColumnView && columnsApi.rootLoading)) && !inSearch && !inTagView && (
+              <div className="fw-busy-line" aria-hidden />
+            )}
 
-          {/* key vynutí remount při změně view, čímž se přehraje fw-view-swap.
-              Během dohasínání key ještě drží starou hodnotu. */}
-          {/* Menu volné plochy visí až tady, ne ve views — prázdno pod řádky
-              patří tomuhle scroll kontejneru, takže by ho mřížka IconView
-              nezachytila. Řádky si událost zastaví u sebe. */}
-          <div
-            key={viewMode}
-            ref={attachScroll}
-            data-view={viewMode}
-            onContextMenu={openBackgroundMenu}
-            onClick={clearSelectionOnBackground}
-            onMouseDown={(event) => {
-              // Gumička jen nad výpisem složky — column view má vlastní po
-              // sloupcích, výsledky hledání a tag view výběr nemají.
-              if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
-            }}
-            className={`min-h-0 flex-1 overflow-auto ${
-              viewSwapping ? "fw-view-out" : "fw-view-swap"
-            }`}
-          >
-            {renderContent()}
-            {band.overlay}
+            {/* key vynutí nový kontejner pro každé view (virtualizace si ho
+                přeměří). Menu volné plochy visí až tady, ne ve views — prázdno
+                pod řádky patří tomuhle scroll kontejneru, takže by ho mřížka
+                IconView nezachytila. Řádky si událost zastaví u sebe. */}
+            <div
+              key={viewMode}
+              ref={attachScroll}
+              data-view={viewMode}
+              onContextMenu={openBackgroundMenu}
+              onClick={clearSelectionOnBackground}
+              onScroll={(event) => {
+                // Pozice patří složce, jejíž výpis je právě vidět.
+                const shown = loadedPathRef.current;
+                if (shown !== null && !isColumnView) {
+                  scrollMemory.current.set(storage.pathKey(shown), event.currentTarget.scrollTop);
+                }
+              }}
+              onMouseDown={(event) => {
+                // Gumička jen nad výpisem složky — column view má vlastní po
+                // sloupcích, výsledky hledání a tag view výběr nemají.
+                if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
+              }}
+              className="min-h-0 flex-1 overflow-auto"
+            >
+              {renderContent()}
+              {band.overlay}
+            </div>
+
+            {/* Sem se při přepnutí view vloží snímek starého (spawnViewGhost).
+                React do vrstvy nic nevykresluje, takže mu cizí uzel nevadí. */}
+            <div ref={ghostHost} className="pointer-events-none absolute inset-0 z-10 empty:hidden" />
           </div>
         </main>
       </div>

@@ -185,6 +185,9 @@ type ListViewProps = {
   scrollRef: React.RefObject<HTMLDivElement | null>;
   /** Ovládání výpisu pro App (posun na položku, gumička, klávesnice). */
   handleRef: ViewHandleRef;
+  /** Počáteční posun (návrat Zpět). Virtualizace si při připojení scroller
+   *  sama nastaví na svou pozici — bez tohohle by ho vrátila na začátek. */
+  initialOffset?: number;
 };
 
 export function ListView({
@@ -205,6 +208,7 @@ export function ListView({
   tags,
   scrollRef,
   handleRef,
+  initialOffset = 0,
 }: ListViewProps) {
   const SortArrow = sortDirection === "asc" ? ChevronUp : ChevronDown;
   const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
@@ -214,6 +218,7 @@ export function ListView({
   const virtualizer = useVirtualizer({
     count: entries.length,
     getScrollElement: () => scrollRef.current,
+    initialOffset,
     estimateSize: () => ROW_HEIGHT,
     overscan: 10,
     scrollMargin: HEADER_HEIGHT,

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   AppWindow,
@@ -122,6 +122,9 @@ function WithLinkBadge({
 function ShellIcon({ entry, size }: { entry: FileEntry; size: number }) {
   const { ref, url } = useFileIcon(entry, iconRequestSize(size));
   const { Icon, tint } = fileVisual(entry);
+  // Ikona z paměti je tu hned při vykreslení a nerozsvěcuje se — jinak by
+  // při scrollování virtualizovaného výpisu blikal každý nový řádek.
+  const arrivedLater = useRef(url === null);
 
   return (
     <span
@@ -130,7 +133,14 @@ function ShellIcon({ entry, size }: { entry: FileEntry; size: number }) {
       style={{ width: size, height: size }}
     >
       {url ? (
-        <img src={url} width={size} height={size} alt="" draggable={false} />
+        <img
+          src={url}
+          width={size}
+          height={size}
+          alt=""
+          draggable={false}
+          className={arrivedLater.current ? "fw-icon-in" : undefined}
+        />
       ) : (
         <Icon size={Math.round(size * 0.75)} color={tint} strokeWidth={size > 32 ? 1.25 : 1.75} />
       )}
@@ -151,6 +161,12 @@ export function canThumbnail(entry: FileEntry): boolean {
 function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
   const [ref, visible] = useVisible();
   const [failed, setFailed] = useState(false);
+  // Náhled se ukáže, až je dekódovaný — do té doby průhledný, žádný poloviční
+  // obrázek. Z mezipaměti (complete hned po připojení) bez rozsvěcení.
+  const [shown, setShown] = useState<"no" | "fade" | "instant">("no");
+  const imageRef = useCallback((image: HTMLImageElement | null) => {
+    if (image?.complete && image.naturalWidth > 0) setShown("instant");
+  }, []);
 
   if (failed) return <ShellIcon entry={entry} size={size} />;
 
@@ -162,13 +178,15 @@ function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
     >
       {visible ? (
         <img
+          ref={imageRef}
           src={convertFileSrc(entry.path)}
           alt=""
           draggable={false}
           decoding="async"
+          onLoad={() => setShown((current) => (current === "no" ? "fade" : current))}
           onError={() => setFailed(true)}
-          className="h-full w-full rounded-[4px] object-cover"
-          style={{ border: "1px solid var(--thumb-border)" }}
+          className={`h-full w-full rounded-[4px] object-cover ${shown === "fade" ? "fw-icon-in" : ""}`}
+          style={{ border: "1px solid var(--thumb-border)", opacity: shown === "no" ? 0 : undefined }}
         />
       ) : (
         <ShellIcon entry={entry} size={size} />
