@@ -631,6 +631,8 @@ export function Sidebar({
   onConfirm,
 }: SidebarProps) {
   const { favorites, recents, tags, sidebarWidth } = useStorage();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
 
   function confirmClearRecents() {
     onConfirm({
@@ -999,30 +1001,50 @@ export function Sidebar({
   const favoritesSection = sections.find((section) => section.label === "Oblíbené");
   const otherSections = sections.filter((section) => section !== favoritesSection);
 
-  /** Tažení za pravou hranu mění šířku; na disk se zapíše až na konci. */
+  /**
+   * Tažení za pravou hranu mění šířku. Během tažení se sahá jen na styl panelu
+   * (jednou za snímek) — přes úložiště by každý pohyb myši překreslil celou
+   * aplikaci. Do nastavení (a do Reactu) se šířka zapíše až na konci.
+   */
   function startResize(event: React.MouseEvent) {
     if (event.button !== 0) return;
     event.preventDefault();
     const startX = event.clientX;
     const startWidth = sidebarWidth;
+    const panel = panelRef.current;
+    const aside = asideRef.current;
+    let width = startWidth;
+    let frame = 0;
 
+    const clamp = (value: number) =>
+      Math.round(Math.min(storage.SIDEBAR_MAX, Math.max(storage.SIDEBAR_MIN, value)));
     const onMove = (move: MouseEvent) => {
-      void storage.setSidebarWidth(startWidth + move.clientX - startX, false);
+      width = clamp(startWidth + move.clientX - startX);
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (panel) panel.style.width = `${width}px`;
+        if (aside) aside.dataset.wide = String(width > 240);
+      });
     };
-    const onUp = (up: MouseEvent) => {
+    const onUp = () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
+      cancelAnimationFrame(frame);
       document.body.style.cursor = "";
-      void storage.setSidebarWidth(startWidth + up.clientX - startX);
+      document.documentElement.classList.remove("is-resizing-sidebar");
+      void storage.setSidebarWidth(width);
     };
     document.body.style.cursor = "col-resize";
+    document.documentElement.classList.add("is-resizing-sidebar");
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }
 
   return (
-    <div className="relative flex shrink-0" style={{ width: sidebarWidth }}>
+    <div ref={panelRef} className="relative flex shrink-0" style={{ width: sidebarWidth }}>
       <aside
+        ref={asideRef}
         // Menu volné plochy visí na celém sloupci: nadpisy sekcí, prázdné stavy
         // i prostor pod poslední sekcí patří jemu. Řádky si událost zastaví samy.
         onContextMenu={(event) => {
@@ -1032,7 +1054,7 @@ export function Sidebar({
         }}
         // Hodnoty vpravo (čas, počty) jsou u úzkého panelu vidět jen při najetí.
         data-wide={sidebarWidth > 240}
-        className="fw-sidebar fw-scroll surface flex w-full flex-col overflow-y-auto pt-1"
+        className="fw-sidebar fw-scroll flex w-full flex-col overflow-y-auto pt-1"
       >
         {favoritesSection && renderSystemSection(favoritesSection)}
 

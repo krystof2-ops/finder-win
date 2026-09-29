@@ -2273,6 +2273,25 @@ fn apply_rounded_corners(window: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 fn apply_rounded_corners(_window: &tauri::WebviewWindow) {}
 
+/// Pojistka pro start: okno se vytváří skryté (tauri.conf.json) a ukazuje ho
+/// frontend po prvním vykreslení (app_ready). Kdyby JS spadl dřív, ukáže se
+/// po téhle době samo — radši rozbitá stránka než neviditelná aplikace.
+const SHOW_FALLBACK: std::time::Duration = std::time::Duration::from_millis(1500);
+
+fn show_main_window(window: &tauri::WebviewWindow) {
+    if window.is_visible().unwrap_or(false) {
+        return;
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// Frontend má hotový první render, téma i písmo — okno může ven.
+#[tauri::command]
+fn app_ready(window: tauri::WebviewWindow) {
+    show_main_window(&window);
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -2281,6 +2300,10 @@ fn main() {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 apply_rounded_corners(&window);
+                std::thread::spawn(move || {
+                    std::thread::sleep(SHOW_FALLBACK);
+                    show_main_window(&window);
+                });
             }
 
             let (sender, receiver) = std::sync::mpsc::channel();
@@ -2295,6 +2318,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_ready,
             list_dir,
             list_dir_stream,
             can_list_dir,

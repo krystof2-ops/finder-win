@@ -267,7 +267,7 @@ function ColumnPane({
       onClick={(event) => {
         if (!(event.target as Element).closest("[data-path]")) onClearSelection(index);
       }}
-      className={`fw-scroll surface flex w-[240px] shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-line py-1 ${
+      className={`fw-scroll flex w-[240px] shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-line py-1 ${
         exiting ? "fw-column-out" : "fw-column-in"
       }`}
       style={{ backgroundColor: isFocused ? "var(--bg-toolbar)" : "var(--bg-main)" }}
@@ -351,7 +351,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
   const colors = tagsOf(tags, entry.path);
 
   return (
-    <div className="fw-info-panel fw-scroll surface flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
+    <div className="fw-info-panel fw-scroll flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
       <div className="flex justify-center pt-2">
         <EntryIcon entry={entry} size={128} thumbnail />
       </div>

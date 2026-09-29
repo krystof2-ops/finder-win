@@ -26,6 +26,7 @@
 }
 
 :root {
+  color-scheme: light;
   --bg-window: #ececec;
   /* Sidebar jako macOS: světle šedý, s rozmazáním (.fw-sidebar). */
   --bg-sidebar: rgba(245, 245, 247, 0.92);
@@ -161,6 +162,7 @@
 @property --dur-busy { syntax: "<time>"; inherits: true; initial-value: 0s; }
 
 .dark {
+  color-scheme: dark;
   --bg-window: #1e1e1e;
   --bg-sidebar: rgba(40, 40, 40, 0.7);
   --bg-main: #000000;
@@ -254,22 +256,46 @@ body {
   /* Souborový manažer není dokument — text se needituje ani neoznačuje. */
   user-select: none;
   cursor: default;
-  /* Podklad okna se musí přebarvovat s tématem stejně jako .surface plochy,
-     jinak by při přepnutí problikl. */
-  transition:
-    background-color 260ms var(--ease-in-out),
-    color 220ms var(--ease-in-out);
 }
 
-/* Plynulý přechod light <-> dark. Vědomě jen na plochách, ne na `*`,
-   aby si to nepřebilo rychlejší hover přechody na řádcích. Vyjmenované
-   transition-property je tu podstatné — "all" by chytilo i transform
-   a rozmazalo hover posuny. */
-.surface {
-  transition:
-    background-color 260ms var(--ease-in-out),
-    color 220ms var(--ease-in-out),
-    border-color 260ms var(--ease-in-out);
+/* ------------------------------ přepnutí tématu ------------------------------
+   Světlý <-> tmavý: celé okno se prolne naráz (View Transitions — snímek
+   starého vzhledu zhasne nad novým). Žádná plocha tak nedobíhá jiným tempem:
+   ikony, scrollbary, dialogy, menu i tooltip se přebarví v jednom okamžiku.
+   Během přechodu .is-theming vypne všechny transitions, jinak by nový stav
+   pod snímkem ještě dojížděl (hover podklady, jezdec scrollbaru). Jediné
+   místo, kde se používá --ease-in-out. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-slow);
+  animation-timing-function: var(--ease-in-out);
+}
+
+.is-theming,
+.is-theming *,
+.is-theming *::before,
+.is-theming *::after {
+  transition: none !important;
+}
+
+/* Okno startuje skryté a ukáže se až s prvním vykresleným obsahem (App →
+   app_ready). Obsah se pak rozsvítí za 200 ms na podkladu okna, který má
+   už barvu tématu. */
+.fw-app {
+  opacity: 0;
+}
+
+.fw-app.is-ready {
+  opacity: 1;
+  animation: fw-fade-in var(--dur-slow) var(--ease-out);
+}
+
+/* Tažení šířky sidebaru: text se nezalamuje (jinak by při zúžení poskakoval
+   po řádcích) a nic nedobíhá. */
+.is-resizing-sidebar .fw-sidebar,
+.is-resizing-sidebar .fw-sidebar * {
+  white-space: nowrap;
+  transition: none;
 }
 
 /* Cross-fade obsahu Quick Look náhledu při přepnutí souboru šipkami. */

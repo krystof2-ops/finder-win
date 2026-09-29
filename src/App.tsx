@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
@@ -53,7 +54,7 @@ import {
   type SortKey,
 } from "./format";
 import { isTypingTarget } from "./lib/dom";
-import { motionMs, smoothIfAllowed } from "./lib/motion";
+import { motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
@@ -383,6 +384,52 @@ export default function App() {
   }, []);
 
   useEffect(() => applyTheme(theme), [theme]);
+
+  /**
+   * Světlý <-> tmavý. Celé okno se prolne naráz přes View Transition: snímek
+   * starého vzhledu zhasne nad novým, takže žádná plocha nedobíhá svým tempem.
+   * Nový stav musí být v DOM hotový uvnitř callbacku — proto flushSync.
+   */
+  const toggleTheme = useCallback(() => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    const root = document.documentElement;
+    const apply = () => {
+      flushSync(() => setTheme(next));
+      applyTheme(next);
+    };
+    const done = () => root.classList.remove("is-theming");
+
+    root.classList.add("is-theming");
+    const withTransition = document as Document & {
+      startViewTransition?: (update: () => void) => { finished: Promise<void> };
+    };
+    if (withTransition.startViewTransition && motionEnabled()) {
+      withTransition.startViewTransition(apply).finished.finally(done);
+    } else {
+      apply();
+      // Až po vykreslení nového stavu, ať se nic nerozjede dodatečně.
+      requestAnimationFrame(() => requestAnimationFrame(done));
+    }
+  }, [theme]);
+
+  // Okno startuje skryté (tauri.conf.json). Ukáže se, až je hotový první
+  // render, nastavení (téma je už z localStorage, main.tsx) a písmo — bez
+  // bílého záblesku a bez přeskočení fontu. Když JS spadne, ukáže ho Rust
+  // sám po 1,5 s.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let active = true;
+    Promise.all([storage.init(), document.fonts?.ready])
+      .catch(() => undefined)
+      .then(() => invoke("app_ready"))
+      .catch(() => undefined)
+      .finally(() => {
+        if (active) setReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Informace se sama sveze dolů po dvou sekundách, chyba zůstává. Časovač
   // visí na `notice`, takže nová hláška ten starý zruší a odpočet začne znovu.
@@ -2443,7 +2490,11 @@ export default function App() {
   return (
     // 100 %, ne 100vw/100vh: vw se při zlomkovém škálování zaokrouhlí a na
     // okraji by zůstal proužek podkladu.
-    <div className="surface flex h-full w-full flex-col overflow-hidden bg-window text-primary">
+    <div
+      className={`fw-app flex h-full w-full flex-col overflow-hidden bg-window text-primary ${
+        ready ? "is-ready" : ""
+      }`}
+    >
       <TitleBar />
 
       <div className="flex min-h-0 flex-1">
@@ -2460,7 +2511,7 @@ export default function App() {
           onConfirm={setConfirm}
         />
 
-        <main className="surface flex min-w-0 flex-1 flex-col bg-main">
+        <main className="flex min-w-0 flex-1 flex-col bg-main">
           <Toolbar
             folderName={folderName}
             folderIcon={folderIcon}
@@ -2471,7 +2522,7 @@ export default function App() {
             viewMode={viewMode}
             onViewModeChange={changeViewMode}
             theme={theme}
-            onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+            onToggleTheme={toggleTheme}
             query={query}
             onQueryChange={setQuery}
             onSearchSubmit={submitSearch}

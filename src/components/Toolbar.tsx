@@ -227,7 +227,7 @@ export function Toolbar({
   return (
     // Skupiny s mezerou 12 px: [zpět/vpřed] [název] … [zobrazení] [seřadit]
     // [sdílet, štítky] [více] [téma] [hledání].
-    <header className="fw-toolbar surface flex h-10 shrink-0 items-center gap-3 px-3">
+    <header className="fw-toolbar flex h-10 shrink-0 items-center gap-3 px-3">
       <div className="flex shrink-0 items-center gap-0.5">
         <IconButton Icon={ChevronLeft} label="Zpět" disabled={!canGoBack} onClick={onBack} />
         <IconButton
