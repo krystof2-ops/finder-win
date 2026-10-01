@@ -102,6 +102,16 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - No tabs or multiple windows.
 - The installer is **not code-signed** (see SmartScreen above).
 
+## Changelog
+
+### 1.1.0
+
+- **Audit fixes** – selection and navigation logic, safer file operations, security and configuration hardening.
+- **Multi-select and keyboard navigation** – Ctrl/Shift selection, arrow keys across all views, Sort, Share and Tags buttons in the toolbar.
+- **Collision dialog** – paste and move ask what to do when a file with the same name already exists (replace, keep both, skip).
+- **New design with shell icons** – real Windows file icons, Sonoma-style folders, image thumbnails, reworked toolbar, sidebar, views and dialogs, WCAG AA contrast in both themes.
+- **Animations and virtualization** – virtualized listings with streamed directory loading, jump-free navigation, micro-interactions, smoother scrolling and `prefers-reduced-motion` support.
+
 ## License
 
 [MIT](LICENSE)

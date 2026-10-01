@@ -100,6 +100,16 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 - Žádné taby ani víc oken.
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 
+## Changelog
+
+### 1.1.0
+
+- **Opravy z auditu** – logika výběru a navigace, bezpečnější souborové operace, zpřísnění bezpečnosti a konfigurace.
+- **Vícenásobný výběr a klávesová navigace** – výběr s Ctrl/Shift, šipky ve všech zobrazeních, tlačítka Seřadit, Sdílet a Štítky v toolbaru.
+- **Dialog kolizí** – vložení a přesun se zeptají, co dělat, když soubor se stejným názvem už existuje (nahradit, ponechat oba, přeskočit).
+- **Nový design s ikonami ze shellu** – skutečné ikony souborů z Windows, složky ve stylu Sonoma, náhledy obrázků, přepracovaný toolbar, sidebar, zobrazení a dialogy, kontrast WCAG AA v obou tématech.
+- **Animace a virtualizace** – virtualizované výpisy se streamovaným načítáním složek, navigace bez skoků, mikrointerakce, plynulejší scroll a podpora `prefers-reduced-motion`.
+
 ## Licence
 
 [MIT](LICENSE)
