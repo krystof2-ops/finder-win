@@ -2,6 +2,8 @@
 
 [![Download](https://img.shields.io/github/v/release/krystof2-ops/finder-win?label=St%C3%A1hnout%20pro%20Windows&style=for-the-badge)](https://github.com/krystof2-ops/finder-win/releases/latest) ![Downloads](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total?style=for-the-badge) ![License](https://img.shields.io/github/license/krystof2-ops/finder-win?style=for-the-badge)
 
+![Finder-Win demo](docs/demo.gif)
+
 [English](README.md) · **Čeština**
 
 Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Reactu a Rustu.

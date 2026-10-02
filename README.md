@@ -2,6 +2,8 @@
 
 [![Download](https://img.shields.io/github/v/release/krystof2-ops/finder-win?label=Download%20for%20Windows&style=for-the-badge)](https://github.com/krystof2-ops/finder-win/releases/latest) ![Downloads](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total?style=for-the-badge) ![License](https://img.shields.io/github/license/krystof2-ops/finder-win?style=for-the-badge)
 
+![Finder-Win demo](docs/demo.gif)
+
 **English** · [Čeština](README.cs.md)
 
 A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rust.
