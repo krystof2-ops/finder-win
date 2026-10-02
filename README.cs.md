@@ -35,6 +35,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 - **Skryté soubory** – řídí se nastavením Průzkumníku, přepínají se Ctrl+Shift+.
 - **Živá aktualizace** – výpis složky se sám obnoví, když se soubory na disku změní.
 - **Světlý a tmavý režim**, plynulé animace jako na macOS (vypnou se, když je ve Windows zapnuté omezení animací), funguje offline.
+- **Rozhraní anglicky a česky, řídí se jazykem Windows** – přepnout jde kdykoli v menu Více → Language / Jazyk.
 
 ## Klávesové zkratky
 
@@ -91,7 +92,6 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 
 ## Známá omezení
 
-- **Rozhraní je jen česky**, lokalizace zatím není.
 - **Jen pro Windows.**
 - **Bez Zpět (Undo)** – smazané jde do koše, ale přejmenování, přesuny a nahrazení se z aplikace vrátit nedají.
 - **Bez schránky Windows pro soubory** – kopírovat / vyjmout / vložit funguje jen uvnitř aplikace; do Průzkumníku ani z něj soubory vložit nejde. „Kopírovat cestu“ systémovou schránku používá.
@@ -103,6 +103,10 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 
 ## Changelog
+
+### 1.2.0
+
+- **Anglické rozhraní, přepínač jazyka, data, velikosti a plurály podle jazyka** – aplikace se řídí jazykem Windows (angličtina nebo čeština) a přepnout ji jde v menu Více → Language / Jazyk bez restartu.
 
 ### 1.1.0
 

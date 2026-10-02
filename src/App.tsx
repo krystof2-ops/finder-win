@@ -23,7 +23,7 @@ import { SearchView } from "./components/SearchView";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
 import { TagView } from "./components/TagView";
-import { FolderIcon, sidebarIcon, sidebarIconColor } from "./components/icons";
+import { FolderIcon, folderDisplayName, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { TooltipLayer } from "./components/Tooltip";
@@ -187,7 +187,7 @@ export default function App() {
   const [sections, setSectionsState] = useState<FavoriteSection[]>([]);
   /** Sekce sidebaru — a z Oblíbených se odvodí speciální složky s glyfem. */
   const setSections = useCallback((next: FavoriteSection[]) => {
-    setSpecialFolders(next.find((section) => section.id === "favorites")?.items ?? []);
+    setSpecialFolders(next);
     setSectionsState(next);
   }, []);
   const [nav, dispatch] = useReducer(navReducer, INITIAL_NAV);
@@ -2333,7 +2333,7 @@ export default function App() {
       : search !== null
         ? t("toolbar.searchResults")
         : crumbs.length > 0
-          ? crumbs[crumbs.length - 1].label
+          ? folderDisplayName(crumbs[crumbs.length - 1].path, crumbs[crumbs.length - 1].label)
           : "Finder";
 
   // Status bar i Quick Look musí počítat s tím, co je opravdu vidět —
@@ -2531,6 +2531,8 @@ export default function App() {
         <main className="flex min-w-0 flex-1 flex-col bg-main">
           <Toolbar
             folderName={folderName}
+            // Přeložený popisek ("Pictures") nesmí schovat, kde složka opravdu je.
+            folderPath={tagFilter === null && search === null ? nav.current : null}
             folderIcon={folderIcon}
             canGoBack={nav.back.length > 0}
             canGoForward={nav.forward.length > 0}

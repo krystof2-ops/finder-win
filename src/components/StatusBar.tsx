@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "../fileops";
+import { folderDisplayName } from "./icons";
 import { breadcrumbs, formatFreeSpace, formatItemCount } from "../format";
 import { useT } from "../i18n";
 import { isTypingTarget } from "../lib/dom";
@@ -160,7 +161,7 @@ export function StatusBar({
                 onClick={() => onNavigate(crumb.path)}
                 className="truncate rounded px-0.5 underline-offset-2 hover:text-primary hover:underline"
               >
-                {crumb.label}
+                {folderDisplayName(crumb.path, crumb.label)}
               </button>
             </span>
           ))}
@@ -168,8 +169,10 @@ export function StatusBar({
       )}
 
       {/* Pevná šířka: počty se při výběru mění ("Vybráno 1 z 2000") a pružný
-          blok by pokaždé posunul a přezkrátil drobky vlevo (layout shift). */}
-      <div className="w-[260px] shrink-0 overflow-hidden text-right whitespace-nowrap tabular-nums">
+          blok by pokaždé posunul a přezkrátil drobky vlevo (layout shift).
+          300 px unese i nejdelší anglickou variantu
+          ("1,234 of 12,345 (filtered), 85.9 GB available"). */}
+      <div className="w-[300px] shrink-0 overflow-hidden text-right whitespace-nowrap tabular-nums">
         {/* key: nový uzel pro nový text. Přepsaný text zarovnaný vpravo by
             se posunul (jiná šířka) a hlásil se jako layout shift. */}
         <span key={summary}>{summary}</span>

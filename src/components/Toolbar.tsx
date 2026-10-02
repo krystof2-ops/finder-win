@@ -17,8 +17,9 @@ import {
 } from "lucide-react";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { useT, type MessageKey } from "../i18n";
+import { languageSetting, useT, type MessageKey } from "../i18n";
 import type { MotionPreference } from "../lib/storage";
+import { useStorage } from "../lib/useStorage";
 import type { Theme, ViewMode } from "../types";
 
 type IconButtonProps = {
@@ -124,6 +125,8 @@ function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: Vie
 
 type ToolbarProps = {
   folderName: string;
+  /** Skutečná cesta pro tooltip záhlaví; null v tag view a výsledcích hledání. */
+  folderPath: string | null;
   /** Malá ikona před názvem — stejná jako u složky v sidebaru. */
   folderIcon: React.ReactNode;
   canGoBack: boolean;
@@ -165,6 +168,7 @@ type ToolbarMenu = "sort" | "share" | "tags" | "more";
 
 export function Toolbar({
   folderName,
+  folderPath,
   folderIcon,
   canGoBack,
   canGoForward,
@@ -193,6 +197,7 @@ export function Toolbar({
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
+  const { language } = useStorage();
   // Otevřené může být jen jedno menu. Pozice se bere z rámečku tlačítka.
   const [menu, setMenu] = useState<{ kind: ToolbarMenu; x: number; y: number } | null>(null);
 
@@ -245,6 +250,23 @@ export function Toolbar({
         onSelect: () => onMotionChange(value),
       })),
     },
+    {
+      type: "submenu",
+      label: t("language.menu"),
+      items: (
+        [
+          ["system", "language.system"],
+          ["en", "language.english"],
+          ["cs", "language.czech"],
+        ] as const
+      ).map(([value, label]) => ({
+        type: "item" as const,
+        label: t(label),
+        checked: language === value,
+        // Uloží se do settings.json a UI se přeloží hned, bez restartu.
+        onSelect: () => void languageSetting.set(value),
+      })),
+    },
     { type: "separator" },
     { type: "item", label: t("toolbar.about"), onSelect: onShowAbout },
   ];
@@ -267,7 +289,12 @@ export function Toolbar({
         <span className="flex shrink-0 items-center" aria-hidden>
           {folderIcon}
         </span>
-        <h1 className="truncate text-[15px] font-semibold text-primary">{folderName}</h1>
+        <h1
+          className="truncate text-[15px] font-semibold text-primary"
+          data-tooltip={folderPath ?? undefined}
+        >
+          {folderName}
+        </h1>
       </div>
 
       <div className="flex-1" />

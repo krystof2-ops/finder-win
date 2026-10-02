@@ -27,7 +27,7 @@ import {
 
 import { iconRequestSize, useFileIcon, useVisible } from "../lib/fileIcons";
 import { fileType, type FileGroup } from "../lib/filetypes";
-import { specialFolderGlyph } from "../lib/specialFolders";
+import { namedFolder, specialFolderGlyph } from "../lib/specialFolders";
 import { t, useT } from "../i18n";
 import type { FavoriteEntry, FileEntry, SectionId } from "../types";
 
@@ -264,6 +264,15 @@ export function sidebarLabel(item: FavoriteEntry): string {
     if (item.kind !== null && item.kind !== "phone") return t(`drive.${item.kind}`, { letter: item.letter });
   }
   return item.label ?? (item.kind === "phone" ? t("drive.phone") : item.path);
+}
+
+/**
+ * Název složky pro záhlaví a drobky: standardní složka (a OneDrive) má
+ * stejný popisek jako v sidebaru, ostatní název z disku (`fallback`).
+ */
+export function folderDisplayName(path: string, fallback: string): string {
+  const item = namedFolder(path);
+  return item === null ? fallback : sidebarLabel(item);
 }
 
 export function sidebarIcon(iconName: string): LucideIcon {

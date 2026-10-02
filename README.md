@@ -6,8 +6,6 @@
 
 A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rust.
 
-> **Note:** the user interface is currently in Czech only.
-
 ## Screenshots
 
 ![Column view](docs/screenshots/main-column-view.png)
@@ -37,6 +35,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 - **Hidden files** – follows the Explorer setting, toggle with Ctrl+Shift+.
 - **Live updates** – the folder listing refreshes by itself when files change on disk.
 - **Light and dark mode**, smooth macOS-like animations (disabled when Windows "reduce motion" is on), works offline.
+- **English and Czech UI, follows your Windows language** – switch any time in More → Language / Jazyk.
 
 ## Keyboard shortcuts
 
@@ -93,7 +92,6 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 
 ## Known limitations
 
-- **UI is Czech only**, no localization yet.
 - **Windows only.**
 - **No Undo** – deletions go to the Recycle Bin, but renames, moves and replacements can't be undone from the app.
 - **No Windows clipboard for files** – copy / cut / paste works only inside the app; you can't paste files into Explorer or from it. "Copy path" does use the system clipboard.
@@ -105,6 +103,10 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - The installer is **not code-signed** (see SmartScreen above).
 
 ## Changelog
+
+### 1.2.0
+
+- **English UI, language switcher, localized dates, sizes and plurals** – the app follows your Windows language (English or Czech) and can be switched in More → Language / Jazyk without a restart.
 
 ### 1.1.0
 

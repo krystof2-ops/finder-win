@@ -49,7 +49,12 @@ export const en = {
   "toolbar.animations": "Animations",
   "toolbar.about": "About Finder-Win",
 
-  "motion.system": "Use System Setting",
+  "motion.system": "Match System",
+
+  "language.menu": "Language / Jazyk",
+  "language.system": "System",
+  "language.english": "English",
+  "language.czech": "Čeština",
   "motion.on": "On",
   "motion.off": "Off",
 
@@ -102,7 +107,7 @@ export const en = {
   /* ---------------------------------- sidebar --------------------------------- */
   "sidebar.favorites": "Favorites",
   "sidebar.cloud": "Cloud",
-  "sidebar.devices": "Devices",
+  "sidebar.devices": "Locations",
   "sidebar.custom": "My Favorites",
   "sidebar.recents": "Recents",
   "sidebar.tags": "Tags",
@@ -218,7 +223,7 @@ export const en = {
   "kind.log": "Log File",
   "kind.word": "Word Document",
   "kind.spreadsheet": "{format} Workbook",
-  "kind.csv": "CSV Spreadsheet",
+  "kind.csv": "CSV Document",
   "kind.presentation": "{format} Presentation",
   "kind.image": "{format} Image",
   "kind.icon": "Icon",
@@ -228,7 +233,7 @@ export const en = {
   "kind.diskImage": "Disk Image",
   "kind.application": "Application",
   "kind.installer": "Installer",
-  "kind.library": "DLL Library",
+  "kind.library": "Dynamic Link Library",
   "kind.shortcut": "Shortcut",
   "kind.internetShortcut": "Internet Shortcut",
   "kind.stylesheet": "Style Sheet",

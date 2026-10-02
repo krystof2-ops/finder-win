@@ -1,4 +1,5 @@
 import { pathKey } from "./storage";
+import type { FavoriteEntry, FavoriteSection } from "../types";
 
 /**
  * Speciální složky (Plocha, Dokumenty, Stažené, Obrázky, Hudba, Videa, Domů)
@@ -7,9 +8,29 @@ import { pathKey } from "./storage";
  */
 const glyphs = new Map<string, string>();
 
-export function setSpecialFolders(items: { path: string; icon_name: string }[]): void {
+/**
+ * Složky, které sidebar pojmenovává po svém (Oblíbené a Cloud): záhlaví
+ * toolbaru a drobky je ukazují stejným popiskem — "Pictures" místo
+ * "Obrázky" z disku. Disky sem nepatří, ty si drží název z cesty.
+ */
+const named = new Map<string, FavoriteEntry>();
+
+export function setSpecialFolders(sections: FavoriteSection[]): void {
   glyphs.clear();
-  for (const item of items) glyphs.set(pathKey(item.path), item.icon_name);
+  named.clear();
+  for (const section of sections) {
+    if (section.id === "devices") continue;
+    for (const item of section.items) {
+      if (item.external) continue;
+      named.set(pathKey(item.path), item);
+      if (section.id === "favorites") glyphs.set(pathKey(item.path), item.icon_name);
+    }
+  }
+}
+
+/** Položka sidebaru se stejnou (normalizovanou) cestou, jinak null. */
+export function namedFolder(path: string): FavoriteEntry | null {
+  return named.get(pathKey(path)) ?? null;
 }
 
 /** Název ikony (klíč do SIDEBAR_ICONS) pro speciální složku, jinak null. */

@@ -47,6 +47,13 @@ export const cs = {
   "toolbar.about": "O aplikaci Finder-Win",
 
   "motion.system": "Podle systému",
+
+  /* Přepínač jazyka: nadpis je dvojjazyčný a jazyky se jmenují samy sebou,
+     aby se v menu našel i ten, kdo nerozumí aktuálnímu jazyku. */
+  "language.menu": "Language / Jazyk",
+  "language.system": "Podle systému",
+  "language.english": "English",
+  "language.czech": "Čeština",
   "motion.on": "Zapnuto",
   "motion.off": "Vypnuto",
 
@@ -276,7 +283,7 @@ export const cs = {
   "info.modified": "Změněno",
   "info.tags": "Štítky",
   "symlink.badge": "Odkaz",
-  "menu.tagButton": "Tag {tag}",
+  "menu.tagButton": "Štítek {tag}",
 
   /* --------------------------------- O aplikaci ------------------------------- */
   "about.version": "Verze {version}",
