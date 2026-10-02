@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 
-import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { TAG_COLORS, TAG_HEX, tagLabel } from "../lib/tags";
 import type { TagColor } from "../types";
 
 type ActionItem = {
@@ -85,9 +85,9 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
               <button
                 key={color}
                 type="button"
-                data-tooltip={TAG_LABEL[color]}
+                data-tooltip={tagLabel(color)}
                 aria-pressed={isActive}
-                aria-label={`Tag ${TAG_LABEL[color]}`}
+                aria-label={`Tag ${tagLabel(color)}`}
                 // Menu po kliknutí schválně zůstává — tagů jde přidat víc najednou.
                 onClick={() => onToggle(color)}
                 className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full fw-t-transform hover:scale-110"

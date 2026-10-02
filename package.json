@@ -13,7 +13,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run i18n:check && tsc && vite build",
+    "i18n:check": "node scripts/i18n-check.mjs",
     "preview": "vite preview",
     "tauri": "tauri"
   },

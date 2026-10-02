@@ -1,12 +1,13 @@
+import { formatNumber, getLocale, t } from "./i18n";
 import { fileType, type PreviewKind } from "./lib/filetypes";
 import type { FileEntry } from "./types";
 
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"] as const;
 
-/** 0 → "", 1536 → "1,5 KB". Složky nemají velikost, proto prázdný řetězec. */
+/** 0 → "", 1536 → "1,5 KB" / "1.5 KB". Složky nemají velikost, proto prázdný řetězec. */
 export function formatSize(bytes: number, isDir: boolean): string {
   if (isDir) return "";
-  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024) return `${formatNumber(bytes)} B`;
 
   let value = bytes;
   let unit = 0;
@@ -15,30 +16,44 @@ export function formatSize(bytes: number, isDir: boolean): string {
     unit += 1;
   }
 
-  return `${value.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} ${SIZE_UNITS[unit]}`;
+  return `${value.toLocaleString(getLocale(), { maximumFractionDigits: 1 })} ${SIZE_UNITS[unit]}`;
 }
 
 /** Volné místo na disku — vždy v GB s jedním desetinným místem. */
 export function formatFreeSpace(bytes: number): string {
   const gb = bytes / 1024 ** 3;
-  return `${gb.toLocaleString("cs-CZ", {
+  const size = gb.toLocaleString(getLocale(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
-  })} GB volných`;
+  });
+  return t("status.freeSpace", { size: `${size} GB` });
 }
 
-/** Unix timestamp v sekundách → "3. 2. 2026 14:05". */
+const dateTimeFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** Intl.DateTimeFormat je drahé na vytvoření — sloupec Datum ho volá pro každý řádek. */
+function dateTimeFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const locale = getLocale();
+  const key = `${locale}|${JSON.stringify(options)}`;
+  let format = dateTimeFormats.get(key);
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options);
+    dateTimeFormats.set(key, format);
+  }
+  return format;
+}
+
+/** Unix timestamp v sekundách → "3. 2. 2026 14:05" / "2/3/2026, 2:05 PM". */
 export function formatModified(timestamp: number): string {
   if (!timestamp) return "";
 
-  const date = new Date(timestamp * 1000);
-  return date.toLocaleString("cs-CZ", {
+  return dateTimeFormat({
     day: "numeric",
     month: "numeric",
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(new Date(timestamp * 1000));
 }
 
 /**
@@ -51,30 +66,30 @@ export function formatModified(timestamp: number): string {
 export function formatRelative(timestampMs: number): string {
   if (!timestampMs) return "";
 
+  const relative = new Intl.RelativeTimeFormat(getLocale(), { numeric: "auto", style: "short" });
+
   const seconds = Math.round((Date.now() - timestampMs) / 1000);
-  if (seconds < 60) return "teď";
+  if (seconds < 60) return relative.format(0, "second");
 
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `před ${minutes} min`;
+  if (minutes < 60) return relative.format(-minutes, "minute");
 
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `před ${hours} h`;
+  if (hours < 24) return relative.format(-hours, "hour");
 
   const date = new Date(timestampMs);
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
 
   // "Včera" se počítá podle kalendáře, ne podle 24 hodin zpátky.
-  if (date.getTime() >= midnight.getTime() - 86_400_000) return "včera";
+  if (date.getTime() >= midnight.getTime() - 86_400_000) return relative.format(-1, "day");
 
-  return date.toLocaleDateString("cs-CZ", { day: "numeric", month: "numeric" });
+  return dateTimeFormat({ day: "numeric", month: "numeric" }).format(date);
 }
 
-/** Česká shoda čísla s podstatným jménem: 1 položka / 3 položky / 8 položek. */
+/** Shoda čísla s podstatným jménem: 1 položka / 3 položky / 8 položek, 1 item / 8 items. */
 export function formatItemCount(count: number): string {
-  if (count === 1) return "1 položka";
-  if (count >= 2 && count <= 4) return `${count} položky`;
-  return `${count} položek`;
+  return t("items.count", { count });
 }
 
 export type Crumb = { label: string; path: string };

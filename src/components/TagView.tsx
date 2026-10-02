@@ -5,7 +5,7 @@ import { Tag } from "lucide-react";
 import { ResultsView } from "./ResultsView";
 import { statPaths } from "../fileops";
 import * as storage from "../lib/storage";
-import { TAG_LABEL } from "../lib/tags";
+import { tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry, TagColor } from "../types";
 
@@ -96,7 +96,7 @@ export function TagView({
       error={null}
       empty={{
         Icon: Tag,
-        title: `Nic není označené barvou ${TAG_LABEL[color].toLowerCase()}`,
+        title: `Nic není označené barvou ${tagLabel(color).toLowerCase()}`,
         hint: "Štítek přidáte pravým klikem na položku → Tagy.",
       }}
       windowFocused={windowFocused}

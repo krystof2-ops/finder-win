@@ -4,7 +4,7 @@ import { LargeEntryIcon } from "./icons";
 import { cancelFolderStats, folderStats, getFileProperties, parentPath } from "../fileops";
 import { formatItemCount, formatModified, formatSize, kindLabel } from "../format";
 import { tagsOf } from "../lib/storage";
-import { TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { TAG_HEX, tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry, FileProperties, FolderStats } from "../types";
 
@@ -138,7 +138,7 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
                           className="inline-block rounded-full"
                           style={{ width: 8, height: 8, background: TAG_HEX[color] }}
                         />
-                        {TAG_LABEL[color]}
+                        {tagLabel(color)}
                       </span>
                     ))}
                   </span>

@@ -6,12 +6,13 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { fileVisual, sidebarIcon, sidebarIconColor, sidebarLabel } from "./icons";
 import { openDevice, openInExplorer, openTerminal, parentPath } from "../fileops";
-import { formatItemCount, formatRelative } from "../format";
+import { formatRelative } from "../format";
+import { failure, useT, type MessageKey } from "../i18n";
 import type { ConfirmRequest } from "./ConfirmDialog";
 import { isTypingTarget } from "../lib/dom";
 import { endDrag, getDrag, startDrag, useDrag } from "../lib/dnd";
 import * as storage from "../lib/storage";
-import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { TAG_COLORS, TAG_HEX, tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
 import type {
   CustomFavorite,
@@ -19,13 +20,14 @@ import type {
   FavoriteSection,
   RecentEntry,
   RecentKind,
+  SectionId,
   TagColor,
 } from "../types";
 
 /** Nedávných se ukládá 20, ale sidebar by z nich neúměrně narostl. */
 const RECENTS_SHOWN = 10;
 
-/** Klíče sekcí pro sbalení. Sekce od backendu mají klíč `system:<název>`. */
+/** Klíče sekcí pro sbalení. Sekce od backendu mají klíč `system:<id>`. */
 const CUSTOM_ID = "custom";
 const RECENTS_ID = "recents";
 const TAGS_ID = "tags";
@@ -49,6 +51,12 @@ type SidebarProps = {
 
 /* -------------------------- sdílené stavební díly -------------------------- */
 
+const SECTION_TITLES: Record<SectionId, MessageKey> = {
+  favorites: "sidebar.favorites",
+  cloud: "sidebar.cloud",
+  devices: "sidebar.devices",
+};
+
 /** Velká písmena v JS, ne přes text-transform — ať nadpis sedí i ve čtečce. */
 function sectionHeading(label: string): string {
   return label.toUpperCase();
@@ -58,11 +66,19 @@ function sectionHeading(label: string): string {
  *  takže stačí localStorage stejně jako u tématu. */
 const COLLAPSED_KEY = "finder-sidebar-collapsed";
 
+/** Do verze 1.1 se sekce od backendu klíčovaly českým názvem. */
+const LEGACY_SECTION_KEYS: Record<string, string> = {
+  "system:Oblíbené": "system:favorites", // i18n-ignore
+  "system:Cloud": "system:cloud",
+  "system:Zařízení": "system:devices", // i18n-ignore
+};
+
 function readCollapsed(): Set<string> {
   try {
     const raw = localStorage.getItem(COLLAPSED_KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string") : []);
+    const ids = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    return new Set(ids.map((id) => LEGACY_SECTION_KEYS[id] ?? id));
   } catch {
     return new Set();
   }
@@ -224,6 +240,7 @@ function CustomFavorites({
   onRenameCancel,
   heading,
 }: CustomFavoritesProps) {
+  const t = useT();
   const drag = useDrag();
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const navRef = useRef<HTMLElement>(null);
@@ -312,7 +329,7 @@ function CustomFavorites({
       }}
       onDrop={handleDrop}
     >
-      <SectionHeading control={heading}>MOJE OBLÍBENÉ</SectionHeading>
+      <SectionHeading control={heading}>{sectionHeading(t("sidebar.custom"))}</SectionHeading>
 
       {/* Sbalená sekce se během tažení otevře — jinak by nebylo kam pustit. */}
       {(!heading.collapsed || accepts) && (
@@ -406,7 +423,7 @@ function CustomFavorites({
 
           {items.length === 0 && !incoming && (
             <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
-              Přetáhni sem složku nebo soubor
+              {t("sidebar.dropHere")}
             </div>
           )}
         </nav>
@@ -494,16 +511,19 @@ function Recents({
   onContextMenu,
   heading,
 }: RecentsProps) {
+  const t = useT();
   const shown = items.slice(0, RECENTS_SHOWN);
 
   return (
     <div className="fw-sidebar-section">
-      <SectionHeading control={heading}>NEDÁVNÉ</SectionHeading>
+      <SectionHeading control={heading}>{sectionHeading(t("sidebar.recents"))}</SectionHeading>
 
       {!heading.collapsed && (
         <nav className="flex flex-col pb-0.5">
           {shown.length === 0 && (
-            <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">Zatím nic</div>
+            <div className="mx-1.5 px-3 py-1 text-[12px] text-secondary italic">
+              {t("sidebar.nothingYet")}
+            </div>
           )}
 
           {shown.map((entry) => {
@@ -563,13 +583,14 @@ function TagsSection({
   onContextMenu,
   heading,
 }: TagsSectionProps) {
+  const t = useT();
   // Jen barvy, které se opravdu používají — prázdná sekce se schová celá.
   const used = TAG_COLORS.filter((color) => (counts.get(color) ?? 0) > 0);
   if (used.length === 0) return null;
 
   return (
     <div className="fw-sidebar-section">
-      <SectionHeading control={heading}>TAGY</SectionHeading>
+      <SectionHeading control={heading}>{sectionHeading(t("sidebar.tags"))}</SectionHeading>
 
       {!heading.collapsed && (
         <nav className="flex flex-col pb-0.5">
@@ -595,7 +616,7 @@ function TagsSection({
                   boxShadow: "var(--dot-highlight)",
                 }}
               />
-              <span className="min-w-0 flex-1 truncate">{TAG_LABEL[color]}</span>
+              <span className="min-w-0 flex-1 truncate">{tagLabel(color)}</span>
               <span className="fw-sidebar-value">{counts.get(color)}</span>
             </button>
           ))}
@@ -630,15 +651,16 @@ export function Sidebar({
   onError,
   onConfirm,
 }: SidebarProps) {
+  const t = useT();
   const { favorites, recents, tags, sidebarWidth } = useStorage();
   const panelRef = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
 
   function confirmClearRecents() {
     onConfirm({
-      title: "Vymazat nedávné?",
-      message: "Seznam naposledy otevřených položek se vyprázdní. Soubory samotné zůstanou.",
-      confirmLabel: "Vymazat",
+      title: t("confirm.clearRecentsTitle"),
+      message: t("confirm.clearRecentsMessage"),
+      confirmLabel: t("confirm.clearRecentsConfirm"),
       danger: true,
       onConfirm: () => void storage.clearRecents(),
     });
@@ -647,18 +669,16 @@ export function Sidebar({
   function confirmRemoveTag(color: TagColor) {
     const count = Object.values(tags).filter((colors) => colors.includes(color)).length;
     onConfirm({
-      title: `Odebrat štítek ${TAG_LABEL[color].toLowerCase()}?`,
-      message: `Štítek zmizí ze ${formatItemCount(count)}. Soubory samotné zůstanou, ale vrátit štítky zpátky nepůjde.`,
-      confirmLabel: "Odebrat",
+      title: t("confirm.removeTagTitle", { tag: tagLabel(color).toLowerCase() }),
+      message: t("confirm.removeTagMessage", { count }),
+      confirmLabel: t("confirm.removeTagConfirm"),
       danger: true,
       onConfirm: () => void storage.removeTagEverywhere(color),
     });
   }
 
   function openDeviceOrReport(path: string) {
-    openDevice(path).catch((err: unknown) =>
-      onError(`Zařízení se nepodařilo otevřít — ${String(err)}`),
-    );
+    openDevice(path).catch((err: unknown) => onError(failure("op.device", err)));
   }
 
   const [menu, setMenu] = useState<SidebarMenu | null>(null);
@@ -716,37 +736,31 @@ export function Sidebar({
 
     const reveal = (path: string): MenuItem => ({
       type: "item",
-      label: "Otevřít v Průzkumníku",
+      label: t("menu.openInExplorer"),
       onSelect: () => {
-        openInExplorer(path).catch((err: unknown) =>
-          onError(`Průzkumníka se nepodařilo otevřít — ${String(err)}`),
-        );
+        openInExplorer(path).catch((err: unknown) => onError(failure("op.explorer", err)));
       },
     });
 
     const terminal = (path: string): MenuItem => ({
       type: "item",
-      label: "Otevřít v Terminálu",
+      label: t("menu.openInTerminal"),
       onSelect: () => {
-        openTerminal(path).catch((err: unknown) =>
-          onError(`Terminál se nepodařilo otevřít — ${String(err)}`),
-        );
+        openTerminal(path).catch((err: unknown) => onError(failure("op.terminal", err)));
       },
     });
 
     const copyPathItem = (path: string): MenuItem => ({
       type: "item",
-      label: "Kopírovat cestu",
+      label: t("menu.copyPath"),
       onSelect: () => {
-        writeText(path).catch((err: unknown) =>
-          onError(`Cestu se nepodařilo zkopírovat — ${String(err)}`),
-        );
+        writeText(path).catch((err: unknown) => onError(failure("op.copyPath", err)));
       },
     });
 
     const showPath = (path: string): MenuItem => ({
       type: "item",
-      label: "Zobrazit cestu",
+      label: t("menu.showPath"),
       onSelect: () => setPathTip({ x: menu.x, y: menu.y, path }),
     });
 
@@ -759,7 +773,7 @@ export function Sidebar({
 
       return {
         type: "item",
-        label: present ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+        label: present ? t("menu.removeFromFavorites") : t("menu.addToFavorites"),
         onSelect: () => {
           if (present) void storage.removeFavorite(path);
           else void storage.addFavorite({ label, path, icon: "Folder", type: kind });
@@ -773,7 +787,7 @@ export function Sidebar({
       const items: MenuItem[] = [
         {
           type: "item",
-          label: isCollapsed ? "Rozbalit sekci" : "Sbalit sekci",
+          label: isCollapsed ? t("menu.expandSection") : t("menu.collapseSection"),
           onSelect: () => toggleSection(id),
         },
       ];
@@ -783,7 +797,7 @@ export function Sidebar({
           { type: "separator" },
           {
             type: "item",
-            label: "Vymazat nedávné",
+            label: t("menu.clearRecents"),
             disabled: recents.length === 0,
             danger: true,
             onSelect: confirmClearRecents,
@@ -802,9 +816,7 @@ export function Sidebar({
       return [
         {
           type: "item",
-          label: canAdd
-            ? "Přidat aktuální složku do oblíbených"
-            : "Aktuální složka už je v oblíbených",
+          label: canAdd ? t("menu.addCurrentToFavorites") : t("menu.currentAlreadyFavorite"),
           disabled: !canAdd,
           onSelect: () => {
             if (currentPath === null) return;
@@ -819,7 +831,7 @@ export function Sidebar({
         { type: "separator" },
         {
           type: "item",
-          label: "Vymazat všechny nedávné",
+          label: t("menu.clearAllRecents"),
           disabled: recents.length === 0,
           danger: true,
           onSelect: confirmClearRecents,
@@ -831,11 +843,11 @@ export function Sidebar({
       const { color } = menu;
 
       return [
-        { type: "item", label: "Otevřít", onSelect: () => onSelectTag(color) },
+        { type: "item", label: t("menu.open"), onSelect: () => onSelectTag(color) },
         { type: "separator" },
         {
           type: "item",
-          label: `Odebrat štítek ${TAG_LABEL[color].toLowerCase()} ze všech položek`,
+          label: t("menu.removeTagEverywhere", { tag: tagLabel(color).toLowerCase() }),
           danger: true,
           onSelect: () => confirmRemoveTag(color),
         },
@@ -853,19 +865,19 @@ export function Sidebar({
         return [
           {
             type: "item",
-            label: "Otevřít v Průzkumníku",
+            label: t("menu.openInExplorer"),
             onSelect: () => openDeviceOrReport(item.path),
           },
         ];
       }
 
       return [
-        { type: "item", label: "Otevřít", onSelect: () => onNavigate(item.path) },
+        { type: "item", label: t("menu.open"), onSelect: () => onNavigate(item.path) },
         { type: "separator" },
         reveal(item.path),
         terminal(item.path),
         { type: "separator" },
-        toggleFavorite(item.path, sidebarLabel(item.label), "folder"),
+        toggleFavorite(item.path, sidebarLabel(item), "folder"),
         copyPathItem(item.path),
         showPath(item.path),
       ];
@@ -875,16 +887,16 @@ export function Sidebar({
       const { item } = menu;
 
       return [
-        { type: "item", label: "Otevřít", onSelect: () => activateFavorite(item) },
+        { type: "item", label: t("menu.open"), onSelect: () => activateFavorite(item) },
         { type: "separator" },
         {
           type: "item",
-          label: "Přejmenovat",
+          label: t("menu.rename"),
           onSelect: () => setRenamingPath(item.path),
         },
         {
           type: "item",
-          label: "Odebrat z oblíbených",
+          label: t("menu.removeFromFavorites"),
           danger: true,
           onSelect: () => void storage.removeFavorite(item.path),
         },
@@ -892,7 +904,7 @@ export function Sidebar({
         reveal(item.path),
         {
           type: "item",
-          label: "Zobrazit ve složce",
+          label: t("menu.showInFolder"),
           // U kořene disku není kam odkrývat.
           disabled: parentPath(item.path) === null,
           onSelect: () => onReveal(item.path),
@@ -907,11 +919,11 @@ export function Sidebar({
     const { entry } = menu;
 
     return [
-      { type: "item", label: "Otevřít", onSelect: () => activateRecent(entry) },
+      { type: "item", label: t("menu.open"), onSelect: () => activateRecent(entry) },
       reveal(entry.path),
       {
         type: "item",
-        label: "Zobrazit ve složce",
+        label: t("menu.showInFolder"),
         // U kořene disku není kam odkrývat.
         disabled: parentPath(entry.path) === null,
         onSelect: () => onReveal(entry.path),
@@ -921,12 +933,12 @@ export function Sidebar({
       toggleFavorite(entry.path, entry.name, entry.type),
       {
         type: "item",
-        label: "Odebrat z nedávných",
+        label: t("menu.removeFromRecents"),
         onSelect: () => void storage.removeRecent(entry.path),
       },
       {
         type: "item",
-        label: "Vymazat všechny nedávné",
+        label: t("menu.clearAllRecents"),
         danger: true,
         onSelect: confirmClearRecents,
       },
@@ -946,15 +958,16 @@ export function Sidebar({
     onError,
     onConfirm,
     tags,
+    t,
   ]);
 
   /** Sekce od backendu jako řádky — Oblíbené, Cloud, Zařízení. */
   function renderSystemSection(section: FavoriteSection) {
-    const heading = headingFor(`system:${section.label}`);
+    const heading = headingFor(`system:${section.id}`);
 
     return (
-      <div key={section.label}>
-        <SectionHeading control={heading}>{sectionHeading(section.label)}</SectionHeading>
+      <div key={section.id}>
+        <SectionHeading control={heading}>{sectionHeading(t(SECTION_TITLES[section.id]))}</SectionHeading>
 
         {!heading.collapsed && (
           <nav className="flex flex-col pb-0.5">
@@ -965,10 +978,10 @@ export function Sidebar({
 
               return (
                 <button
-                  key={`${section.label}/${item.path}`}
+                  key={`${section.id}/${item.path}`}
                   type="button"
                   // Shellová cesta telefonu ("::{20D04FE0…}\\?\usb#…") nikomu nic neřekne.
-                  data-tooltip={item.external ? "Otevře se v Průzkumníku" : item.path}
+                  data-tooltip={item.external ? t("sidebar.opensInExplorer") : item.path}
                   onClick={() => {
                     if (item.external) openDeviceOrReport(item.path);
                     else onNavigate(item.path);
@@ -984,9 +997,9 @@ export function Sidebar({
                     size={16}
                     strokeWidth={1.75}
                     className="fw-sidebar-icon shrink-0"
-                    color={iconColor(sidebarIconColor(section.label, item.label), isActive)}
+                    color={iconColor(sidebarIconColor(section.id), isActive)}
                   />
-                  <span className="truncate">{sidebarLabel(item.label)}</span>
+                  <span className="truncate">{sidebarLabel(item)}</span>
                 </button>
               );
             })}
@@ -998,7 +1011,7 @@ export function Sidebar({
 
   // Pořadí jako Finder: Oblíbené (a hned pod nimi vlastní), Cloud, Zařízení,
   // pak Nedávné a Štítky.
-  const favoritesSection = sections.find((section) => section.label === "Oblíbené");
+  const favoritesSection = sections.find((section) => section.id === "favorites");
   const otherSections = sections.filter((section) => section !== favoritesSection);
 
   /**
@@ -1122,7 +1135,7 @@ export function Sidebar({
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Šířka postranního panelu"
+        aria-label={t("sidebar.resize")}
         onMouseDown={startResize}
         onDoubleClick={() => void storage.setSidebarWidth(storage.SIDEBAR_DEFAULT)}
         className="fw-sidebar-resizer"

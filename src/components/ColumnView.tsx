@@ -19,7 +19,7 @@ import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
 import { motionMs, smoothIfAllowed } from "../lib/motion";
-import { TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { TAG_HEX, tagLabel } from "../lib/tags";
 import { getFileProperties } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import type { Column, ColumnsApi } from "../columns";
@@ -378,7 +378,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
                     className="inline-block rounded-full"
                     style={{ width: 8, height: 8, background: TAG_HEX[color] }}
                   />
-                  {TAG_LABEL[color]}
+                  {tagLabel(color)}
                 </span>
               ))}
             </span>

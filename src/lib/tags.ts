@@ -1,3 +1,4 @@
+import { t, type MessageKey } from "../i18n";
 import type { TagColor } from "../types";
 
 export { TAG_COLORS } from "./storage";
@@ -13,12 +14,17 @@ export const TAG_HEX: Record<TagColor, string> = {
   grey: "#8e8e93",
 };
 
-export const TAG_LABEL: Record<TagColor, string> = {
-  red: "Červený",
-  orange: "Oranžový",
-  yellow: "Žlutý",
-  green: "Zelený",
-  blue: "Modrý",
-  purple: "Fialový",
-  grey: "Šedý",
+const TAG_LABEL_KEYS: Record<TagColor, MessageKey> = {
+  red: "tag.red",
+  orange: "tag.orange",
+  yellow: "tag.yellow",
+  green: "tag.green",
+  blue: "tag.blue",
+  purple: "tag.purple",
+  grey: "tag.grey",
 };
+
+/** Název barvy v aktuálním jazyce ("Červený" / "Red"). */
+export function tagLabel(color: TagColor): string {
+  return t(TAG_LABEL_KEYS[color]);
+}

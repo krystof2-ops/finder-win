@@ -18,16 +18,37 @@ export type FileEntry = {
   is_symlink: boolean;
 };
 
+/** Druh disku v sidebaru — určuje popisek bez názvu svazku („Místní disk (D:)"). */
+export type DriveKind = "local" | "usb" | "network" | "optical" | "phone";
+
+/** Standardní složky, které backend posílá jen jako id (popisek dělá i18n). */
+export type StandardFolderId =
+  | "desktop"
+  | "downloads"
+  | "documents"
+  | "pictures"
+  | "music"
+  | "videos"
+  | "home";
+
+/** Položka sidebaru od backendu. Text se skládá ve frontendu — sidebarLabel(). */
 export type FavoriteEntry = {
-  label: string;
+  id: StandardFolderId | null;
+  /** Vlastní jméno: název svazku, OneDrive, iCloud, telefon. */
+  label: string | null;
+  /** Disk: písmeno bez dvojtečky. */
+  letter: string | null;
+  kind: DriveKind | null;
   path: string;
   icon_name: string;
   /** Telefon, fotoaparát — nemá souborový systém, otevírá se v Průzkumníku. */
   external: boolean;
 };
 
+export type SectionId = "favorites" | "cloud" | "devices";
+
 export type FavoriteSection = {
-  label: string;
+  id: SectionId;
   items: FavoriteEntry[];
 };
 

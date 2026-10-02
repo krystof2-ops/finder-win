@@ -22,9 +22,13 @@ const KEY_TAGS = "tags";
 const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_SIDEBAR_WIDTH = "sidebarWidth";
 const KEY_MOTION = "motion";
+const KEY_LANGUAGE = "language";
 
 /** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
 export type MotionPreference = "system" | "on" | "off";
+
+/** Jazyk UI: podle systému, nebo napevno (viz i18n/index.ts). */
+export type LanguagePreference = "system" | "en" | "cs";
 
 /** Rozsah šířky sidebaru při tažení za hranu; dvojklik vrací výchozí. */
 export const SIDEBAR_MIN = 180;
@@ -42,6 +46,7 @@ export type Snapshot = {
   showHidden: boolean | null;
   sidebarWidth: number;
   motion: MotionPreference;
+  language: LanguagePreference;
 };
 
 const EMPTY: Snapshot = {
@@ -51,6 +56,7 @@ const EMPTY: Snapshot = {
   showHidden: null,
   sidebarWidth: SIDEBAR_DEFAULT,
   motion: "system",
+  language: "system",
 };
 
 function clampSidebar(width: number): number {
@@ -84,20 +90,26 @@ function commit(next: Partial<Snapshot>): void {
 
 /* ---------------------------------- chyby ---------------------------------- */
 
-const errorListeners = new Set<(message: string) => void>();
+/** Co se nepovedlo — text k tomu dodá App přes i18n (storage na i18n
+ *  nezávisí, i18n naopak čte jazyk odsud). */
+export type StorageErrorKind = "load" | "save";
+
+type ErrorListener = (kind: StorageErrorKind, detail: string) => void;
+
+const errorListeners = new Set<ErrorListener>();
 
 /** Chyby zápisu na disk — App je ukáže v toastu, jinak by zmizely v konzoli
  *  a uživatel by se o ztracených oblíbených dozvěděl až po restartu. */
-export function onError(listener: (message: string) => void): () => void {
+export function onError(listener: ErrorListener): () => void {
   errorListeners.add(listener);
   return () => {
     errorListeners.delete(listener);
   };
 }
 
-function reportError(message: string, err: unknown): void {
-  console.error(`storage: ${message}`, err);
-  for (const listener of errorListeners) listener(`${message} — ${String(err)}`);
+function reportError(kind: StorageErrorKind, err: unknown): void {
+  console.error(`storage: ${kind} failed`, err);
+  for (const listener of errorListeners) listener(kind, String(err));
 }
 
 /* --------------------------------- init ------------------------------------ */
@@ -176,13 +188,14 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion] = await Promise.all([
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
       store.get<unknown>(KEY_SHOW_HIDDEN),
       store.get<unknown>(KEY_SIDEBAR_WIDTH),
       store.get<unknown>(KEY_MOTION),
+      store.get<unknown>(KEY_LANGUAGE),
     ]);
 
     commit({
@@ -192,10 +205,11 @@ export function init(): Promise<void> {
       showHidden: typeof showHidden === "boolean" ? showHidden : null,
       sidebarWidth: typeof sidebarWidth === "number" ? clampSidebar(sidebarWidth) : SIDEBAR_DEFAULT,
       motion: motion === "on" || motion === "off" ? motion : "system",
+      language: language === "en" || language === "cs" ? language : "system",
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
-    reportError("Nastavení se nepodařilo načíst, oblíbené a tagy jsou prázdné", err);
+    reportError("load", err);
   });
 
   return loading;
@@ -210,7 +224,7 @@ async function persist(key: string, value: unknown): Promise<void> {
   try {
     await store.set(key, value);
   } catch (err: unknown) {
-    reportError("Nastavení se nepodařilo uložit", err);
+    reportError("save", err);
   }
 }
 
@@ -234,6 +248,13 @@ export async function setSidebarWidth(width: number, persistNow = true): Promise
 export async function setMotion(value: MotionPreference): Promise<void> {
   commit({ motion: value });
   await persist(KEY_MOTION, value);
+}
+
+/* --------------------------------- jazyk ------------------------------------ */
+
+export async function setLanguage(value: LanguagePreference): Promise<void> {
+  commit({ language: value });
+  await persist(KEY_LANGUAGE, value);
 }
 
 /* ------------------------------- oblíbené ---------------------------------- */

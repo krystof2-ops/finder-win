@@ -28,7 +28,8 @@ import {
 import { iconRequestSize, useFileIcon, useVisible } from "../lib/fileIcons";
 import { fileType, type FileGroup } from "../lib/filetypes";
 import { specialFolderGlyph } from "../lib/specialFolders";
-import type { FileEntry } from "../types";
+import { t } from "../i18n";
+import type { FavoriteEntry, FileEntry, SectionId } from "../types";
 
 /**
  * Složka ve stylu macOS Sonoma: světlejší zadní deska se záložkou, sytější
@@ -253,19 +254,14 @@ const SIDEBAR_ICONS: Record<string, LucideIcon> = {
   Home,
 };
 
-/** Backend posílá anglické klíče standardních složek, UI je česky. */
-const SIDEBAR_LABELS: Record<string, string> = {
-  Desktop: "Plocha",
-  Downloads: "Stažené",
-  Documents: "Dokumenty",
-  Pictures: "Obrázky",
-  Music: "Hudba",
-  Videos: "Videa",
-  Home: "Domů",
-};
-
-export function sidebarLabel(label: string): string {
-  return SIDEBAR_LABELS[label] ?? label;
+/** Popisek položky sidebaru v jazyce UI — backend posílá jen id / písmeno disku. */
+export function sidebarLabel(item: FavoriteEntry): string {
+  if (item.id !== null) return t(`folder.${item.id}`);
+  if (item.letter !== null) {
+    if (item.label !== null) return t("drive.labeled", { label: item.label, letter: item.letter });
+    if (item.kind !== null && item.kind !== "phone") return t(`drive.${item.kind}`, { letter: item.letter });
+  }
+  return item.label ?? (item.kind === "phone" ? t("drive.phone") : item.path);
 }
 
 export function sidebarIcon(iconName: string): LucideIcon {
@@ -274,8 +270,7 @@ export function sidebarIcon(iconName: string): LucideIcon {
 
 /**
  * Finder Sonoma: ikony Oblíbených jsou modré (akcent), ostatní sekce tlumené.
- * `itemLabel` zůstává v podpisu pro případné výjimky jednotlivých položek.
  */
-export function sidebarIconColor(sectionLabel: string, _itemLabel: string): string {
-  return sectionLabel === "Oblíbené" ? "var(--accent)" : "var(--text-secondary)";
+export function sidebarIconColor(section: SectionId): string {
+  return section === "favorites" ? "var(--accent)" : "var(--text-secondary)";
 }

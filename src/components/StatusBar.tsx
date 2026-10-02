@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { breadcrumbs, formatFreeSpace, formatItemCount } from "../format";
+import { useT } from "../i18n";
 import { isTypingTarget } from "../lib/dom";
 
 /**
@@ -116,17 +117,18 @@ export function StatusBar({
   onEditingChange,
   onContextMenu,
 }: StatusBarProps) {
+  const t = useT();
   const crumbs = path ? breadcrumbs(path) : [];
 
   // Jeden řetězec: dva textové uzly vedle sebe (počet + volné místo) by při
   // změně počtu posunuly ten druhý — layout shift.
   const counts = path
     ? streamingCount !== null
-      ? `načítám… ${streamingCount.toLocaleString("cs-CZ")} položek`
+      ? t("status.loading", { count: streamingCount })
       : selectedCount > 0
-        ? `Vybráno ${selectedCount} z ${itemCount}`
+        ? t("status.selected", { selected: selectedCount, count: itemCount })
         : filtered
-          ? `${itemCount} z ${totalCount} (filtr)`
+          ? t("status.filtered", { shown: itemCount, count: totalCount })
           : formatItemCount(itemCount)
     : "";
   const summary = path && freeSpace !== null ? `${counts}, ${formatFreeSpace(freeSpace)}` : counts;

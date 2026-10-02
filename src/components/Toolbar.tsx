@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
+import { useT, type MessageKey } from "../i18n";
 import type { MotionPreference } from "../lib/storage";
 import type { Theme, ViewMode } from "../types";
 
@@ -82,19 +83,20 @@ function IconButton({
 }
 
 /** Pořadí segmentů přepínače zobrazení. */
-const VIEW_SEGMENTS: { mode: ViewMode; label: string; Icon: LucideIcon }[] = [
-  { mode: "icon", label: "Zobrazit jako ikony", Icon: LayoutGrid },
-  { mode: "list", label: "Zobrazit jako seznam", Icon: List },
-  { mode: "column", label: "Zobrazit jako sloupce", Icon: Columns3 },
+const VIEW_SEGMENTS: { mode: ViewMode; label: MessageKey; Icon: LucideIcon }[] = [
+  { mode: "icon", label: "toolbar.viewAsIcons", Icon: LayoutGrid },
+  { mode: "list", label: "toolbar.viewAsList", Icon: List },
+  { mode: "column", label: "toolbar.viewAsColumns", Icon: Columns3 },
 ];
 
 /** Jeden segmented control místo tří samostatných tlačítek, jako ve Finderu.
  *  Vyzdvižený segment se mezi pozicemi posouvá transformací. */
 function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: ViewMode) => void }) {
+  const t = useT();
   const index = VIEW_SEGMENTS.findIndex((segment) => segment.mode === mode);
 
   return (
-    <div className="fw-segmented shrink-0" role="radiogroup" aria-label="Zobrazení">
+    <div className="fw-segmented shrink-0" role="radiogroup" aria-label={t("toolbar.view")}>
       <span
         aria-hidden
         className="fw-segment-thumb"
@@ -106,8 +108,8 @@ function ViewSwitcher({ mode, onChange }: { mode: ViewMode; onChange: (mode: Vie
           type="button"
           role="radio"
           aria-checked={segment === mode}
-          aria-label={label}
-          data-tooltip={label}
+          aria-label={t(label)}
+          data-tooltip={t(label)}
           // Jako ostatní tlačítka toolbaru si fokus nebere (šipky ve výpisu).
           onMouseDown={(event) => event.preventDefault()}
           onClick={() => onChange(segment)}
@@ -190,6 +192,7 @@ export function Toolbar({
   tagItems,
   onMenuOpenChange,
 }: ToolbarProps) {
+  const t = useT();
   // Otevřené může být jen jedno menu. Pozice se bere z rámečku tlačítka.
   const [menu, setMenu] = useState<{ kind: ToolbarMenu; x: number; y: number } | null>(null);
 
@@ -211,39 +214,39 @@ export function Toolbar({
   }
 
   const moreItems: MenuItem[] = [
-    { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: onRefresh },
+    { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: onRefresh },
     {
       type: "item",
-      label: "Nadřazená složka",
+      label: t("toolbar.parentFolder"),
       shortcut: "Ctrl+↑",
       disabled: !canGoToParent,
       onSelect: onGoToParent,
     },
     {
       type: "item",
-      label: "Zobrazit skryté soubory",
+      label: t("toolbar.showHidden"),
       shortcut: "Ctrl+Shift+.",
       checked: showHidden,
       onSelect: onToggleHidden,
     },
     {
       type: "submenu",
-      label: "Animace",
+      label: t("toolbar.animations"),
       items: (
         [
-          ["system", "Podle systému"],
-          ["on", "Zapnuto"],
-          ["off", "Vypnuto"],
+          ["system", "motion.system"],
+          ["on", "motion.on"],
+          ["off", "motion.off"],
         ] as const
       ).map(([value, label]) => ({
         type: "item" as const,
-        label,
+        label: t(label),
         checked: motion === value,
         onSelect: () => onMotionChange(value),
       })),
     },
     { type: "separator" },
-    { type: "item", label: "O aplikaci Finder-Win", onSelect: onShowAbout },
+    { type: "item", label: t("toolbar.about"), onSelect: onShowAbout },
   ];
 
   return (
@@ -251,10 +254,10 @@ export function Toolbar({
     // [sdílet, štítky] [více] [téma] [hledání].
     <header className="fw-toolbar flex h-10 shrink-0 items-center gap-3 px-3">
       <div className="flex shrink-0 items-center gap-0.5">
-        <IconButton Icon={ChevronLeft} label="Zpět" disabled={!canGoBack} onClick={onBack} />
+        <IconButton Icon={ChevronLeft} label={t("toolbar.back")} disabled={!canGoBack} onClick={onBack} />
         <IconButton
           Icon={ChevronRight}
-          label="Vpřed"
+          label={t("toolbar.forward")}
           disabled={!canGoForward}
           onClick={onForward}
         />
@@ -273,7 +276,7 @@ export function Toolbar({
 
       <IconButton
         Icon={SlidersHorizontal}
-        label="Seřadit"
+        label={t("toolbar.sort")}
         secondary
         active={menu?.kind === "sort"}
         menuTrigger
@@ -283,26 +286,26 @@ export function Toolbar({
       <div className="flex shrink-0 items-center gap-0.5">
         <IconButton
           Icon={Share}
-          label="Sdílet"
+          label={t("toolbar.share")}
           secondary
           active={menu?.kind === "share"}
           menuTrigger
-        onMouseDown={toggleMenu("share")}
+          onMouseDown={toggleMenu("share")}
         />
         <IconButton
           Icon={Tag}
-          label="Štítky"
+          label={t("toolbar.tags")}
           secondary
           active={menu?.kind === "tags"}
-          unavailable={tagItems === null ? "Vyberte soubor" : undefined}
+          unavailable={tagItems === null ? t("toolbar.tagsUnavailable") : undefined}
           menuTrigger
-        onMouseDown={toggleMenu("tags")}
+          onMouseDown={toggleMenu("tags")}
         />
       </div>
 
       <IconButton
         Icon={MoreHorizontal}
-        label="Více"
+        label={t("toolbar.more")}
         secondary
         active={menu?.kind === "more"}
         menuTrigger
@@ -311,7 +314,7 @@ export function Toolbar({
 
       <IconButton
         Icon={theme === "dark" ? Sun : Moon}
-        label={theme === "dark" ? "Světlý režim" : "Tmavý režim"}
+        label={theme === "dark" ? t("toolbar.lightMode") : t("toolbar.darkMode")}
         secondary
         onClick={onToggleTheme}
         iconClassName="fw-theme-spin"
@@ -342,7 +345,7 @@ export function Toolbar({
                 onSearchArrowDown();
               }
             }}
-            placeholder="Hledat"
+            placeholder={t("toolbar.search")}
             className="min-w-0 flex-1 bg-transparent text-[13px] text-primary outline-none placeholder:text-secondary"
             style={{ userSelect: "text" }}
           />
@@ -351,7 +354,7 @@ export function Toolbar({
         {query.length > 0 && (
           <button
             type="button"
-            aria-label="Zrušit hledání"
+            aria-label={t("toolbar.clearSearch")}
             onClick={() => {
               onQueryChange("");
               searchRef.current?.focus();

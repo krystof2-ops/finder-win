@@ -29,10 +29,18 @@ struct FileEntry {
     is_symlink: bool,
 }
 
-/// Položka v postranním panelu.
+/// Položka v postranním panelu. Backend neposílá české ani anglické popisky —
+/// jen co to je; text skládá frontend v jazyce UI:
+/// - `id` u standardních složek ("desktop", "downloads", …),
+/// - `letter` + `kind` u disků („Místní disk (D:)"), `label` = název svazku,
+/// - jinak `label` = vlastní jméno (OneDrive, iCloud, telefon).
 #[derive(Debug, Serialize)]
 struct FavoriteEntry {
-    label: String,
+    id: Option<&'static str>,
+    label: Option<String>,
+    letter: Option<char>,
+    /// "local" | "usb" | "network" | "optical" | "phone"
+    kind: Option<&'static str>,
     path: String,
     icon_name: String,
     /// Zařízení bez souborového systému (telefon, fotoaparát). Cesta je
@@ -41,10 +49,10 @@ struct FavoriteEntry {
     external: bool,
 }
 
-/// Skupina položek v postranním panelu (Oblíbené, Cloud, …).
+/// Skupina položek v postranním panelu: "favorites", "cloud", "devices".
 #[derive(Debug, Serialize)]
 struct FavoriteSection {
-    label: String,
+    id: &'static str,
     items: Vec<FavoriteEntry>,
 }
 
@@ -365,7 +373,10 @@ fn list_dir_stream(
 
 fn favorite(label: &str, path: impl AsRef<Path>, icon_name: &str) -> FavoriteEntry {
     FavoriteEntry {
-        label: label.to_string(),
+        id: None,
+        label: Some(label.to_string()),
+        letter: None,
+        kind: None,
         path: path.as_ref().to_string_lossy().to_string(),
         icon_name: icon_name.to_string(),
         external: false,
@@ -377,11 +388,19 @@ fn favorite_if_exists(label: &str, path: PathBuf, icon_name: &str) -> Option<Fav
     path.exists().then(|| favorite(label, path, icon_name))
 }
 
-fn section(label: &str, items: Vec<FavoriteEntry>) -> Option<FavoriteSection> {
-    (!items.is_empty()).then(|| FavoriteSection {
-        label: label.to_string(),
-        items,
-    })
+/// Standardní složka — popisek podle `id` dělá frontend.
+fn standard_favorite(id: &'static str, path: PathBuf, icon_name: &str) -> FavoriteEntry {
+    FavoriteEntry { id: Some(id), label: None, ..favorite("", path, icon_name) }
+}
+
+/// Disk s písmenem. `label` je název svazku; bez něj frontend napíše
+/// „Místní disk (D:)" / „Local Disk (D:)" podle `kind`.
+fn drive_favorite(letter: char, kind: &'static str, label: Option<String>, root: &str, icon_name: &str) -> FavoriteEntry {
+    FavoriteEntry { letter: Some(letter), kind: Some(kind), label, ..favorite("", root, icon_name) }
+}
+
+fn section(id: &'static str, items: Vec<FavoriteEntry>) -> Option<FavoriteSection> {
+    (!items.is_empty()).then_some(FavoriteSection { id, items })
 }
 
 /// Bitová maska připojených písmen disků (bit 0 = A:). Levné volání — hlídač
@@ -459,7 +478,8 @@ fn is_usb_drive(letter: char) -> bool {
 }
 
 /// Všechny připojené disky s názvem svazku, jak je ukazuje Průzkumník:
-/// „OS (C:)", „Linux Mint 22.3 Xfce 64-bit (D:)", „Místní disk (E:)".
+/// „OS (C:)", „Linux Mint 22.3 Xfce 64-bit (D:)", „Místní disk (E:)" —
+/// popisek bez názvu svazku skládá frontend podle `kind`.
 #[cfg(windows)]
 fn drive_favorites() -> Vec<FavoriteEntry> {
     use windows::core::HSTRING;
@@ -484,15 +504,15 @@ fn drive_favorites() -> Vec<FavoriteEntry> {
             // Odpojený síťový disk drží GetVolumeInformationW desítky sekund —
             // a to při každém drives-changed. Název svazku se u sítě nečte.
             if kind == REMOTE {
-                return Some(favorite(&format!("Síťový disk ({}:)", letter), &root, "Network"));
+                return Some(drive_favorite(letter, "network", None, &root, "Network"));
             }
 
-            let (fallback, icon) = match kind {
-                REMOVABLE => ("USB disk", "Usb"),
-                CDROM => ("Mechanika", "Disc"),
+            let (drive_kind, icon) = match kind {
+                REMOVABLE => ("usb", "Usb"),
+                CDROM => ("optical", "Disc"),
                 // Název jako v Průzkumníku („Místní disk"), ikona podle sběrnice.
-                _ if is_usb_drive(letter) => ("Místní disk", "Usb"),
-                _ => ("Místní disk", "HardDrive"),
+                _ if is_usb_drive(letter) => ("local", "Usb"),
+                _ => ("local", "HardDrive"),
             };
 
             // Prázdná čtečka karet nebo mechanika bez disku svazek nemá —
@@ -503,9 +523,9 @@ fn drive_favorites() -> Vec<FavoriteEntry> {
 
             let length = name.iter().position(|&c| c == 0).unwrap_or(name.len());
             let label = String::from_utf16_lossy(&name[..length]);
-            let label = if label.trim().is_empty() { fallback.to_string() } else { label };
+            let label = (!label.trim().is_empty()).then_some(label);
 
-            Some(favorite(&format!("{} ({}:)", label, letter), &root, icon))
+            Some(drive_favorite(letter, drive_kind, label, &root, icon))
         })
         .collect()
 }
@@ -574,6 +594,7 @@ unsafe fn portable_devices_com() -> Vec<FavoriteEntry> {
         };
 
         let mut entry = favorite(&label, &path, "Smartphone");
+        entry.kind = Some("phone");
         entry.external = true;
         devices.push(entry);
     }
@@ -757,19 +778,18 @@ fn watch_dirs(
 fn get_favorites() -> Vec<FavoriteSection> {
     let home = dirs::home_dir();
 
-    // Popisky jsou anglické klíče — do češtiny je překládá frontend
-    // (sidebarLabel v icons.tsx), backend jen říká, co to je.
+    // Jen id — popisek v jazyce UI dělá frontend (folder.<id> v i18n).
     let standard = [
-        ("Desktop", dirs::desktop_dir(), "Monitor"),
-        ("Downloads", dirs::download_dir(), "Download"),
-        ("Documents", dirs::document_dir(), "FileText"),
-        ("Pictures", dirs::picture_dir(), "Image"),
-        ("Music", dirs::audio_dir(), "Music"),
-        ("Videos", dirs::video_dir(), "Video"),
-        ("Home", home.clone(), "Home"),
+        ("desktop", dirs::desktop_dir(), "Monitor"),
+        ("downloads", dirs::download_dir(), "Download"),
+        ("documents", dirs::document_dir(), "FileText"),
+        ("pictures", dirs::picture_dir(), "Image"),
+        ("music", dirs::audio_dir(), "Music"),
+        ("videos", dirs::video_dir(), "Video"),
+        ("home", home.clone(), "Home"),
     ]
     .into_iter()
-    .filter_map(|(label, path, icon)| path.map(|path| favorite(label, path, icon)))
+    .filter_map(|(id, path, icon)| path.map(|path| standard_favorite(id, path, icon)))
     .collect();
 
     // OneDrive se hledá přes proměnné prostředí, které si nastavuje sám —
@@ -802,9 +822,9 @@ fn get_favorites() -> Vec<FavoriteSection> {
     devices.extend(portable_devices());
 
     [
-        section("Oblíbené", standard),
-        section("Cloud", cloud),
-        section("Zařízení", devices),
+        section("favorites", standard),
+        section("cloud", cloud),
+        section("devices", devices),
     ]
     .into_iter()
     .flatten()

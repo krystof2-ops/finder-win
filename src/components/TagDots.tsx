@@ -1,4 +1,4 @@
-import { TAG_HEX, TAG_LABEL } from "../lib/tags";
+import { TAG_HEX, tagLabel } from "../lib/tags";
 import type { TagColor } from "../types";
 
 /** Víc než tři puntíky se do řádku nevejdou, zbytek shrne tečkami. */
@@ -20,7 +20,7 @@ export function TagDots({ colors, size = 8 }: TagDotsProps) {
     <span
       className="flex shrink-0 items-center"
       style={{ gap: Math.max(2, Math.round(size / 3)) }}
-      data-tooltip={colors.map((color) => TAG_LABEL[color]).join(", ")}
+      data-tooltip={colors.map((color) => tagLabel(color)).join(", ")}
     >
       {shown.map((color) => (
         <span

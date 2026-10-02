@@ -53,10 +53,11 @@ import {
   type SortDirection,
   type SortKey,
 } from "./format";
+import { errorText, failure, t, useLocale, type MessageKey } from "./i18n";
 import { isTypingTarget } from "./lib/dom";
 import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
-import { TAG_COLORS, TAG_HEX, TAG_LABEL } from "./lib/tags";
+import { TAG_COLORS, TAG_HEX, tagLabel } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
 import { setSpecialFolders } from "./lib/specialFolders";
 import { useStorage } from "./lib/useStorage";
@@ -89,22 +90,17 @@ type MainMenu =
   | { kind: "status"; x: number; y: number; dir: string }
   | { kind: "quicklook"; x: number; y: number; entry: FileEntry };
 
-/** Výchozí název nové složky. Windows i Finder nechají uživatele hned přepsat. */
-const NEW_FOLDER_NAME = "Nová složka";
-/** Stejný výchozí název, jaký dává Průzkumník. */
-const NEW_FILE_NAME = "Nový textový dokument.txt";
-
-const VIEW_LABELS: Record<ViewMode, string> = {
-  icon: "Ikony",
-  list: "Seznam",
-  column: "Sloupce",
+const VIEW_LABELS: Record<ViewMode, MessageKey> = {
+  icon: "view.icons",
+  list: "view.list",
+  column: "view.columns",
 };
 
-const SORT_LABELS: Record<SortKey, string> = {
-  name: "Název",
-  modified: "Datum úpravy",
-  size: "Velikost",
-  kind: "Druh",
+const SORT_LABELS: Record<SortKey, MessageKey> = {
+  name: "sort.name",
+  modified: "sort.modified",
+  size: "sort.size",
+  kind: "sort.kind",
 };
 
 /**
@@ -191,7 +187,7 @@ export default function App() {
   const [sections, setSectionsState] = useState<FavoriteSection[]>([]);
   /** Sekce sidebaru — a z Oblíbených se odvodí speciální složky s glyfem. */
   const setSections = useCallback((next: FavoriteSection[]) => {
-    setSpecialFolders(next.find((section) => section.label === "Oblíbené")?.items ?? []);
+    setSpecialFolders(next.find((section) => section.id === "favorites")?.items ?? []);
     setSectionsState(next);
   }, []);
   const [nav, dispatch] = useReducer(navReducer, INITIAL_NAV);
@@ -278,6 +274,8 @@ export default function App() {
   const loadedPath = loaded.path;
 
   const { tags, favorites, motion } = useStorage();
+  // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
+  const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
 
   const [viewMode, setViewMode] = useState<ViewMode>("icon");
@@ -468,7 +466,13 @@ export default function App() {
   }, [notice]);
 
   // Chyby zápisu nastavení (oblíbené, tagy) — jinak by skončily jen v konzoli.
-  useEffect(() => storage.onError(setNotice), [setNotice]);
+  useEffect(
+    () =>
+      storage.onError((kind, detail) =>
+        setNotice(failure(kind === "load" ? "op.loadSettings" : "op.saveSettings", detail)),
+      ),
+    [setNotice],
+  );
 
   /*
    * Pravý klik — kde co otevírá (vše přes jednu komponentu ContextMenu):
@@ -532,7 +536,7 @@ export default function App() {
         const first = result[0]?.items[0];
         if (first && navCurrentRef.current === null) dispatch({ type: "go", path: first.path });
       })
-      .catch((err: unknown) => setError(`Postranní panel se nepodařilo načíst — ${String(err)}`));
+      .catch((err: unknown) => setError(failure("op.sidebar", err)));
   }, []);
 
   // Připojený nebo odpojený disk (USB, síťový) se v sidebaru ukáže hned.
@@ -650,7 +654,7 @@ export default function App() {
         // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
         loadedPathRef.current = path;
         setLoaded({ path, seq: (loadSeq.current += 1), direction: null });
-        setError(String(err));
+        setError(errorText(err));
       })
       .finally(() => {
         if (requestId.current === id) setLoading(false);
@@ -914,7 +918,7 @@ export default function App() {
     const paths = watchedKey === "" ? [] : watchedKey.split("\n");
     watchGeneration.current += 1;
     invoke("watch_dirs", { paths, generation: watchGeneration.current }).catch(
-      (err: unknown) => setNotice(`Složku nejde hlídat, změny se neukážou samy — ${String(err)}`),
+      (err: unknown) => setNotice(failure("op.watch", err)),
     );
   }, [watchedKey]);
 
@@ -937,7 +941,7 @@ export default function App() {
       // Zapisuje se až po úspěchu — jinak by se do nedávných dostaly i soubory,
       // které se otevřít nepodařilo.
       .then(() => storage.addRecent(entry.path, entry.name, "file"))
-      .catch((err: unknown) => setNotice(`Soubor se nepodařilo otevřít — ${String(err)}`));
+      .catch((err: unknown) => setNotice(failure("op.openFile", err)));
   }, []);
 
   const open = useCallback(
@@ -1084,17 +1088,17 @@ export default function App() {
    * uživatel dozvědět — jinak by si myslel, že má úplnou kopii.
    */
   const noteSkippedLinks = useCallback((count: number) => {
-    if (count > 0) showInfo(`Přeskočeno ${count} odkazů (symlinky a junctions).`);
+    if (count > 0) showInfo(t("toast.skippedLinks", { count }));
   }, [showInfo]);
 
   /** Společné ošetření chyb + refresh po každé mutující operaci. */
   const runOperation = useCallback(
-    async (label: string, action: () => Promise<unknown>) => {
+    async (label: MessageKey, action: () => Promise<unknown>) => {
       setNotice(null);
       try {
         await action();
       } catch (err: unknown) {
-        setNotice(`${label} — ${String(err)}`);
+        setNotice(failure(label, err));
       } finally {
         // Refresh patří i k neúspěchu. Operace mohla část práce stihnout a
         // zastaralý výpis, který ukazuje smazané soubory, je horší než chyba.
@@ -1110,7 +1114,7 @@ export default function App() {
    * jen o něm. Vrací, kolik položek prošlo.
    */
   const runBatch = useCallback(
-    async <T,>(label: string, items: T[], action: (item: T) => Promise<unknown>) => {
+    async <T,>(label: MessageKey, items: T[], action: (item: T) => Promise<unknown>) => {
       if (items.length === 0) return { ok: 0, failed: 0 };
       setNotice(null);
 
@@ -1122,12 +1126,16 @@ export default function App() {
           await action(item);
         } catch (err: unknown) {
           failed += 1;
-          if (first === null) first = String(err);
+          if (first === null) first = errorText(err);
         }
       }
 
-      if (failed === 1) setNotice(`${label} — ${first}`);
-      else if (failed > 1) setNotice(`${label} u ${failed} z ${items.length} položek — ${first}`);
+      if (failed === 1) setNotice(failure(label, first));
+      else if (failed > 1) {
+        setNotice(
+          t("error.batch", { action: t(label), failed, count: items.length, detail: first ?? "" }),
+        );
+      }
 
       refresh();
       return { ok: items.length - failed, failed };
@@ -1143,7 +1151,7 @@ export default function App() {
 
       const dir = parentPath(entry.path);
 
-      void runOperation("Přejmenování selhalo", async () => {
+      void runOperation("op.rename", async () => {
         const renamed = await renamePath(entry.path, next);
         // Tagy, oblíbené a nedávné jsou klíčované cestou — musí jít s položkou.
         await storage.remapPath(entry.path, renamed);
@@ -1160,7 +1168,7 @@ export default function App() {
       const paths = items.map((entry) => entry.path);
       if (paths.length === 0) return;
 
-      const run = () => void runOperation("Smazání selhalo", () => moveToTrash(paths));
+      const run = () => void runOperation("op.delete", () => moveToTrash(paths));
 
       // Flashka (FAT32 / exFAT) ani síťová cesta Koš nemají — "do koše" by tam
       // smazalo trvale a bez varování. Když se to nedá zjistit, radši se ptát.
@@ -1171,11 +1179,10 @@ export default function App() {
           setConfirm({
             title:
               paths.length === 1
-                ? `Smazat „${items[0].name}" trvale?`
-                : `Smazat ${formatItemCount(paths.length)} trvale?`,
-            message:
-              "Tento disk nemá Koš (flashka nebo síťová složka). Položky budou smazány trvale a nepůjde je obnovit.",
-            confirmLabel: "Smazat trvale",
+                ? t("confirm.deleteOne", { name: items[0].name })
+                : t("confirm.deleteMany", { count: paths.length }),
+            message: t("confirm.deleteMessage"),
+            confirmLabel: t("confirm.deleteConfirm"),
             danger: true,
             onConfirm: run,
           });
@@ -1192,7 +1199,7 @@ export default function App() {
     (entry: FileEntry, select = true) => {
       const dir = parentPath(entry.path);
 
-      void runOperation("Duplikace selhala", async () => {
+      void runOperation("op.duplicate", async () => {
         const copy = await duplicatePath(entry.path);
         await storage.copyTags(entry.path, copy.path);
         if (select && dir !== null) requestSelect(dir, copy.path);
@@ -1214,8 +1221,8 @@ export default function App() {
     const dir = into ?? currentDir;
     if (dir === null) return;
 
-    void runOperation("Složku se nepodařilo vytvořit", async () => {
-      const created = await createFolder(dir, NEW_FOLDER_NAME);
+    void runOperation("op.newFolder", async () => {
+      const created = await createFolder(dir, t("name.newFolder"));
       requestSelect(dir, created);
       setRenamingPath(created);
     });
@@ -1224,18 +1231,17 @@ export default function App() {
   /** Prázdný textový soubor, rovnou v přejmenování — stejně jako Nová složka. */
   const newFile = useCallback(
     (dir: string) => {
-      void runOperation("Soubor se nepodařilo vytvořit", async () => {
-        const created = await createFile(dir, NEW_FILE_NAME);
+      void runOperation("op.newFile", async () => {
+        const created = await createFile(dir, t("name.newFile"));
         requestSelect(dir, created, true);
       });
     },
     [runOperation, requestSelect],
   );
 
-  const copyText = useCallback((text: string, label: string) => {
-    writeText(text).catch((err: unknown) =>
-      setNotice(`${label} se nepodařilo zkopírovat — ${String(err)}`),
-    );
+  /** `failed` = hláška pro případ, že schránka zápis odmítne. */
+  const copyText = useCallback((text: string, failed: MessageKey) => {
+    writeText(text).catch((err: unknown) => setNotice(failure(failed, err)));
   }, []);
 
   const copyToClipboard = useCallback(
@@ -1275,7 +1281,7 @@ export default function App() {
           statPaths(paths.map(destination)),
         ]);
       } catch (err: unknown) {
-        setNotice(`Cíl se nepodařilo zkontrolovat — ${String(err)}`);
+        setNotice(failure("op.checkTarget", err));
         return 0;
       }
       const collides = paths.map((path, index) => {
@@ -1311,7 +1317,7 @@ export default function App() {
       let skipped = 0;
 
       const { ok } = await runBatch(
-        mode === "copy" ? "Kopírování selhalo" : "Přesun selhal",
+        mode === "copy" ? "op.copy" : "op.move",
         plan,
         async ({ path, onConflict }) => {
           const result =
@@ -1824,14 +1830,14 @@ export default function App() {
 
   const revealInExplorer = useCallback(
     (path: string) => {
-      void runOperation("Průzkumníka se nepodařilo otevřít", () => openInExplorer(path));
+      void runOperation("op.explorer", () => openInExplorer(path));
     },
     [runOperation],
   );
 
   const openTerminalAt = useCallback(
     (path: string) => {
-      void runOperation("Terminál se nepodařilo otevřít", () => openTerminal(path));
+      void runOperation("op.terminal", () => openTerminal(path));
     },
     [runOperation],
   );
@@ -1839,16 +1845,16 @@ export default function App() {
   const menuItems = useMemo((): MenuItem[] => {
     if (menu === null) return [];
 
-    const copyPathItem = (path: string, label = "Kopírovat cestu"): MenuItem => ({
+    const copyPathItem = (path: string, label = t("menu.copyPath")): MenuItem => ({
       type: "item",
       label,
-      onSelect: () => copyText(path, "Cestu"),
+      onSelect: () => copyText(path, "op.copyPath"),
     });
 
     if (menu.kind === "status") {
       return [
-        copyPathItem(menu.dir, "Kopírovat cestu aktuální složky"),
-        { type: "item", label: "Upravit cestu", shortcut: "Ctrl+L", onSelect: () => setPathEditing(true) },
+        copyPathItem(menu.dir, t("menu.copyCurrentPath")),
+        { type: "item", label: t("menu.editPath"), shortcut: "Ctrl+L", onSelect: () => setPathEditing(true) },
       ];
     }
 
@@ -1856,10 +1862,10 @@ export default function App() {
       const { entry } = menu;
 
       return [
-        { type: "item", label: "Otevřít", onSelect: () => openFile(entry) },
+        { type: "item", label: t("menu.open"), onSelect: () => openFile(entry) },
         {
           type: "item",
-          label: "Otevřít v Průzkumníku",
+          label: t("menu.openInExplorer"),
           onSelect: () => revealInExplorer(entry.path),
         },
         { type: "separator" },
@@ -1874,15 +1880,15 @@ export default function App() {
       return [
         {
           type: "item",
-          label: "Nová složka",
+          label: t("menu.newFolder"),
           shortcut: "Ctrl+Shift+N",
           onSelect: () => newFolder(dir),
         },
-        { type: "item", label: "Nový soubor", onSelect: () => newFile(dir) },
+        { type: "item", label: t("menu.newFile"), onSelect: () => newFile(dir) },
         { type: "separator" },
         {
           type: "item",
-          label: "Vložit",
+          label: t("menu.paste"),
           shortcut: "Ctrl+V",
           disabled: clipboard === null,
           onSelect: () => paste(dir),
@@ -1890,20 +1896,20 @@ export default function App() {
         { type: "separator" },
         {
           type: "item",
-          label: "Otevřít v Průzkumníku",
+          label: t("menu.openInExplorer"),
           onSelect: () => revealInExplorer(dir),
         },
-        { type: "item", label: "Otevřít v Terminálu", onSelect: () => openTerminalAt(dir) },
+        { type: "item", label: t("menu.openInTerminal"), onSelect: () => openTerminalAt(dir) },
         copyPathItem(dir),
         { type: "separator" },
         {
           type: "submenu",
-          label: "Zobrazit",
+          label: t("menu.view"),
           items: [
             ...(Object.keys(VIEW_LABELS) as ViewMode[]).map(
               (mode): MenuItem & { type: "item" } => ({
                 type: "item",
-                label: VIEW_LABELS[mode],
+                label: t(VIEW_LABELS[mode]),
                 checked: viewMode === mode,
                 onSelect: () => changeViewMode(mode),
               }),
@@ -1911,7 +1917,7 @@ export default function App() {
             { type: "separator" },
             {
               type: "item",
-              label: "Skryté soubory",
+              label: t("menu.hiddenFiles"),
               shortcut: "Ctrl+Shift+.",
               checked: showHidden === true,
               onSelect: toggleHidden,
@@ -1920,12 +1926,12 @@ export default function App() {
         },
         {
           type: "submenu",
-          label: "Seřadit podle",
+          label: t("menu.sortBy"),
           items: [
             ...(Object.keys(SORT_LABELS) as SortKey[]).map(
               (key): MenuItem & { type: "item" } => ({
                 type: "item",
-                label: SORT_LABELS[key],
+                label: t(SORT_LABELS[key]),
                 checked: sortKey === key,
                 onSelect: () => setSortKey(key),
               }),
@@ -1933,13 +1939,13 @@ export default function App() {
             { type: "separator" },
             {
               type: "item",
-              label: "Vzestupně",
+              label: t("sort.ascending"),
               checked: sortDirection === "asc",
               onSelect: () => setSortDirection("asc"),
             },
             {
               type: "item",
-              label: "Sestupně",
+              label: t("sort.descending"),
               checked: sortDirection === "desc",
               onSelect: () => setSortDirection("desc"),
             },
@@ -1948,18 +1954,18 @@ export default function App() {
         { type: "separator" },
         {
           type: "item",
-          label: "Vybrat vše",
+          label: t("menu.selectAll"),
           shortcut: "Ctrl+A",
           // V column view výběr celé složky neexistuje, řádky jsou po jednom.
           disabled: isColumnView || visibleEntries.length === 0,
           onSelect: selectAll,
         },
-        { type: "item", label: "Aktualizovat", shortcut: "F5", onSelect: refresh },
+        { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: refresh },
         // Bez tohohle šlo do sidebaru dostat jen složku, kterou uživatel vidí
         // ve výpisu — tu, ve které zrovna stojí, nijak.
         {
           type: "item",
-          label: dirIsFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+          label: dirIsFavorite ? t("menu.removeFromFavorites") : t("menu.addToFavorites"),
           onSelect: () => {
             if (dirIsFavorite) void storage.removeFavorite(dir);
             else
@@ -1974,7 +1980,7 @@ export default function App() {
         { type: "separator" },
         {
           type: "item",
-          label: "Vlastnosti složky",
+          label: t("menu.folderProperties"),
           onSelect: () => setPropertiesFor(folderEntry(dir)),
         },
       ];
@@ -2007,7 +2013,7 @@ export default function App() {
       single ? null : { type: "header", label: formatItemCount(count) },
       {
         type: "item",
-        label: "Otevřít",
+        label: t("menu.open"),
         shortcut: "Enter",
         // open() by soubor označil v podkladové složce, kde vůbec není.
         onSelect: () => (overlay ? openFromResults(entry) : open(entry)),
@@ -2017,7 +2023,7 @@ export default function App() {
       overlay && parentPath(entry.path) !== null
         ? {
             type: "item",
-            label: "Zobrazit ve složce",
+            label: t("menu.showInFolder"),
             onSelect: () => reveal(entry.path),
           }
         : null,
@@ -2025,7 +2031,7 @@ export default function App() {
         ? null
         : {
             type: "item",
-            label: "Náhled",
+            label: t("menu.quickLook"),
             shortcut: "Space",
             onSelect: () => (overlay ? setOverlayPreview(entry) : previewEntry(entry)),
           },
@@ -2033,22 +2039,22 @@ export default function App() {
         ? null
         : {
             type: "item",
-            label: "Otevřít v aplikaci…",
+            label: t("menu.openWith"),
             disabled: !single,
             onSelect: () => {
-              void runOperation("Dialog se nepodařilo otevřít", () => openWith(entry.path));
+              void runOperation("op.openWith", () => openWith(entry.path));
             },
           },
       { type: "separator" },
       {
         type: "item",
-        label: "Otevřít v Průzkumníku",
+        label: t("menu.openInExplorer"),
         disabled: !single,
         onSelect: () => revealInExplorer(entry.path),
       },
       {
         type: "item",
-        label: "Otevřít v Terminálu",
+        label: t("menu.openInTerminal"),
         disabled: !single,
         onSelect: () => openTerminalAt(entry.path),
       },
@@ -2056,7 +2062,7 @@ export default function App() {
       // klik na soubor ho otevře v systémové aplikaci.
       {
         type: "item",
-        label: isFavorite ? "Odebrat z oblíbených" : "Přidat do oblíbených",
+        label: isFavorite ? t("menu.removeFromFavorites") : t("menu.addToFavorites"),
         disabled: !single,
         onSelect: () => {
           if (isFavorite) void storage.removeFavorite(entry.path);
@@ -2072,7 +2078,7 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: "Přejmenovat",
+        label: t("menu.rename"),
         shortcut: "F2",
         disabled: !single,
         // Výsledky hledání nemají inline přejmenování — odkryje se položka v její
@@ -2084,7 +2090,7 @@ export default function App() {
       },
       {
         type: "item",
-        label: "Duplikovat",
+        label: t("menu.duplicate"),
         shortcut: "Ctrl+D",
         disabled: !single,
         onSelect: () => duplicateEntry(entry, !overlay),
@@ -2092,19 +2098,19 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: single ? "Kopírovat" : `Kopírovat ${formatItemCount(count)}`,
+        label: single ? t("menu.copy") : t("menu.copyCount", { count }),
         shortcut: "Ctrl+C",
         onSelect: () => copyToClipboard("copy", targets),
       },
       {
         type: "item",
-        label: single ? "Vyjmout" : `Vyjmout ${formatItemCount(count)}`,
+        label: single ? t("menu.cut") : t("menu.cutCount", { count }),
         shortcut: "Ctrl+X",
         onSelect: () => copyToClipboard("cut", targets),
       },
       {
         type: "item",
-        label: "Vložit",
+        label: t("menu.paste"),
         shortcut: "Ctrl+V",
         disabled: clipboard === null || pasteTarget === null,
         onSelect: () => paste(pasteTarget ?? undefined),
@@ -2112,27 +2118,27 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: single ? "Kopírovat cestu" : "Kopírovat cesty",
+        label: single ? t("menu.copyPath") : t("menu.copyPaths"),
         // U výběru se kopírují všechny cesty po řádcích — tak je vezme každý editor.
         onSelect: () =>
           copyText(
             single ? entry.path : targets.map((item) => item.path).join("\r\n"),
-            single ? "Cestu" : "Cesty",
+            single ? "op.copyPath" : "op.copyPaths",
           ),
       },
       {
         type: "item",
-        label: single ? "Kopírovat název" : "Kopírovat názvy",
+        label: single ? t("menu.copyName") : t("menu.copyNames"),
         onSelect: () =>
           copyText(
             single ? entry.name : targets.map((item) => item.name).join("\r\n"),
-            single ? "Název" : "Názvy",
+            single ? "op.copyName" : "op.copyNames",
           ),
       },
       { type: "separator" },
       {
         type: "item",
-        label: single ? "Smazat" : `Smazat ${formatItemCount(count)}`,
+        label: single ? t("menu.delete") : t("menu.deleteCount", { count }),
         shortcut: "Delete",
         danger: true,
         onSelect: () => deleteEntries(targets),
@@ -2140,7 +2146,7 @@ export default function App() {
       { type: "separator" },
       {
         type: "tags",
-        label: "Tagy",
+        label: t("menu.tags"),
         active: single ? entryTags : sharedTags,
         // U výběru se barva přidá všem (nebo všem odebere, když ji mají všichni).
         onToggle: (color) =>
@@ -2152,7 +2158,7 @@ export default function App() {
         ? null
         : {
             type: "item",
-            label: "Odebrat tagy",
+            label: t("menu.removeTags"),
             onSelect: () => {
               for (const path of targetPaths) void storage.clearTags(path);
             },
@@ -2160,7 +2166,7 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: "Vlastnosti",
+        label: t("menu.properties"),
         disabled: !single,
         onSelect: () => setPropertiesFor(entry),
       },
@@ -2198,6 +2204,7 @@ export default function App() {
     refresh,
     selectAll,
     changeViewMode,
+    locale,
   ]);
 
   /* ------------------------- menu tlačítek toolbaru ------------------------ */
@@ -2207,7 +2214,7 @@ export default function App() {
       ...(Object.keys(SORT_LABELS) as SortKey[]).map(
         (key): MenuItem => ({
           type: "item",
-          label: SORT_LABELS[key],
+          label: t(SORT_LABELS[key]),
           checked: sortKey === key,
           onSelect: () => setSortKey(key),
         }),
@@ -2215,18 +2222,18 @@ export default function App() {
       { type: "separator" },
       {
         type: "item",
-        label: "Vzestupně",
+        label: t("sort.ascending"),
         checked: sortDirection === "asc",
         onSelect: () => setSortDirection("asc"),
       },
       {
         type: "item",
-        label: "Sestupně",
+        label: t("sort.descending"),
         checked: sortDirection === "desc",
         onSelect: () => setSortDirection("desc"),
       },
     ],
-    [sortKey, sortDirection],
+    [sortKey, sortDirection, locale],
   );
 
   // Sdílet míří na výběr; bez výběru na složku, ve které uživatel stojí.
@@ -2247,30 +2254,30 @@ export default function App() {
     return [
       {
         type: "item",
-        label: single ? "Kopírovat cestu" : "Kopírovat cesty",
+        label: single ? t("menu.copyPath") : t("menu.copyPaths"),
         disabled: sharePaths.length === 0,
-        onSelect: () => copyText(text, single ? "Cestu" : "Cesty"),
+        onSelect: () => copyText(text, single ? "op.copyPath" : "op.copyPaths"),
       },
       {
         type: "item",
-        label: "Kopírovat soubory do schránky",
+        label: t("menu.copyFiles"),
         disabled: sharePaths.length === 0,
         // Soubory jako soubory (CF_HDROP pro vložení v Průzkumníku) zatím ne —
         // do schránky jdou cesty jako text a uživatel se to dozví.
         onSelect: () => {
-          copyText(text, single ? "Cestu" : "Cesty");
-          showInfo("Zkopírováno jako cesty (text) — vkládání souborů do Průzkumníku zatím neumím.");
+          copyText(text, single ? "op.copyPath" : "op.copyPaths");
+          showInfo(t("toast.copiedAsPaths"));
         },
       },
       { type: "separator" },
       {
         type: "item",
-        label: "Otevřít v Průzkumníku",
+        label: t("menu.openInExplorer"),
         disabled: sharePaths.length === 0,
         onSelect: () => revealInExplorer(sharePaths[0]),
       },
     ];
-  }, [sharePaths, copyText, showInfo, revealInExplorer]);
+  }, [sharePaths, copyText, showInfo, revealInExplorer, locale]);
 
   // Štítky výběru: barva je zaškrtnutá, když ji mají všechny vybrané položky.
   // Klik ji pak všem odebere, jinak ji přidá všem — jako ve Finderu.
@@ -2282,13 +2289,13 @@ export default function App() {
       const everywhere = paths.every((path) => storage.tagsOf(tags, path).includes(color));
       return {
         type: "item",
-        label: TAG_LABEL[color],
+        label: tagLabel(color),
         dot: TAG_HEX[color],
         checked: everywhere,
         onSelect: () => void storage.setTag(paths, color, !everywhere),
       };
     });
-  }, [targetEntries, tags]);
+  }, [targetEntries, tags, locale]);
 
   // Ikona před názvem v toolbaru: stejná jako u složky v sidebaru, jinak
   // obecná složka; v tag view puntík barvy, ve výsledcích lupa.
@@ -2310,7 +2317,7 @@ export default function App() {
       if (item) {
         const Icon = sidebarIcon(item.icon_name);
         return (
-          <Icon size={16} strokeWidth={1.75} color={sidebarIconColor(section.label, item.label)} />
+          <Icon size={16} strokeWidth={1.75} color={sidebarIconColor(section.id)} />
         );
       }
     }
@@ -2320,9 +2327,9 @@ export default function App() {
   const crumbs = nav.current ? breadcrumbs(nav.current) : [];
   const folderName =
     tagFilter !== null
-      ? TAG_LABEL[tagFilter]
+      ? tagLabel(tagFilter)
       : search !== null
-        ? "Výsledky hledání"
+        ? t("toolbar.searchResults")
         : crumbs.length > 0
           ? crumbs[crumbs.length - 1].label
           : "Finder";
@@ -2398,7 +2405,7 @@ export default function App() {
     if (nav.current === null) {
       // Bez složky je jediné místo pro chybu (typicky z get_favorites) tady —
       // jinak by uživatel koukal na prázdný sidebar i panel bez vysvětlení.
-      return <Placeholder>{error ?? "Začni výběrem složky vlevo."}</Placeholder>;
+      return <Placeholder>{error ?? t("empty.start")}</Placeholder>;
     }
 
     if (isColumnView) {
@@ -2446,19 +2453,19 @@ export default function App() {
 
   /** Obsah načtené složky v Icon / List View. */
   function renderFolder(initialOffset: number) {
-    if (error) return <Placeholder>Složku se nepodařilo otevřít — {error}</Placeholder>;
+    if (error) return <Placeholder>{failure("op.openFolder", error)}</Placeholder>;
     if (visibleEntries.length === 0) {
       return query ? (
         <EmptyState
           Icon={SearchX}
-          title={`Nic nenalezeno pro „${query.trim()}“`}
-          hint="Enter prohledá i podsložky."
+          title={t("empty.noMatches", { query: query.trim() })}
+          hint={t("empty.noMatchesHint")}
         />
       ) : (
         <EmptyState
           Icon={FolderOpen}
-          title="Složka je prázdná"
-          hint={showHidden ? undefined : "Skryté soubory ukáže Ctrl+Shift+."}
+          title={t("empty.folder")}
+          hint={showHidden ? undefined : t("empty.folderHint")}
         />
       );
     }
@@ -2633,7 +2640,7 @@ export default function App() {
             <span className="min-w-0 flex-1 text-primary">{notice.text}</span>
             <button
               type="button"
-              aria-label="Zavřít"
+              aria-label={t("common.close")}
               onClick={() => setNoticeClosing(true)}
               className="shrink-0 text-secondary hover:text-primary"
             >
