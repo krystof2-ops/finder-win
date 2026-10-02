@@ -5,6 +5,7 @@ import { SmallEntryIcon } from "./icons";
 import { TagDots } from "./TagDots";
 import { entryOpacity, formatModified, sortEntries } from "../format";
 import { parentPath, relativeParent } from "../fileops";
+import { useT } from "../i18n";
 import { tagsOf } from "../lib/storage";
 import { useStorage } from "../lib/useStorage";
 import type { FileEntry } from "../types";
@@ -56,6 +57,7 @@ export function ResultsView({
   onContextMenu,
   onCountChange,
 }: ResultsViewProps) {
+  const t = useT();
   const { tags } = useStorage();
   const selected = selectedPath;
 
@@ -118,15 +120,15 @@ export function ResultsView({
   }
 
   return (
-    <div className="min-w-0" role="listbox" aria-label="Výsledky" onKeyDown={handleKeyDown}>
+    <div className="min-w-0" role="listbox" aria-label={t("results.label")} onKeyDown={handleKeyDown}>
       <div
         className="sticky top-0 z-10 grid h-6 items-center gap-3 border-b border-line bg-toolbar px-3 text-[11px] font-medium text-secondary"
         style={{ gridTemplateColumns: GRID_TEMPLATE, backdropFilter: "blur(20px)" }}
       >
         <span aria-hidden />
-        <span className="truncate">Název</span>
-        <span className="truncate">Kde je</span>
-        <span className="truncate">Datum úpravy</span>
+        <span className="truncate">{t("sort.name")}</span>
+        <span className="truncate">{t("results.where")}</span>
+        <span className="truncate">{t("sort.modified")}</span>
       </div>
 
       {sorted.map((entry) => {

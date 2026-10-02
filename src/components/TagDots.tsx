@@ -1,3 +1,4 @@
+import { useLocale } from "../i18n";
 import { TAG_HEX, tagLabel } from "../lib/tags";
 import type { TagColor } from "../types";
 
@@ -11,6 +12,8 @@ type TagDotsProps = {
 };
 
 export function TagDots({ colors, size = 8 }: TagDotsProps) {
+  // Řádky výpisu jsou memo — názvy barev v tooltipu se přeloží i bez nich.
+  useLocale();
   if (colors.length === 0) return null;
 
   const shown = colors.slice(0, MAX_DOTS);

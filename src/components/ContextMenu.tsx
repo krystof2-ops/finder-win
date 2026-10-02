@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 
+import { useT } from "../i18n";
 import { TAG_COLORS, TAG_HEX, tagLabel } from "../lib/tags";
 import type { TagColor } from "../types";
 
@@ -62,6 +63,7 @@ type TagRowProps = {
 };
 
 function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
+  const t = useT();
   return (
     <div className="relative" onMouseEnter={onHover}>
       <div className={`fw-menu-item ${open ? "is-highlighted" : ""}`}>
@@ -87,7 +89,7 @@ function TagRow({ label, active, onToggle, flip, open, onHover }: TagRowProps) {
                 type="button"
                 data-tooltip={tagLabel(color)}
                 aria-pressed={isActive}
-                aria-label={`Tag ${tagLabel(color)}`}
+                aria-label={t("menu.tagButton", { tag: tagLabel(color) })}
                 // Menu po kliknutí schválně zůstává — tagů jde přidat víc najednou.
                 onClick={() => onToggle(color)}
                 className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full fw-t-transform hover:scale-110"

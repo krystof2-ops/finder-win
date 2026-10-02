@@ -4,6 +4,7 @@ import { Tag } from "lucide-react";
 
 import { ResultsView } from "./ResultsView";
 import { statPaths } from "../fileops";
+import { useT } from "../i18n";
 import * as storage from "../lib/storage";
 import { tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
@@ -34,6 +35,7 @@ export function TagView({
   refreshToken,
   onCountChange,
 }: TagViewProps) {
+  const t = useT();
   const { tags } = useStorage();
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
@@ -92,12 +94,12 @@ export function TagView({
     <ResultsView
       entries={entries}
       loading={loading}
-      loadingMessage="Načítám…"
+      loadingMessage={t("common.loading")}
       error={null}
       empty={{
         Icon: Tag,
-        title: `Nic není označené barvou ${tagLabel(color).toLowerCase()}`,
-        hint: "Štítek přidáte pravým klikem na položku → Tagy.",
+        title: t("tagView.empty", { tag: tagLabel(color).toLowerCase() }),
+        hint: t("tagView.hint"),
       }}
       windowFocused={windowFocused}
       selectedPath={selectedPath}

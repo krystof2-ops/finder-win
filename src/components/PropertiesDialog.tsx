@@ -3,6 +3,7 @@ import { Dialog } from "./Dialog";
 import { LargeEntryIcon } from "./icons";
 import { cancelFolderStats, folderStats, getFileProperties, parentPath } from "../fileops";
 import { formatItemCount, formatModified, formatSize, kindLabel } from "../format";
+import { t as translate, useT } from "../i18n";
 import { tagsOf } from "../lib/storage";
 import { TAG_HEX, tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
@@ -23,10 +24,10 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 /** "12,4 MB · 1 234 položek", během výpočtu s "…", nad stropem "více než". */
 function folderSummary(stats: FolderStats): string {
   const count = stats.files + stats.folders;
-  const prefix = stats.truncated ? "více než " : "";
-  const size = formatSize(stats.bytes, false);
+  const atLeast = (value: string) =>
+    stats.truncated ? translate("props.moreThan", { value }) : value;
   const suffix = stats.done ? "" : " …";
-  return `${prefix}${size} · ${prefix}${formatItemCount(count)}${suffix}`;
+  return `${atLeast(formatSize(stats.bytes, false))} · ${atLeast(formatItemCount(count))}${suffix}`;
 }
 
 type PropertiesDialogProps = {
@@ -35,6 +36,7 @@ type PropertiesDialogProps = {
 };
 
 export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
+  const t = useT();
   const { tags } = useStorage();
   const [properties, setProperties] = useState<FileProperties | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,16 +82,16 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
   }, [entry.path, entry.is_dir]);
 
   const attributes = properties
-    ? [properties.is_readonly ? "jen pro čtení" : null, properties.is_hidden ? "skrytý" : null]
+    ? [properties.is_readonly ? t("props.readOnly") : null, properties.is_hidden ? t("props.hidden") : null]
         .filter(Boolean)
-        .join(", ") || "žádné"
+        .join(", ") || t("props.none")
     : "";
 
   const colors = tagsOf(tags, entry.path);
 
   const size = entry.is_dir
     ? stats === null
-      ? "Počítám…"
+      ? t("props.calculating")
       : folderSummary(stats)
     : properties
       ? formatSize(properties.size, false)
@@ -97,10 +99,10 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
 
   return (
     <Dialog
-      label={`Vlastnosti — ${entry.name}`}
+      label={t("props.title", { name: entry.name })}
       width={340}
       onClose={onClose}
-      actions={[{ label: "Zavřít", onClick: onClose, kind: "primary", autoFocus: true }]}
+      actions={[{ label: t("common.close"), onClick: onClose, kind: "primary", autoFocus: true }]}
     >
       <div className="flex justify-center">
         <LargeEntryIcon entry={entry} />
@@ -112,23 +114,23 @@ export function PropertiesDialog({ entry, onClose }: PropertiesDialogProps) {
 
       <div className="flex flex-col border-t border-line pt-2 text-[12px]">
         {error !== null ? (
-          <p className="py-2 text-center text-secondary">Vlastnosti se nepodařilo načíst.</p>
+          <p className="py-2 text-center text-secondary">{t("props.loadFailed")}</p>
         ) : properties === null ? (
-          <p className="py-2 text-center text-secondary">Načítám…</p>
+          <p className="py-2 text-center text-secondary">{t("common.loading")}</p>
         ) : (
           <>
-            <Row label="Typ" value={kindLabel(entry)} />
-            <Row label="Velikost" value={size} />
-            <Row label="Vytvořeno" value={formatModified(properties.created)} />
-            <Row label="Změněno" value={formatModified(properties.modified)} />
-            <Row label="Otevřeno" value={formatModified(properties.accessed)} />
-            <Row label="Kde" value={parentPath(entry.path) ?? entry.path} />
-            <Row label="Atributy" value={attributes} />
+            <Row label={t("props.type")} value={kindLabel(entry)} />
+            <Row label={t("props.size")} value={size} />
+            <Row label={t("props.created")} value={formatModified(properties.created)} />
+            <Row label={t("props.modified")} value={formatModified(properties.modified)} />
+            <Row label={t("props.accessed")} value={formatModified(properties.accessed)} />
+            <Row label={t("props.where")} value={parentPath(entry.path) ?? entry.path} />
+            <Row label={t("props.attributes")} value={attributes} />
             <Row
-              label="Tagy"
+              label={t("props.tags")}
               value={
                 colors.length === 0 ? (
-                  "žádné"
+                  t("props.none")
                 ) : (
                   <span className="inline-flex flex-wrap justify-end gap-x-2 gap-y-0.5">
                     {colors.map((color) => (

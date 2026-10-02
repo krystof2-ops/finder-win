@@ -25,14 +25,15 @@ import {
   type SortDirection,
   type SortKey,
 } from "../format";
+import { useLocale, useT, type MessageKey } from "../i18n";
 import type { FileEntry, SelectMods, TagColor, TagMap } from "../types";
 
-const COLUMNS: { key: SortKey; label: string; width: string; align: "left" | "right" }[] = [
-  { key: "name", label: "Název", width: "minmax(0, 1fr)", align: "left" },
+const COLUMNS: { key: SortKey; label: MessageKey; width: string; align: "left" | "right" }[] = [
+  { key: "name", label: "sort.name", width: "minmax(0, 1fr)", align: "left" },
   // Data a velikosti doprava, s tabulárními číslicemi — čísla pod sebou lícují.
-  { key: "modified", label: "Datum úpravy", width: "140px", align: "right" },
-  { key: "size", label: "Velikost", width: "80px", align: "right" },
-  { key: "kind", label: "Druh", width: "100px", align: "left" },
+  { key: "modified", label: "sort.modified", width: "140px", align: "right" },
+  { key: "size", label: "sort.size", width: "80px", align: "right" },
+  { key: "kind", label: "sort.kind", width: "100px", align: "left" },
 ];
 
 /** Sloupec s puntíky tagů stojí před Názvem a nemá hlavičku, jen prázdné místo. */
@@ -86,6 +87,8 @@ const ListRow = memo(
     tags,
     handlers,
   }: RowProps) {
+    // Druh, datum a velikost jsou v jazyce UI — memo by je po přepnutí nechalo.
+    useLocale();
     // Pruhování podle indexu, ne přes :nth-child — virtuální řádky nejsou
     // sourozenci v pořadí výpisu.
     const stripeClass = index % 2 === 1 ? "fw-stripe" : "";
@@ -210,6 +213,7 @@ export function ListView({
   handleRef,
   initialOffset = 0,
 }: ListViewProps) {
+  const t = useT();
   const SortArrow = sortDirection === "asc" ? ChevronUp : ChevronDown;
   const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
 
@@ -300,7 +304,7 @@ export function ListView({
               column.align === "right" ? "justify-end" : "justify-start"
             }`}
           >
-            <span className="truncate">{column.label}</span>
+            <span className="truncate">{t(column.label)}</span>
             {sortKey === column.key && <SortArrow size={11} strokeWidth={2.5} />}
           </button>
         ))}

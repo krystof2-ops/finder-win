@@ -134,9 +134,13 @@ export function breadcrumbs(path: string): Crumb[] {
 
 /** Sloupec "Druh" v list view. Tabulka přípon je v lib/filetypes.ts. */
 export function kindLabel(entry: FileEntry): string {
-  if (entry.is_dir) return "Složka";
-  if (!entry.extension) return "Dokument";
-  return fileType(entry.extension)?.kind ?? `Soubor ${entry.extension.toUpperCase()}`;
+  if (entry.is_dir) return t("kind.folder");
+  if (!entry.extension) return t("kind.document");
+
+  const format = entry.extension.toUpperCase();
+  const known = fileType(entry.extension);
+  if (known === null) return t("kind.file", { format });
+  return t(known.kind, { format: known.format ?? format });
 }
 
 /* ------------------------------ Quick Look -------------------------------- */
@@ -152,13 +156,19 @@ export function previewKind(entry: FileEntry): PreviewKind {
 
 /**
  * Přirozené řazení jako v Průzkumníku: "foto2" před "foto10", bez ohledu na
- * velikost písmen, s českou abecedou (č za c). Backend řadí stejně
+ * velikost písmen, s abecedou jazyka UI (v češtině č za c). Backend řadí stejně
  * (sort_entries), frontend ale výsledek stejně přeřazuje podle zvoleného sloupce.
  */
-const NAME_COLLATOR = new Intl.Collator("cs", { sensitivity: "base", numeric: true });
+const collators = new Map<string, Intl.Collator>();
 
 export function compareNames(a: string, b: string): number {
-  return NAME_COLLATOR.compare(a, b);
+  const locale = getLocale();
+  let collator = collators.get(locale);
+  if (!collator) {
+    collator = new Intl.Collator(locale, { sensitivity: "base", numeric: true });
+    collators.set(locale, collator);
+  }
+  return collator.compare(a, b);
 }
 
 export type SortKey = "name" | "modified" | "size" | "kind";

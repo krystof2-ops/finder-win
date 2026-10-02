@@ -22,6 +22,7 @@ import { motionMs, smoothIfAllowed } from "../lib/motion";
 import { TAG_HEX, tagLabel } from "../lib/tags";
 import { getFileProperties } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
+import { failure, useT } from "../i18n";
 import type { Column, ColumnsApi } from "../columns";
 import type { FileEntry, FileProperties, SelectMods, TagColor, TagMap } from "../types";
 
@@ -180,6 +181,7 @@ function ColumnPane({
   memoryKey,
   scrollBehavior,
 }: ColumnPaneProps) {
+  const t = useT();
   const paneRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -275,11 +277,13 @@ function ColumnPane({
       }`}
       style={{ backgroundColor: isFocused ? "var(--bg-toolbar)" : "var(--bg-main)" }}
     >
-      {column.loading && <div className="px-2.5 py-1 text-[13px] text-secondary">Načítám…</div>}
+      {column.loading && (
+        <div className="px-2.5 py-1 text-[13px] text-secondary">{t("common.loading")}</div>
+      )}
 
       {column.error && (
         <div className="px-2.5 py-1 text-[12px] leading-snug text-secondary">
-          Složku se nepodařilo otevřít — {column.error}
+          {failure("op.openFolder", column.error)}
         </div>
       )}
 
@@ -287,7 +291,7 @@ function ColumnPane({
 
       {!column.loading && !column.error && entries.length === 0 && (
         <div className="px-2.5 py-1 text-[13px] text-secondary">
-          {column.entries.length === 0 ? "Prázdná složka" : "Nic neodpovídá hledání"}
+          {column.entries.length === 0 ? t("column.empty") : t("column.noMatches")}
         </div>
       )}
 
@@ -336,6 +340,7 @@ type InfoPanelProps = {
  * (výpis nese jen změnu a vytvoření, ne přesné atributy).
  */
 function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
+  const t = useT();
   const [properties, setProperties] = useState<FileProperties | null>(null);
 
   useEffect(() => {
@@ -362,13 +367,13 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
       <p className="text-center text-[13px] font-semibold break-words text-primary">{entry.name}</p>
 
       <div className="flex flex-col border-t border-line pt-2">
-        <InfoRow label="Druh">{kindLabel(entry)}</InfoRow>
-        <InfoRow label="Velikost">
+        <InfoRow label={t("info.kind")}>{kindLabel(entry)}</InfoRow>
+        <InfoRow label={t("info.size")}>
           {formatSize(properties?.size ?? entry.size, entry.is_dir)}
         </InfoRow>
-        <InfoRow label="Vytvořeno">{formatModified(properties?.created ?? entry.created)}</InfoRow>
-        <InfoRow label="Změněno">{formatModified(properties?.modified ?? entry.modified)}</InfoRow>
-        <InfoRow label="Štítky">
+        <InfoRow label={t("info.created")}>{formatModified(properties?.created ?? entry.created)}</InfoRow>
+        <InfoRow label={t("info.modified")}>{formatModified(properties?.modified ?? entry.modified)}</InfoRow>
+        <InfoRow label={t("info.tags")}>
           {colors.length > 0 && (
             <span className="inline-flex flex-wrap justify-end gap-x-2">
               {colors.map((color) => (
@@ -391,7 +396,7 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
         onClick={() => onOpen(entry)}
         className="mt-auto h-7 w-full shrink-0 rounded-[6px] bg-[color:var(--accent-fill)] text-[13px] font-medium text-[color:var(--on-accent)] fw-t-opacity hover:opacity-90"
       >
-        Otevřít
+        {t("common.open")}
       </button>
     </div>
   );

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { Music, X } from "lucide-react";
 
 import { SmallEntryIcon, fileVisual } from "./icons";
+import { invoke } from "../fileops";
 import { formatSize, kindLabel, previewKind, type PreviewKind } from "../format";
+import { errorText, useT } from "../i18n";
 import { motionMs } from "../lib/motion";
 import type { FileEntry } from "../types";
 
@@ -45,27 +47,39 @@ function originFor(path: string): Origin | null {
 
 /* ------------------------------ textový obsah ------------------------------ */
 
-type TextState = { loading: boolean; content: string | null; error: string | null };
+/** `truncated` = soubor je delší a ukazuje se jen začátek (poznámka se
+ *  připisuje až při vykreslení, v aktuálním jazyce). */
+type TextState = {
+  loading: boolean;
+  content: string | null;
+  truncated: boolean;
+  error: string | null;
+};
+
+const NO_TEXT: TextState = { loading: false, content: null, truncated: false, error: null };
 
 function useTextContent(entry: FileEntry, kind: PreviewKind): TextState {
-  const [state, setState] = useState<TextState>({ loading: false, content: null, error: null });
+  const [state, setState] = useState<TextState>(NO_TEXT);
   const needsText = kind === "text" || kind === "markdown";
 
   useEffect(() => {
     if (!needsText) {
-      setState({ loading: false, content: null, error: null });
+      setState(NO_TEXT);
       return;
     }
 
     let cancelled = false;
-    setState({ loading: true, content: null, error: null });
+    setState({ ...NO_TEXT, loading: true });
 
-    invoke<string>("read_text_file", { path: entry.path, maxBytes: MAX_PREVIEW_BYTES })
-      .then((content) => {
-        if (!cancelled) setState({ loading: false, content, error: null });
+    invoke<{ text: string; truncated: boolean }>("read_text_file", {
+      path: entry.path,
+      maxBytes: MAX_PREVIEW_BYTES,
+    })
+      .then(({ text, truncated }) => {
+        if (!cancelled) setState({ loading: false, content: text, truncated, error: null });
       })
       .catch((err: unknown) => {
-        if (!cancelled) setState({ loading: false, content: null, error: String(err) });
+        if (!cancelled) setState({ ...NO_TEXT, error: errorText(err) });
       });
 
     return () => {
@@ -103,11 +117,12 @@ function Unsupported({ entry, message }: { entry: FileEntry; message: string }) 
 }
 
 function TextPreview({ entry, state }: { entry: FileEntry; state: TextState }) {
+  const t = useT();
   if (state.loading) {
-    return <Centered><p className="text-[13px] text-secondary">Načítám…</p></Centered>;
+    return <Centered><p className="text-[13px] text-secondary">{t("common.loading")}</p></Centered>;
   }
   if (state.error !== null || state.content === null) {
-    return <Unsupported entry={entry} message="Nelze načíst obsah." />;
+    return <Unsupported entry={entry} message={t("quicklook.cannotLoad")} />;
   }
 
   return (
@@ -123,21 +138,26 @@ function TextPreview({ entry, state }: { entry: FileEntry; state: TextState }) {
       }}
     >
       {state.content}
+      {state.truncated && `\n\n${t("quicklook.truncated")}`}
     </pre>
   );
 }
 
 function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState }) {
+  const t = useT();
   // Markdown ze souboru je nedůvěryhodný vstup a webview má přístup k Tauri IPC,
   // takže výstup marked musí projít sanitizací, než se vloží jako HTML.
   const html = useMemo(() => {
     if (state.content === null) return "";
-    return DOMPurify.sanitize(marked.parse(state.content, { async: false }) as string, {
+    const source = state.truncated
+      ? `${state.content}\n\n${t("quicklook.truncated")}`
+      : state.content;
+    return DOMPurify.sanitize(marked.parse(source, { async: false }) as string, {
       // Obrázek z webu by při pouhém náhledu prozradil, že si uživatel soubor
       // otevřel (sledovací pixel). Média a formuláře v náhledu nemají co dělat.
       FORBID_TAGS: ["img", "picture", "source", "video", "audio", "iframe", "form", "input"],
     });
-  }, [state.content]);
+  }, [state.content, state.truncated, t]);
 
   /**
    * Klik na odkaz by navigoval celé okno aplikace na web — bez cesty zpět.
@@ -161,10 +181,10 @@ function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState 
   }
 
   if (state.loading) {
-    return <Centered><p className="text-[13px] text-secondary">Načítám…</p></Centered>;
+    return <Centered><p className="text-[13px] text-secondary">{t("common.loading")}</p></Centered>;
   }
   if (state.error !== null || state.content === null) {
-    return <Unsupported entry={entry} message="Nelze načíst obsah." />;
+    return <Unsupported entry={entry} message={t("quicklook.cannotLoad")} />;
   }
 
   return (
@@ -177,6 +197,7 @@ function MarkdownPreview({ entry, state }: { entry: FileEntry; state: TextState 
 }
 
 function PreviewBody({ entry, state }: { entry: FileEntry; state: TextState }) {
+  const t = useT();
   const kind = previewKind(entry);
   const source = convertFileSrc(entry.path);
 
@@ -225,12 +246,7 @@ function PreviewBody({ entry, state }: { entry: FileEntry; state: TextState }) {
       return <TextPreview entry={entry} state={state} />;
 
     default:
-      return (
-        <Unsupported
-          entry={entry}
-          message="Náhled není k dispozici — klikni Otevřít nahoře pro otevření v aplikaci."
-        />
-      );
+      return <Unsupported entry={entry} message={t("quicklook.unavailable")} />;
   }
 }
 
@@ -257,6 +273,7 @@ export function QuickLook({
   onContextMenu,
   onCurrentChange,
 }: QuickLookProps) {
+  const t = useT();
   const files = useMemo(() => entries.filter((item) => !item.is_dir), [entries]);
 
   const [currentPath, setCurrentPath] = useState(entry.path);
@@ -403,7 +420,7 @@ export function QuickLook({
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={`Náhled — ${current.name}`}
+        aria-label={t("quicklook.label", { name: current.name })}
         onMouseDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -438,12 +455,12 @@ export function QuickLook({
             onClick={handleOpen}
             className="shrink-0 rounded-full bg-[color:var(--accent-fill)] px-3 py-1 text-[12px] font-medium text-[color:var(--on-accent)] fw-t-opacity hover:opacity-90"
           >
-            Otevřít
+            {t("common.open")}
           </button>
 
           <button
             type="button"
-            aria-label="Zavřít"
+            aria-label={t("common.close")}
             onClick={requestClose}
             className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-primary hover:bg-hover"
           >
@@ -463,7 +480,7 @@ export function QuickLook({
           style={{ background: "var(--bg-toolbar)" }}
         >
           <span>
-            {index >= 0 ? index + 1 : 1} z {files.length || 1}
+            {t("quicklook.position", { index: index >= 0 ? index + 1 : 1, count: files.length || 1 })}
           </span>
           <span>{formatSize(current.size, current.is_dir)}</span>
           <span className="truncate">{kindLabel(current)}</span>

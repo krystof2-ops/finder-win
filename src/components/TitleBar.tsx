@@ -1,6 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, Plus, X, type LucideIcon } from "lucide-react";
 
+import { useT } from "../i18n";
+
 type TrafficLightProps = {
   color: string;
   label: string;
@@ -29,6 +31,7 @@ function TrafficLight({ color, label, Icon, onClick }: TrafficLightProps) {
 }
 
 export function TitleBar() {
+  const t = useT();
   const appWindow = getCurrentWindow();
 
   return (
@@ -39,19 +42,19 @@ export function TitleBar() {
       <div className="group flex items-center gap-2">
         <TrafficLight
           color="var(--traffic-close)"
-          label="Zavřít"
+          label={t("common.close")}
           Icon={X}
           onClick={() => void appWindow.close()}
         />
         <TrafficLight
           color="var(--traffic-minimize)"
-          label="Minimalizovat"
+          label={t("window.minimize")}
           Icon={Minus}
           onClick={() => void appWindow.minimize()}
         />
         <TrafficLight
           color="var(--traffic-maximize)"
-          label="Maximalizovat"
+          label={t("window.maximize")}
           Icon={Plus}
           onClick={() => void appWindow.toggleMaximize()}
         />

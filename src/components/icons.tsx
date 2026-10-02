@@ -28,7 +28,7 @@ import {
 import { iconRequestSize, useFileIcon, useVisible } from "../lib/fileIcons";
 import { fileType, type FileGroup } from "../lib/filetypes";
 import { specialFolderGlyph } from "../lib/specialFolders";
-import { t } from "../i18n";
+import { t, useT } from "../i18n";
 import type { FavoriteEntry, FileEntry, SectionId } from "../types";
 
 /**
@@ -93,12 +93,14 @@ function WithLinkBadge({
   size: number;
   children: React.ReactNode;
 }) {
+  // Volá se z memo řádků — vlastní odběr jazyka, ať popisek nezůstane starý.
+  const t = useT();
   if (!entry.is_symlink) return <>{children}</>;
 
   const badge = Math.max(7, Math.round(size * 0.32));
 
   return (
-    <span className="relative inline-flex shrink-0" aria-label="Odkaz">
+    <span className="relative inline-flex shrink-0" aria-label={t("symlink.badge")}>
       {children}
       <span
         className="absolute right-0 bottom-0 flex items-center justify-center rounded-[2px]"

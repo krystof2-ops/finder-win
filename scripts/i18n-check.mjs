@@ -3,7 +3,7 @@
 //  (a) Ve zdrojácích mimo src/i18n/ nesmí zůstat text pro uživatele napsaný
 //      natvrdo: řetězec s českými znaky kdekoli v kódu, a jakýkoli text v JSX,
 //      v atributech title / aria-label / placeholder / alt / data-tooltip
-//      a ve vlastnostech label / title / message / hint / confirmLabel.
+//      a ve vlastnostech i props label / title / message / hint / confirmLabel.
 //      Komentáře se neberou. Výjimku jde označit komentářem `i18n-ignore`
 //      na stejném nebo předchozím řádku.
 //  (b) cs.ts a en.ts mají stejné klíče, plurály na obou stranách a stejné
@@ -31,32 +31,10 @@ const MESSAGE_KEY = /^[a-z][A-Za-z0-9]*(\.[A-Za-z0-9]+)+$/;
 /** Vlastní jména a technické texty, které se nepřekládají. */
 const ALLOWED_TEXT = new Set(["Finder-Win", "Finder", "MIT"]);
 
-const UI_ATTRIBUTES = new Set(["title", "aria-label", "placeholder", "alt", "data-tooltip"]);
 const UI_PROPERTIES = new Set(["label", "title", "message", "hint", "confirmLabel", "placeholder"]);
+/** JSX atributy s textem pro uživatele — i props vlastních komponent (label, hint). */
+const UI_ATTRIBUTES = new Set(["aria-label", "alt", "data-tooltip", ...UI_PROPERTIES]);
 
-/**
- * Soubory, které ještě čekají na převod (Fáze 13, krok B). Hlásí se jen
- * počtem, build kvůli nim nepadá. Prázdný seznam = kontrola platí všude.
- */
-const PENDING = new Set([
-  "src/columns.ts",
-  "src/components/AboutDialog.tsx",
-  "src/components/ColumnView.tsx",
-  "src/components/ConfirmDialog.tsx",
-  "src/components/ConflictDialog.tsx",
-  "src/components/ContextMenu.tsx",
-  "src/components/ListView.tsx",
-  "src/components/PropertiesDialog.tsx",
-  "src/components/QuickLook.tsx",
-  "src/components/ResultsView.tsx",
-  "src/components/SearchView.tsx",
-  "src/components/TagView.tsx",
-  "src/components/TitleBar.tsx",
-  "src/components/icons.tsx",
-  "src/format.ts",
-  "src/lib/filetypes.ts",
-]);
-const pending = [];
 
 const problems = [];
 
@@ -87,15 +65,50 @@ function checkFile(file) {
     const ignored = [lines[line], lines[line - 1]].some((row) => row?.includes("i18n-ignore"));
     if (ignored) return;
     const snippet = value.trim().replace(/\s+/g, " ").slice(0, 60);
-    (PENDING.has(name) ? pending : problems).push(`${name}:${line + 1}  ${reason}: "${snippet}"`);
+    problems.push(`${name}:${line + 1}  ${reason}: "${snippet}"`);
   }
 
-  function literalText(node) {
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
-    if (ts.isTemplateExpression(node)) {
-      return [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(" ");
+  /**
+   * Texty v hodnotě atributu / vlastnosti / JSX výrazu — i ve větvích
+   * podmínky (`a ? "Foo" : "Bar"`). Argumenty volání se nepočítají: t("klíč"),
+   * cesty a třídy jdou do funkcí, ne uživateli.
+   */
+  function literalsIn(node, found = []) {
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+      found.push([node, node.text]);
+    } else if (ts.isTemplateExpression(node)) {
+      found.push([node, [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(" ")]);
+    } else if (
+      !ts.isCallExpression(node) &&
+      !ts.isJsxElement(node) &&
+      !ts.isJsxSelfClosingElement(node) &&
+      !isComparison(node)
+    ) {
+      // forEachChild končí na první pravdivé návratové hodnotě — proto blok.
+      ts.forEachChild(node, (child) => {
+        literalsIn(child, found);
+      });
     }
-    return null;
+    return found;
+  }
+
+  /** `mode === "copy" ? …` — porovnávaná hodnota není text pro uživatele. */
+  function isComparison(node) {
+    if (!ts.isBinaryExpression(node)) return false;
+    const operator = node.operatorToken.kind;
+    return (
+      operator === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+      operator === ts.SyntaxKind.EqualsEqualsToken ||
+      operator === ts.SyntaxKind.ExclamationEqualsToken
+    );
+  }
+
+  function checkValue(node, reason) {
+    for (const [literal, value] of literalsIn(node)) {
+      // Český text hlásí obecné pravidlo níž, tady by byl dvakrát.
+      if (isUserText(value) && !CZECH.test(value)) report(literal, reason, value);
+    }
   }
 
   function visit(node) {
@@ -106,16 +119,16 @@ function checkFile(file) {
       if (isUserText(node.text)) report(node, "JSX text", node.text);
     } else if (ts.isJsxAttribute(node) && node.initializer) {
       const attribute = node.name.getText(source);
-      const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer;
-      const literal = value ? literalText(value) : null;
-      if (UI_ATTRIBUTES.has(attribute) && literal !== null && isUserText(literal) && !CZECH.test(literal)) {
-        report(node, `atribut ${attribute}`, literal);
-      }
+      if (UI_ATTRIBUTES.has(attribute)) checkValue(node.initializer, `atribut ${attribute}`);
     } else if (ts.isPropertyAssignment(node) && ts.isIdentifier(node.name) && UI_PROPERTIES.has(node.name.text)) {
-      const literal = literalText(node.initializer);
-      if (literal !== null && isUserText(literal) && !CZECH.test(literal)) {
-        report(node, `vlastnost ${node.name.text}`, literal);
-      }
+      checkValue(node.initializer, `vlastnost ${node.name.text}`);
+    } else if (
+      ts.isJsxExpression(node) &&
+      node.expression &&
+      (ts.isJsxElement(node.parent) || ts.isJsxFragment(node.parent))
+    ) {
+      // {podmínka ? "Text" : "Jiný"} mezi potomky elementu.
+      checkValue(node.expression, "JSX výraz");
     }
 
     // Český znak v jakémkoli řetězci — JSX atributy i vlastnosti výš to
@@ -237,9 +250,6 @@ const files = sourceFiles(SRC);
 for (const file of files) checkFile(file);
 const keyCount = checkDictionaries();
 
-if (pending.length > 0) {
-  console.warn(`i18n:check — ${pending.length} nálezů v ${PENDING.size} souborech čekajících na převod (PENDING)`);
-}
 
 if (problems.length > 0) {
   console.error(problems.join("\n"));

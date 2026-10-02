@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-
+import { invoke } from "../fileops";
 import { breadcrumbs, formatFreeSpace, formatItemCount } from "../format";
 import { useT } from "../i18n";
 import { isTypingTarget } from "../lib/dom";

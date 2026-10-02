@@ -9,6 +9,97 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use walkdir::WalkDir;
 
+/* --------------------------------- chyby ----------------------------------- */
+
+/// Chyba pro frontend: klíč do slovníku překladů a parametry. Backend žádnou
+/// větu v lidské řeči neposílá — text v jazyce UI skládá frontend
+/// (`localizeError` ve fileops.ts). Parametr může být i vnořená chyba
+/// (`error.atPath` = „{path}: {reason}").
+#[derive(Debug, Clone, Serialize)]
+struct AppError {
+    key: &'static str,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    args: std::collections::BTreeMap<&'static str, ErrorArg>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum ErrorArg {
+    Text(String),
+    Number(u64),
+    Error(Box<AppError>),
+}
+
+impl From<&str> for ErrorArg {
+    fn from(value: &str) -> Self {
+        ErrorArg::Text(value.to_string())
+    }
+}
+
+impl From<String> for ErrorArg {
+    fn from(value: String) -> Self {
+        ErrorArg::Text(value)
+    }
+}
+
+impl From<std::borrow::Cow<'_, str>> for ErrorArg {
+    fn from(value: std::borrow::Cow<'_, str>) -> Self {
+        ErrorArg::Text(value.into_owned())
+    }
+}
+
+impl From<u64> for ErrorArg {
+    fn from(value: u64) -> Self {
+        ErrorArg::Number(value)
+    }
+}
+
+impl From<AppError> for ErrorArg {
+    fn from(value: AppError) -> Self {
+        ErrorArg::Error(Box::new(value))
+    }
+}
+
+impl AppError {
+    fn new(key: &'static str) -> Self {
+        AppError { key, args: Default::default() }
+    }
+
+    fn arg(mut self, name: &'static str, value: impl Into<ErrorArg>) -> Self {
+        self.args.insert(name, value.into());
+        self
+    }
+
+    /// „C:\cesta: důvod" — chyba vztažená ke konkrétní položce.
+    fn at(path: impl AsRef<str>, reason: AppError) -> Self {
+        AppError::new("error.atPath").arg("path", path.as_ref()).arg("reason", reason)
+    }
+
+    /// Text, který nemáme v čem přeložit (systémová hláška, chyba knihovny).
+    fn raw(message: impl ToString) -> Self {
+        AppError::new("error.raw").arg("message", message.to_string())
+    }
+}
+
+/// Interní chyby knihoven (zamčený mutex, PNG encoder) — přes `?` jako raw text.
+impl From<String> for AppError {
+    fn from(message: String) -> Self {
+        AppError::raw(message)
+    }
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.key)
+    }
+}
+
+/// Kvůli `io::Error::other(AppError)` — chyba s klíčem projde přes io::Result
+/// a describe_io ji zase vytáhne.
+impl std::error::Error for AppError {}
+
+type CmdResult<T> = Result<T, AppError>;
+
 /// Jedna položka ve výpisu složky.
 #[derive(Debug, Clone, Serialize)]
 struct FileEntry {
@@ -90,7 +181,7 @@ struct SearchState {
 /// Zruší hledání `search_id` — jen pokud je pořád to aktuální. Zrušení, které
 /// dorazí po startu novějšího hledání, tak omylem nezastaví to nové.
 #[tauri::command(async)]
-fn cancel_search(state: tauri::State<'_, SearchState>, search_id: u64) -> Result<(), String> {
+fn cancel_search(state: tauri::State<'_, SearchState>, search_id: u64) -> CmdResult<()> {
     let current = state.current.lock().map_err(|err| err.to_string())?;
     if let Some((id, flag)) = current.as_ref() {
         if *id == search_id {
@@ -267,10 +358,10 @@ fn sort_entries(entries: &mut [FileEntry]) {
 // IPC, takže by uživatel nemohl ani zavřít appku. Těla zůstávají synchronní,
 // atribut je jen přesune na blocking pool.
 #[tauri::command(async)]
-fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FileEntry>, String> {
+fn list_dir(path: String, show_hidden: Option<bool>) -> CmdResult<Vec<FileEntry>> {
     let show_hidden = show_hidden.unwrap_or(false);
     let dir = PathBuf::from(&path);
-    let reader = fs::read_dir(&dir).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+    let reader = fs::read_dir(&dir).map_err(|err| AppError::at(&path, describe_io(&err)))?;
 
     let mut entries = Vec::new();
 
@@ -296,10 +387,10 @@ fn list_dir(path: String, show_hidden: Option<bool>) -> Result<Vec<FileEntry>, S
 
 /// Jde složku vypsat? Levná kontrola pro zadání cesty — bez čtení obsahu.
 #[tauri::command(async)]
-fn can_list_dir(path: String) -> Result<(), String> {
+fn can_list_dir(path: String) -> CmdResult<()> {
     fs::read_dir(&path)
         .map(|_| ())
-        .map_err(|err| format!("{}: {}", path, describe_io(&err)))
+        .map_err(|err| AppError::at(&path, describe_io(&err)))
 }
 
 /// Kolik položek velké složky přijde hned v odpovědi; zbytek jde po dávkách
@@ -335,13 +426,13 @@ fn list_dir_stream(
     path: String,
     show_hidden: Option<bool>,
     token: u64,
-) -> Result<DirListing, String> {
+) -> CmdResult<DirListing> {
     use std::sync::atomic::Ordering;
     use tauri::Emitter;
 
     LIST_TOKEN.store(token, Ordering::SeqCst);
     let show_hidden = show_hidden.unwrap_or(false);
-    let reader = fs::read_dir(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+    let reader = fs::read_dir(&path).map_err(|err| AppError::at(&path, describe_io(&err)))?;
 
     let mut items = reader.filter_map(move |item| {
         // Jednotlivé nečitelné položky výpis nezruší, jen se přeskočí.
@@ -683,10 +774,10 @@ fn spawn_drive_watcher(app: tauri::AppHandle) {
 
 /// Otevře zařízení bez souborového systému (telefon) v Průzkumníku.
 #[tauri::command(async)]
-fn open_device(path: String) -> Result<(), String> {
+fn open_device(path: String) -> CmdResult<()> {
     // Jen shellové cesty z portable_devices — nic jiného sem nepatří.
     if !path.starts_with("::{") {
-        return Err(format!("{}: není cesta zařízení", path));
+        return Err(AppError::at(&path, AppError::new("error.notDevicePath")));
     }
 
     // Explorer vrací nenulový kód i při úspěchu, stav se proto nekontroluje.
@@ -694,7 +785,7 @@ fn open_device(path: String) -> Result<(), String> {
         .arg(&path)
         .spawn()
         .map(|_| ())
-        .map_err(|err| format!("Průzkumníka se nepodařilo spustit: {}", err))
+        .map_err(|err| AppError::new("error.explorerLaunch").arg("reason", describe_io(&err)))
 }
 
 /* ------------------------- hlídání otevřených složek ------------------------ */
@@ -740,7 +831,7 @@ fn watch_dirs(
     state: tauri::State<'_, DirWatcher>,
     paths: Vec<String>,
     generation: u64,
-) -> Result<(), String> {
+) -> CmdResult<()> {
     use notify::{EventKind, RecursiveMode, Watcher};
 
     // Zámek se drží po celou dobu výměny — souběžná volání tak jdou po sobě
@@ -832,8 +923,8 @@ fn get_favorites() -> Vec<FavoriteSection> {
 }
 
 #[tauri::command(async)]
-fn open_file(path: String) -> Result<(), String> {
-    opener::open(&path).map_err(|err| format!("{}: {}", path, describe_open(&err)))
+fn open_file(path: String) -> CmdResult<()> {
+    opener::open(&path).map_err(|err| AppError::at(&path, describe_open(&err)))
 }
 
 /* --------------------------- souborové operace ---------------------------- */
@@ -874,12 +965,12 @@ enum OnConflict {
     Skip,
 }
 
-fn parse_conflict(value: Option<String>) -> Result<OnConflict, String> {
+fn parse_conflict(value: Option<String>) -> CmdResult<OnConflict> {
     match value.as_deref() {
         None | Some("rename") => Ok(OnConflict::Rename),
         Some("replace") => Ok(OnConflict::Replace),
         Some("skip") => Ok(OnConflict::Skip),
-        Some(other) => Err(format!("neznámá volba kolize: {}", other)),
+        Some(other) => Err(AppError::new("error.unknownConflict").arg("value", other)),
     }
 }
 
@@ -893,7 +984,7 @@ enum Placement {
     Skip(PathBuf),
 }
 
-fn place(source: &Path, dir: &Path, on_conflict: OnConflict) -> Result<Placement, String> {
+fn place(source: &Path, dir: &Path, on_conflict: OnConflict, copy_label: &str) -> CmdResult<Placement> {
     let name = file_name_of(source)?;
     let direct = dir.join(&name);
 
@@ -903,17 +994,17 @@ fn place(source: &Path, dir: &Path, on_conflict: OnConflict) -> Result<Placement
     };
 
     match on_conflict {
-        OnConflict::Rename => Ok(Placement::Fresh(unique_destination(dir, &name)?)),
+        OnConflict::Rename => Ok(Placement::Fresh(unique_destination(dir, &name, copy_label)?)),
         OnConflict::Skip => Ok(Placement::Skip(direct)),
         OnConflict::Replace => {
             // Složku souborem (ani naopak) nahradit nejde — smazal by se celý strom.
             if source.is_dir() != existing.is_dir() {
-                return Err(format!(
-                    "„{}“: {} nelze nahradit {}",
-                    name,
-                    if existing.is_dir() { "složku" } else { "soubor" },
-                    if source.is_dir() { "složkou" } else { "souborem" },
-                ));
+                let key = if existing.is_dir() {
+                    "error.replaceFolderWithFile"
+                } else {
+                    "error.replaceFileWithFolder"
+                };
+                return Err(AppError::new(key).arg("name", name));
             }
             Ok(Placement::Replace(direct))
         }
@@ -932,10 +1023,9 @@ fn move_item(source: &Path, target: &Path) -> std::io::Result<()> {
     let skipped = copy_tree(source, target).inspect_err(|_| remove_partial(target))?;
     if skipped > 0 {
         remove_partial(target);
-        return Err(std::io::Error::other(format!(
-            "obsahuje {} odkazů (symlinky / junctions), které se na jiný disk přesunout nedají",
-            skipped
-        )));
+        return Err(std::io::Error::other(
+            AppError::new("error.linksAcrossDrives").arg("count", u64::from(skipped)),
+        ));
     }
 
     if source.is_dir() {
@@ -965,9 +1055,9 @@ fn move_merge(source: &Path, target: &Path) -> std::io::Result<()> {
                     fs::remove_file(&to)?;
                     move_item(&from, &to)?;
                 } else {
-                    return Err(std::io::Error::other(format!(
-                        "{}: složku nelze nahradit souborem (ani naopak)",
-                        to.to_string_lossy()
+                    return Err(std::io::Error::other(AppError::at(
+                        to.to_string_lossy(),
+                        AppError::new("error.replaceMismatch"),
                     )));
                 }
             }
@@ -995,81 +1085,89 @@ const RESERVED_NAMES: [&str; 22] = [
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// Chyby z io::Error jsou anglické systémové texty ("The system cannot find
-/// the path specified. (os error 3)"). Nejčastější případy proto dostanou
-/// český popis, zbytek propadne na původní text.
-fn describe_io(err: &std::io::Error) -> String {
+/// io::Error → klíč překladu. Systémové texty ("The system cannot find the
+/// path specified. (os error 3)") jsou v jazyce Windows, ne UI — nejčastější
+/// případy proto dostanou vlastní klíč, zbytek propadne na původní text.
+fn describe_io(err: &std::io::Error) -> AppError {
+    // Chyba, kterou jsme do io::Error zabalili sami (move_item, move_merge).
+    if let Some(inner) = err.get_ref().and_then(|inner| inner.downcast_ref::<AppError>()) {
+        return inner.clone();
+    }
+
     // Kódy, které ErrorKind na Windows nerozliší.
-    match err.raw_os_error() {
-        Some(5) => return "nemáte oprávnění".to_string(),
-        Some(32) => return "položku používá jiná aplikace".to_string(),
-        Some(112) => return "na disku není dost místa".to_string(),
-        Some(206) => return "cesta je příliš dlouhá".to_string(),
-        Some(21) => return "zařízení není připravené".to_string(),
-        Some(53) | Some(67) => return "síťová cesta není dostupná".to_string(),
-        Some(223) => return "soubor je pro tento disk příliš velký (FAT32 unese max. 4 GB)".to_string(),
-        _ => {}
+    let key = match err.raw_os_error() {
+        Some(5) => Some("error.permissionDenied"),
+        Some(32) => Some("error.inUse"),
+        Some(112) => Some("error.diskFull"),
+        Some(206) => Some("error.pathTooLong"),
+        Some(21) => Some("error.notReady"),
+        Some(53) | Some(67) => Some("error.networkUnavailable"),
+        Some(223) => Some("error.fileTooLarge"),
+        _ => None,
+    };
+    if let Some(key) = key {
+        return AppError::new(key);
     }
 
     match err.kind() {
-        std::io::ErrorKind::NotFound => "položka neexistuje".to_string(),
-        std::io::ErrorKind::PermissionDenied => "nemáte oprávnění".to_string(),
-        std::io::ErrorKind::AlreadyExists => "cíl už existuje".to_string(),
-        _ => err.to_string(),
+        std::io::ErrorKind::NotFound => AppError::new("error.notFound"),
+        std::io::ErrorKind::PermissionDenied => AppError::new("error.permissionDenied"),
+        std::io::ErrorKind::AlreadyExists => AppError::new("error.alreadyExists"),
+        _ => AppError::raw(err),
     }
 }
 
-/// Chyba z Windows API (HRESULT) → český popis přes describe_io.
+/// Chyba z Windows API (HRESULT) → klíč přes describe_io.
 #[cfg(windows)]
-fn describe_win(err: &windows::core::Error) -> String {
+fn describe_win(err: &windows::core::Error) -> AppError {
     // HRESULT_FROM_WIN32 má kód Win32 chyby ve spodních 16 bitech.
     describe_io(&std::io::Error::from_raw_os_error(err.code().0 & 0xFFFF))
 }
 
 /// trash::Error má vlastní varianty; Display z nich dělá anglické
 /// "Error during a `trash` operation: Os { … }".
-fn describe_trash(err: &trash::Error) -> String {
+fn describe_trash(err: &trash::Error) -> AppError {
     match err {
         trash::Error::Os { code, .. } => describe_io(&std::io::Error::from_raw_os_error(code & 0xFFFF)),
-        trash::Error::TargetedRoot => "kořen disku nejde smazat".to_string(),
-        trash::Error::CouldNotAccess { .. } => "položka není dostupná".to_string(),
-        trash::Error::CanonicalizePath { .. } => "položka neexistuje".to_string(),
-        trash::Error::Unknown { description } => description.clone(),
-        other => format!("{:?}", other),
+        trash::Error::TargetedRoot => AppError::new("error.trashRoot"),
+        trash::Error::CouldNotAccess { .. } => AppError::new("error.notAccessible"),
+        trash::Error::CanonicalizePath { .. } => AppError::new("error.notFound"),
+        trash::Error::Unknown { description } => AppError::raw(description),
+        other => AppError::raw(format!("{:?}", other)),
     }
 }
 
 /// Chyba otevření výchozí aplikací.
-fn describe_open(err: &opener::OpenError) -> String {
+fn describe_open(err: &opener::OpenError) -> AppError {
     match err {
         opener::OpenError::Io(io) => describe_io(io),
         opener::OpenError::Spawn { source, .. } => describe_io(source),
-        other => other.to_string(),
+        other => AppError::raw(other),
     }
 }
 
-fn validate_name(name: &str) -> Result<(), String> {
+fn validate_name(name: &str) -> CmdResult<()> {
     let trimmed = name.trim();
 
     if trimmed.is_empty() {
-        return Err("název nesmí být prázdný".to_string());
+        return Err(AppError::new("error.nameEmpty"));
     }
     if trimmed == "." || trimmed == ".." {
-        return Err("takový název nejde použít".to_string());
+        return Err(AppError::new("error.nameInvalid"));
     }
     if trimmed.contains(INVALID_NAME_CHARS) {
-        return Err("název obsahuje nepovolený znak".to_string());
+        return Err(AppError::new("error.nameForbiddenChar"));
     }
     if trimmed.chars().any(|c| (c as u32) < 0x20) {
-        return Err("název obsahuje řídicí znak".to_string());
+        return Err(AppError::new("error.nameControlChar"));
     }
     // Windows tečku na konci tiše zahodí. Vzniklý soubor by měl jiné jméno,
     // než uživatel napsal, a cesta, kterou vracíme, by neseděla.
     if trimmed.ends_with('.') {
-        return Err("název nesmí končit tečkou".to_string());
+        return Err(AppError::new("error.nameTrailingDot"));
     }
     if trimmed.chars().count() > 255 {
-        return Err("název je příliš dlouhý".to_string());
+        return Err(AppError::new("error.nameTooLong"));
     }
 
     let stem = trimmed.split('.').next().unwrap_or(trimmed);
@@ -1077,7 +1175,7 @@ fn validate_name(name: &str) -> Result<(), String> {
         .iter()
         .any(|reserved| stem.eq_ignore_ascii_case(reserved))
     {
-        return Err(format!("„{}“ je vyhrazený název Windows", stem));
+        return Err(AppError::new("error.nameReserved").arg("name", stem));
     }
 
     Ok(())
@@ -1086,7 +1184,7 @@ fn validate_name(name: &str) -> Result<(), String> {
 /// Odmítne kopii nebo přesun složky do sebe sama nebo do vlastního potomka.
 /// Bez toho `copy_tree` prochází cíl, který sám vytváří, a běží, dokud
 /// nedojde místo na disku.
-fn ensure_not_inside(source: &Path, dest_dir: &Path) -> Result<(), String> {
+fn ensure_not_inside(source: &Path, dest_dir: &Path) -> CmdResult<()> {
     // U souboru nemá smysl — vložit soubor do jeho vlastní složky je legitimní.
     if !source.is_dir() {
         return Ok(());
@@ -1095,7 +1193,7 @@ fn ensure_not_inside(source: &Path, dest_dir: &Path) -> Result<(), String> {
     // Kanonizace kvůli symlinkům, relativním segmentům a velikosti písmen.
     let source_real = source
         .canonicalize()
-        .map_err(|err| format!("{}: {}", source.to_string_lossy(), describe_io(&err)))?;
+        .map_err(|err| AppError::at(source.to_string_lossy(), describe_io(&err)))?;
 
     // Když cíl ještě neexistuje, uvnitř zdroje ležet nemůže.
     let Ok(dest_real) = dest_dir.canonicalize() else {
@@ -1103,15 +1201,19 @@ fn ensure_not_inside(source: &Path, dest_dir: &Path) -> Result<(), String> {
     };
 
     if dest_real.starts_with(&source_real) {
-        return Err("složku nelze vložit do sebe sama".to_string());
+        return Err(AppError::new("error.intoItself"));
     }
 
     Ok(())
 }
 
+/// Slovo do názvu kopie, když ho frontend nepošle.
+const DEFAULT_COPY_LABEL: &str = "copy";
+
 /// Najde volný název v cílové složce: "soubor.txt" → "soubor (kopie).txt"
-/// → "soubor (kopie 2).txt" …
-fn unique_destination(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
+/// → "soubor (kopie 2).txt" … Slovo v závorce posílá frontend v jazyce UI
+/// (`copy_label`), bez něj "copy".
+fn unique_destination(dir: &Path, file_name: &str, copy_label: &str) -> CmdResult<PathBuf> {
     let direct = dir.join(file_name);
     if !direct.exists() {
         return Ok(direct);
@@ -1126,9 +1228,9 @@ fn unique_destination(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
 
     for attempt in 1..10_000 {
         let suffix = if attempt == 1 {
-            " (kopie)".to_string()
+            format!(" ({})", copy_label)
         } else {
-            format!(" (kopie {})", attempt)
+            format!(" ({} {})", copy_label, attempt)
         };
 
         let candidate_name = match &extension {
@@ -1142,7 +1244,7 @@ fn unique_destination(dir: &Path, file_name: &str) -> Result<PathBuf, String> {
         }
     }
 
-    Err("nepodařilo se najít volný název".to_string())
+    Err(AppError::new("error.noFreeName"))
 }
 
 /// Zkopíruje soubor nebo celý strom; vrací počet přeskočených odkazů.
@@ -1206,10 +1308,7 @@ fn rename_no_replace(source: &Path, target: &Path) -> std::io::Result<()> {
 #[cfg(not(windows))]
 fn rename_no_replace(source: &Path, target: &Path) -> std::io::Result<()> {
     if target.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "cíl už existuje",
-        ));
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
     }
     fs::rename(source, target)
 }
@@ -1235,22 +1334,22 @@ fn rename_via_temp(source: &Path, target: &Path) -> std::io::Result<()> {
         return Ok(());
     }
 
-    Err(std::io::Error::other("nepodařilo se najít volný dočasný název"))
+    Err(std::io::Error::other(AppError::new("error.noFreeName")))
 }
 
-fn parent_of(path: &Path) -> Result<&Path, String> {
+fn parent_of(path: &Path) -> CmdResult<&Path> {
     path.parent()
-        .ok_or_else(|| "cesta nemá nadřazenou složku".to_string())
+        .ok_or_else(|| AppError::new("error.noParent"))
 }
 
-fn file_name_of(path: &Path) -> Result<String, String> {
+fn file_name_of(path: &Path) -> CmdResult<String> {
     path.file_name()
         .map(|name| name.to_string_lossy().to_string())
-        .ok_or_else(|| "cesta nemá název".to_string())
+        .ok_or_else(|| AppError::new("error.noName"))
 }
 
 #[tauri::command(async)]
-fn rename_path(from: String, to_name: String) -> Result<String, String> {
+fn rename_path(from: String, to_name: String) -> CmdResult<String> {
     validate_name(&to_name)?;
 
     let source = PathBuf::from(&from);
@@ -1267,7 +1366,7 @@ fn rename_path(from: String, to_name: String) -> Result<String, String> {
     let case_only = source.to_string_lossy().to_lowercase() == target.to_string_lossy().to_lowercase();
 
     if !case_only && target.exists() {
-        return Err(format!("{} už existuje", target.to_string_lossy()));
+        return Err(AppError::new("error.exists").arg("path", target.to_string_lossy()));
     }
 
     match rename_no_replace(&source, &target) {
@@ -1277,9 +1376,9 @@ fn rename_path(from: String, to_name: String) -> Result<String, String> {
         // Objížďka přes dočasný název to spolehlivě obejde.
         Err(err) if case_only && err.kind() == std::io::ErrorKind::AlreadyExists => {
             rename_via_temp(&source, &target)
-                .map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+                .map_err(|err| AppError::at(&from, describe_io(&err)))?;
         }
-        Err(err) => return Err(format!("{}: {}", from, describe_io(&err))),
+        Err(err) => return Err(AppError::at(&from, describe_io(&err))),
     }
 
     Ok(target.to_string_lossy().to_string())
@@ -1288,7 +1387,7 @@ fn rename_path(from: String, to_name: String) -> Result<String, String> {
 /// Celý výběr do koše jedním voláním — shell operaci provede najednou místo
 /// N samostatných (a N dialogů, kdyby nějaký vyskočil).
 #[tauri::command(async)]
-fn move_to_trash(paths: Vec<String>) -> Result<(), String> {
+fn move_to_trash(paths: Vec<String>) -> CmdResult<()> {
     trash::delete_all(&paths).map_err(|err| describe_trash(&err))
 }
 
@@ -1335,10 +1434,10 @@ fn remove_partial(target: &Path) {
 }
 
 /// copy_tree + úklid rozdělaného cíle, když kopie selže.
-fn copy_or_clean(source: &Path, target: &Path, label: &str) -> Result<u32, String> {
+fn copy_or_clean(source: &Path, target: &Path, label: &str) -> CmdResult<u32> {
     copy_tree(source, target).map_err(|err| {
         remove_partial(target);
-        format!("{}: {}", label, describe_io(&err))
+        AppError::at(&label, describe_io(&err))
     })
 }
 
@@ -1353,14 +1452,20 @@ fn is_directly_in(path: &Path, dir: &Path) -> bool {
 }
 
 #[tauri::command(async)]
-fn copy_path(from: String, to_dir: String, on_conflict: Option<String>) -> Result<OpResult, String> {
+fn copy_path(
+    from: String,
+    to_dir: String,
+    on_conflict: Option<String>,
+    copy_label: Option<String>,
+) -> CmdResult<OpResult> {
     let on_conflict = parse_conflict(on_conflict)?;
+    let copy_label = copy_label.unwrap_or_else(|| DEFAULT_COPY_LABEL.to_string());
     let source = PathBuf::from(&from);
     let destination = Path::new(&to_dir);
 
     ensure_not_inside(&source, destination)?;
 
-    let (target, skipped_links) = match place(&source, destination, on_conflict)? {
+    let (target, skipped_links) = match place(&source, destination, on_conflict, &copy_label)? {
         Placement::Skip(existing) => {
             return Ok(OpResult {
                 path: existing.to_string_lossy().to_string(),
@@ -1377,7 +1482,7 @@ fn copy_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
         // předtím, takže se po chybě neuklízí (smazal by se původní obsah).
         Placement::Replace(target) => {
             let skipped = copy_tree(&source, &target)
-                .map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+                .map_err(|err| AppError::at(&from, describe_io(&err)))?;
             (target, skipped)
         }
     };
@@ -1390,8 +1495,14 @@ fn copy_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
 }
 
 #[tauri::command(async)]
-fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Result<OpResult, String> {
+fn move_path(
+    from: String,
+    to_dir: String,
+    on_conflict: Option<String>,
+    copy_label: Option<String>,
+) -> CmdResult<OpResult> {
     let on_conflict = parse_conflict(on_conflict)?;
+    let copy_label = copy_label.unwrap_or_else(|| DEFAULT_COPY_LABEL.to_string());
     let source = PathBuf::from(&from);
     let destination = Path::new(&to_dir);
 
@@ -1403,7 +1514,7 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
 
     ensure_not_inside(&source, destination)?;
 
-    let target = match place(&source, destination, on_conflict)? {
+    let target = match place(&source, destination, on_conflict, &copy_label)? {
         Placement::Fresh(target) => target,
         Placement::Skip(existing) => {
             return Ok(OpResult {
@@ -1419,7 +1530,7 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
                 // Soubor: starý pryč, nový na jeho místo (přes svazky kopií).
                 fs::remove_file(&target).and_then(|_| move_item(&source, &target))
             };
-            result.map_err(|err| format!("{}: {}", from, describe_io(&err)))?;
+            result.map_err(|err| AppError::at(&from, describe_io(&err)))?;
 
             return Ok(OpResult {
                 path: target.to_string_lossy().to_string(),
@@ -1443,7 +1554,7 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
         // tiše degradovaly na kopii — a když pak smazání originálu selhalo,
         // zůstaly po "přesunu" dvě kopie.
         Err(err) if err.raw_os_error() == Some(ERROR_NOT_SAME_DEVICE) => {}
-        Err(err) => return Err(format!("{}: {}", from, describe_io(&err))),
+        Err(err) => return Err(AppError::at(&from, describe_io(&err))),
     }
 
     let skipped_links = copy_or_clean(&source, &target, &from)?;
@@ -1453,10 +1564,9 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
     // vrací zpět: kopie pryč, originál zůstává.
     if skipped_links > 0 {
         remove_partial(&target);
-        return Err(format!(
-            "{}: obsahuje {} odkazů (symlinky / junctions), které se na jiný disk přesunout nedají. \
-             Nic se nepřesunulo — zkopírujte položku a odkazy vytvořte znovu.",
-            from, skipped_links
+        return Err(AppError::at(
+            &from,
+            AppError::new("error.linksNotMoved").arg("count", u64::from(skipped_links)),
         ));
     }
 
@@ -1466,11 +1576,7 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
         fs::remove_file(&source)
     };
     removed.map_err(|err| {
-        format!(
-            "{}: zkopírováno, ale nešlo smazat originál: {}",
-            from,
-            describe_io(&err)
-        )
+        AppError::at(&from, AppError::new("error.originalNotRemoved").arg("reason", describe_io(&err)))
     })?;
 
     Ok(OpResult {
@@ -1481,10 +1587,11 @@ fn move_path(from: String, to_dir: String, on_conflict: Option<String>) -> Resul
 }
 
 #[tauri::command(async)]
-fn duplicate_path(path: String) -> Result<OpResult, String> {
+fn duplicate_path(path: String, copy_label: Option<String>) -> CmdResult<OpResult> {
     let source = PathBuf::from(&path);
     let directory = parent_of(&source)?;
-    let target = unique_destination(directory, &file_name_of(&source)?)?;
+    let copy_label = copy_label.unwrap_or_else(|| DEFAULT_COPY_LABEL.to_string());
+    let target = unique_destination(directory, &file_name_of(&source)?, &copy_label)?;
     let skipped_links = copy_or_clean(&source, &target, &path)?;
 
     Ok(OpResult {
@@ -1495,7 +1602,7 @@ fn duplicate_path(path: String) -> Result<OpResult, String> {
 }
 
 #[tauri::command(async)]
-fn open_in_explorer(path: String) -> Result<(), String> {
+fn open_in_explorer(path: String) -> CmdResult<()> {
     use std::process::Command;
 
     let target = PathBuf::from(&path);
@@ -1516,7 +1623,7 @@ fn open_in_explorer(path: String) -> Result<(), String> {
     }
 
     // Explorer vrací nenulový exit kód i při úspěchu, proto se status neověřuje.
-    command.spawn().map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+    command.spawn().map_err(|err| AppError::at(&path, describe_io(&err)))?;
     Ok(())
 }
 
@@ -1530,7 +1637,7 @@ fn open_in_explorer(path: String) -> Result<(), String> {
 /// neměnil stav vláken async runtime — na nich COM inicializuje `trash` a
 /// předvybraný model se mu nesmí přepsat pod rukama.
 #[cfg(windows)]
-fn shell_open_as(path: &Path) -> Result<(), String> {
+fn shell_open_as(path: &Path) -> CmdResult<()> {
     use std::os::windows::ffi::OsStrExt;
     use std::sync::mpsc;
     use windows::core::PCWSTR;
@@ -1569,16 +1676,16 @@ fn shell_open_as(path: &Path) -> Result<(), String> {
     // Když si dialog vlákno podrží, ShellExecuteW se nevrátí — čekat dál nemá
     // smysl, dialog je zjevně na obrazovce.
     match receiver.recv_timeout(std::time::Duration::from_millis(1500)) {
-        Ok(Err(code)) => Err(format!("dialog se nepodařilo otevřít (kód {})", code)),
+        Ok(Err(code)) => Err(AppError::new("error.openWithDialog").arg("code", code.to_string())),
         _ => Ok(()),
     }
 }
 
 #[tauri::command(async)]
-fn open_with(path: String) -> Result<(), String> {
+fn open_with(path: String) -> CmdResult<()> {
     let target = PathBuf::from(&path);
     if !target.exists() {
-        return Err(format!("{}: položka neexistuje", path));
+        return Err(AppError::at(&path, AppError::new("error.notFound")));
     }
 
     #[cfg(windows)]
@@ -1587,7 +1694,7 @@ fn open_with(path: String) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        Err("Otevřít v aplikaci je jen na Windows".to_string())
+        Err(AppError::new("error.windowsOnly"))
     }
 }
 
@@ -1596,7 +1703,7 @@ fn open_with(path: String) -> Result<(), String> {
 /// Nejdřív Windows Terminal, pak PowerShell. `wt.exe` je alias ze Storu,
 /// který na čisté instalaci být nemusí — spawn pak selže a padne se na zálohu.
 #[tauri::command(async)]
-fn open_terminal(path: String) -> Result<(), String> {
+fn open_terminal(path: String) -> CmdResult<()> {
     use std::process::Command;
 
     let target = PathBuf::from(&path);
@@ -1607,7 +1714,7 @@ fn open_terminal(path: String) -> Result<(), String> {
     };
 
     if !directory.is_dir() {
-        return Err(format!("{}: složka neexistuje", directory.to_string_lossy()));
+        return Err(AppError::at(directory.to_string_lossy(), AppError::new("error.folderNotFound")));
     }
 
     if Command::new("wt.exe")
@@ -1624,14 +1731,14 @@ fn open_terminal(path: String) -> Result<(), String> {
         .current_dir(&directory)
         .spawn()
         .map(|_| ())
-        .map_err(|err| format!("{}: {}", directory.to_string_lossy(), err))
+        .map_err(|err| AppError::at(directory.to_string_lossy(), describe_io(&err)))
 }
 
 /// Volný název pro novou položku: „Nová složka", „Nová složka 2", …
 ///
 /// Nepoužívá `unique_destination` — ten řeší kolizi kopie a přípona
 /// „(kopie)" by u čerstvě vytvořené složky nedržela smysl.
-fn unique_new_name(dir: &Path, base: &str) -> Result<PathBuf, String> {
+fn unique_new_name(dir: &Path, base: &str) -> CmdResult<PathBuf> {
     let direct = dir.join(base);
     if !direct.exists() {
         return Ok(direct);
@@ -1644,23 +1751,23 @@ fn unique_new_name(dir: &Path, base: &str) -> Result<PathBuf, String> {
         }
     }
 
-    Err("nepodařilo se najít volný název".to_string())
+    Err(AppError::new("error.noFreeName"))
 }
 
 /// Vytvoří složku a vrátí její cestu. Kolizi názvu řeší číslem, ne chybou —
 /// „Nová složka" už ve složce bývá.
 #[tauri::command(async)]
-fn create_folder(dir: String, name: String) -> Result<String, String> {
+fn create_folder(dir: String, name: String) -> CmdResult<String> {
     validate_name(&name)?;
 
     let directory = PathBuf::from(&dir);
     if !directory.is_dir() {
-        return Err(format!("{}: cílová složka neexistuje", dir));
+        return Err(AppError::at(&dir, AppError::new("error.targetNotFound")));
     }
 
     let target = unique_new_name(&directory, name.trim())?;
     fs::create_dir(&target)
-        .map_err(|err| format!("{}: {}", target.to_string_lossy(), describe_io(&err)))?;
+        .map_err(|err| AppError::at(target.to_string_lossy(), describe_io(&err)))?;
 
     Ok(target.to_string_lossy().to_string())
 }
@@ -1668,12 +1775,12 @@ fn create_folder(dir: String, name: String) -> Result<String, String> {
 /// Vytvoří prázdný soubor a vrátí jeho cestu. Číslo při kolizi patří před
 /// příponu („Nový textový dokument 2.txt"), jinak by se přípona rozbila.
 #[tauri::command(async)]
-fn create_file(dir: String, name: String) -> Result<String, String> {
+fn create_file(dir: String, name: String) -> CmdResult<String> {
     validate_name(&name)?;
 
     let directory = PathBuf::from(&dir);
     if !directory.is_dir() {
-        return Err(format!("{}: cílová složka neexistuje", dir));
+        return Err(AppError::at(&dir, AppError::new("error.targetNotFound")));
     }
 
     let name = name.trim();
@@ -1694,12 +1801,12 @@ fn create_file(dir: String, name: String) -> Result<String, String> {
             Ok(_) => return Ok(candidate.to_string_lossy().to_string()),
             Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(err) => {
-                return Err(format!("{}: {}", candidate.to_string_lossy(), describe_io(&err)))
+                return Err(AppError::at(candidate.to_string_lossy(), describe_io(&err)))
             }
         }
     }
 
-    Err("nepodařilo se najít volný název".to_string())
+    Err(AppError::new("error.noFreeName"))
 }
 
 /// Načte metadata pro seznam cest naráz — jeden IPC skok místo N.
@@ -1762,7 +1869,7 @@ fn search_recursive(
     max_results: usize,
     show_hidden: Option<bool>,
     search_id: u64,
-) -> Result<Vec<FileEntry>, String> {
+) -> CmdResult<Vec<FileEntry>> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
 
@@ -1784,7 +1891,7 @@ fn search_recursive(
     let root_path = PathBuf::from(&root);
     // Nepřístupný kořen je chyba pro uživatele; nepřístupné podsložky se níž
     // jen tiše přeskakují, aby jedna zamčená větev nezrušila celé hledání.
-    fs::read_dir(&root_path).map_err(|err| format!("{}: {}", root, describe_io(&err)))?;
+    fs::read_dir(&root_path).map_err(|err| AppError::at(&root, describe_io(&err)))?;
 
     let walker = WalkDir::new(&root_path)
         .follow_links(false)
@@ -1810,7 +1917,7 @@ fn search_recursive(
 
     for item in walker {
         if cancelled.load(Ordering::Relaxed) {
-            return Err("hledání zrušeno".to_string());
+            return Err(AppError::new("error.searchCancelled"));
         }
 
         let Ok(item) = item else { continue };
@@ -1887,7 +1994,7 @@ fn png_data_url(bytes: &[u8]) -> String {
     format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+fn encode_png(width: u32, height: u32, rgba: &[u8]) -> CmdResult<Vec<u8>> {
     let mut out = Vec::new();
     {
         let mut encoder = png::Encoder::new(&mut out, width, height);
@@ -1904,7 +2011,7 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(windows)]
 unsafe fn bitmap_rgba(
     bitmap: windows::Win32::Graphics::Gdi::HBITMAP,
-) -> Result<(u32, u32, Vec<u8>), String> {
+) -> CmdResult<(u32, u32, Vec<u8>)> {
     use windows::Win32::Graphics::Gdi::{
         GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
         DIB_RGB_COLORS, HGDIOBJ,
@@ -1919,7 +2026,7 @@ unsafe fn bitmap_rgba(
         )
     };
     if read == 0 || info.bmWidth <= 0 || info.bmHeight == 0 {
-        return Err("ikona nemá obrazová data".to_string());
+        return Err(AppError::new("error.iconNoData"));
     }
 
     let width = info.bmWidth;
@@ -1954,7 +2061,7 @@ unsafe fn bitmap_rgba(
         lines
     };
     if lines == 0 {
-        return Err("ikonu se nepodařilo přečíst".to_string());
+        return Err(AppError::new("error.iconRead"));
     }
 
     // Některé ikony (staré .ico bez alfy) mají alfu všude 0 — ty jsou neprůhledné.
@@ -1981,7 +2088,7 @@ unsafe fn bitmap_rgba(
 /// Ikona souboru tak, jak ji kreslí Průzkumník, jako PNG.
 /// Musí běžet na vlákně s inicializovaným COM (volá se z get_file_icon).
 #[cfg(windows)]
-fn render_shell_icon(path: &str, size: u32) -> Result<Vec<u8>, String> {
+fn render_shell_icon(path: &str, size: u32) -> CmdResult<Vec<u8>> {
     use windows::core::HSTRING;
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ};
@@ -2011,17 +2118,17 @@ fn render_shell_icon(path: &str, size: u32) -> Result<Vec<u8>, String> {
 }
 
 #[cfg(not(windows))]
-fn render_shell_icon(_path: &str, _size: u32) -> Result<Vec<u8>, String> {
-    Err("ikony ze shellu jsou jen na Windows".to_string())
+fn render_shell_icon(_path: &str, _size: u32) -> CmdResult<Vec<u8>> {
+    Err(AppError::new("error.windowsOnly"))
 }
 
 /// Ikona souboru jako data URL (PNG). Nejdřív z cache na disku, jinak ze
 /// shellu — na vlastním vlákně s COM a s časovým limitem, ať pomalý shell
 /// nezdrží výpis. Po limitu chyba a frontend nechá obecnou ikonu.
 #[tauri::command(async)]
-fn get_file_icon(path: String, size: u32) -> Result<String, String> {
+fn get_file_icon(path: String, size: u32) -> CmdResult<String> {
     if !matches!(size, 32 | 64 | 128) {
-        return Err("velikost ikony musí být 32, 64 nebo 128".to_string());
+        return Err(AppError::new("error.iconSize"));
     }
 
     let key = icon_cache_key(Path::new(&path), size);
@@ -2049,7 +2156,7 @@ fn get_file_icon(path: String, size: u32) -> Result<String, String> {
 
     let png = receiver
         .recv_timeout(ICON_TIMEOUT)
-        .map_err(|_| "ikona nestihla doběhnout".to_string())??;
+        .map_err(|_| AppError::new("error.iconTimeout"))??;
 
     if let Some(file) = &cached {
         if let Some(dir) = file.parent() {
@@ -2092,7 +2199,7 @@ fn folder_stats(
     path: String,
     request_id: u64,
     on_progress: tauri::ipc::Channel<FolderStats>,
-) -> Result<FolderStats, String> {
+) -> CmdResult<FolderStats> {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -2150,8 +2257,8 @@ fn cancel_folder_stats(state: tauri::State<'_, FolderStatsState>, request_id: u6
 }
 
 #[tauri::command(async)]
-fn get_file_properties(path: String) -> Result<FileProperties, String> {
-    let metadata = fs::metadata(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+fn get_file_properties(path: String) -> CmdResult<FileProperties> {
+    let metadata = fs::metadata(&path).map_err(|err| AppError::at(&path, describe_io(&err)))?;
     let is_dir = metadata.is_dir();
 
     Ok(FileProperties {
@@ -2216,39 +2323,43 @@ fn decode_preview(bytes: &[u8], truncated: bool) -> Option<String> {
     Some(WINDOWS_1250.decode(bytes).0.into_owned())
 }
 
+/// Text pro náhled; `truncated` = soubor je delší a ukazuje se jen začátek
+/// (poznámku o tom připíše frontend v jazyce UI).
+#[derive(Debug, Serialize)]
+struct TextPreview {
+    text: String,
+    truncated: bool,
+}
+
 #[tauri::command(async)]
-fn read_text_file(path: String, max_bytes: u64) -> Result<String, String> {
+fn read_text_file(path: String, max_bytes: u64) -> CmdResult<TextPreview> {
     use std::io::Read;
 
     let limit = max_bytes.min(MAX_PREVIEW_BYTES);
 
-    let file = fs::File::open(&path).map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+    let file = fs::File::open(&path).map_err(|err| AppError::at(&path, describe_io(&err)))?;
     let size = file
         .metadata()
-        .map_err(|err| format!("{}: {}", path, describe_io(&err)))?
+        .map_err(|err| AppError::at(&path, describe_io(&err)))?
         .len();
 
     let mut buffer = Vec::with_capacity(limit.min(size) as usize);
     file.take(limit)
         .read_to_end(&mut buffer)
-        .map_err(|err| format!("{}: {}", path, describe_io(&err)))?;
+        .map_err(|err| AppError::at(&path, describe_io(&err)))?;
 
     let truncated = size > limit;
 
-    let mut text = decode_preview(&buffer, truncated)
-        .ok_or_else(|| format!("{}: soubor není textový", path))?;
+    let text = decode_preview(&buffer, truncated)
+        .ok_or_else(|| AppError::at(&path, AppError::new("error.notText")))?;
 
-    if truncated {
-        text.push_str("\n\n… (soubor zkrácen, ukazuji první 1 MB)");
-    }
-
-    Ok(text)
+    Ok(TextPreview { text, truncated })
 }
 
 /// Volné místo na disku, na kterém leží `path` (bajty dostupné tomuhle uživateli).
 #[cfg(windows)]
 #[tauri::command(async)]
-fn get_disk_free_space(path: String) -> Result<u64, String> {
+fn get_disk_free_space(path: String) -> CmdResult<u64> {
     use windows::core::HSTRING;
     use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
@@ -2258,15 +2369,15 @@ fn get_disk_free_space(path: String) -> Result<u64, String> {
     let directory = HSTRING::from(path.as_str());
 
     unsafe { GetDiskFreeSpaceExW(&directory, Some(&mut available), None, None) }
-        .map_err(|err| format!("{}: {}", path, describe_win(&err)))?;
+        .map_err(|err| AppError::at(&path, describe_win(&err)))?;
 
     Ok(available)
 }
 
 #[cfg(not(windows))]
 #[tauri::command(async)]
-fn get_disk_free_space(_path: String) -> Result<u64, String> {
-    Err("podporováno jen na Windows".to_string())
+fn get_disk_free_space(_path: String) -> CmdResult<u64> {
+    Err(AppError::new("error.windowsOnly"))
 }
 
 /// Windows 11: zaoblené rohy okna. Na starších verzích DWM atribut prostě ignoruje.

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
 
@@ -35,6 +34,7 @@ import {
   createFile,
   createFolder,
   duplicatePath,
+  invoke,
   movePath,
   moveToTrash,
   openInExplorer,
@@ -677,9 +677,11 @@ export default function App() {
     return () => window.clearTimeout(timer);
   }, [awaitingFolder, nav.current]);
 
+  // Druh i abeceda závisí na jazyce — po přepnutí se přeřadí.
   const sortedEntries = useMemo(
     () => sortEntries(entries, sortKey, sortDirection),
-    [entries, sortKey, sortDirection],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entries, sortKey, sortDirection, locale],
   );
 
   const visibleEntries = useMemo(() => {

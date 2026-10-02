@@ -1,4 +1,5 @@
 import { Dialog } from "./Dialog";
+import { useT } from "../i18n";
 
 export type ConfirmRequest = {
   title: string;
@@ -26,6 +27,7 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
+  const t = useT();
   const confirm = () => {
     onClose();
     onConfirm();
@@ -38,7 +40,7 @@ export function ConfirmDialog({
       describedBy="fw-confirm-message"
       onClose={onClose}
       actions={[
-        { label: "Zrušit", onClick: onClose, autoFocus: danger },
+        { label: t("common.cancel"), onClick: onClose, autoFocus: danger },
         danger
           ? { label: confirmLabel, onClick: confirm, kind: "danger" }
           : { label: confirmLabel, onClick: confirm, kind: "primary", autoFocus: true },

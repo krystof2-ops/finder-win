@@ -1,7 +1,49 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
+import { Channel, invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api/core";
 
 import { joinPath, splitPath } from "./format";
+import { errorText, isMessageKey, t, type Params } from "./i18n";
 import type { FileEntry, FileProperties, FolderStats, OpResult, StatResult } from "./types";
+
+/* ------------------------------ chyby backendu ------------------------------ */
+
+/** Chyba z Rustu (AppError): klíč do slovníku a parametry, i vnořené chyby. */
+type BackendError = { key: string; args?: Record<string, string | number | BackendError> };
+
+function isBackendError(value: unknown): value is BackendError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { key?: unknown }).key === "string"
+  );
+}
+
+/**
+ * Jediné místo, kde se chyba z backendu mění na text — v jazyce UI v okamžiku
+ * chyby. Neznámý klíč (novější backend) projde aspoň s parametry.
+ */
+export function localizeError(err: unknown): string {
+  if (!isBackendError(err)) return errorText(err);
+
+  const params: Params = {};
+  for (const [name, value] of Object.entries(err.args ?? {})) {
+    params[name] = typeof value === "object" ? localizeError(value) : value;
+  }
+
+  if (isMessageKey(err.key)) return t(err.key, params);
+  return [err.key, ...Object.values(params)].join(" ");
+}
+
+/**
+ * invoke() se srozumitelnou chybou: místo objektu `{ key, args }` odmítne
+ * přeloženým textem, takže volající dál dělají jen `String(err)`.
+ */
+export async function invoke<T>(command: string, args?: InvokeArgs): Promise<T> {
+  try {
+    return await tauriInvoke<T>(command, args);
+  } catch (err: unknown) {
+    throw localizeError(err);
+  }
+}
 
 /* Tenké typované obálky nad Tauri commandy.
    Tauri převádí snake_case parametry na camelCase, proto toName / toDir. */
@@ -23,16 +65,19 @@ export function trashIsPermanent(paths: string[]): Promise<boolean> {
 /** Co dělat s kolizí jména v cíli: ponechat obě, nahradit (složku sloučit), přeskočit. */
 export type OnConflict = "rename" | "replace" | "skip";
 
+/* Při „ponechat obě" a duplikaci dostane kopie slovo v jazyce UI:
+   „Foto (kopie).jpg" / „Photo (copy).jpg". */
+
 export function copyPath(from: string, toDir: string, onConflict: OnConflict = "rename"): Promise<OpResult> {
-  return invoke<OpResult>("copy_path", { from, toDir, onConflict });
+  return invoke<OpResult>("copy_path", { from, toDir, onConflict, copyLabel: t("name.copySuffix") });
 }
 
 export function movePath(from: string, toDir: string, onConflict: OnConflict = "rename"): Promise<OpResult> {
-  return invoke<OpResult>("move_path", { from, toDir, onConflict });
+  return invoke<OpResult>("move_path", { from, toDir, onConflict, copyLabel: t("name.copySuffix") });
 }
 
 export function duplicatePath(path: string): Promise<OpResult> {
-  return invoke<OpResult>("duplicate_path", { path });
+  return invoke<OpResult>("duplicate_path", { path, copyLabel: t("name.copySuffix") });
 }
 
 export function statPaths(paths: string[]): Promise<StatResult[]> {

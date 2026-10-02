@@ -4,6 +4,7 @@ import { SearchX } from "lucide-react";
 
 import { ResultsView } from "./ResultsView";
 import { cancelSearch, searchRecursive } from "../fileops";
+import { failure, useT } from "../i18n";
 import type { FileEntry } from "../types";
 
 /** Identita hledání pro backend — napříč všemi SearchView, proto modulová. */
@@ -42,6 +43,7 @@ export function SearchView({
   showHidden,
   onCountChange,
 }: SearchViewProps) {
+  const t = useT();
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +78,7 @@ export function SearchView({
         if (requestId.current !== id) return;
 
         setEntries([]);
-        setError(`Hledání se nepodařilo — ${String(err)}`);
+        setError(failure("op.search", err));
         setLoading(false);
       });
 
@@ -89,18 +91,18 @@ export function SearchView({
     <ResultsView
       entries={entries}
       loading={loading}
-      loadingMessage="Hledám…"
+      loadingMessage={t("search.searching")}
       error={error}
       empty={{
         Icon: SearchX,
-        title: `Nic nenalezeno pro „${query}“`,
-        hint: "Hledá se podle názvu v této složce a ve všech podsložkách.",
+        title: t("empty.noMatches", { query }),
+        hint: t("search.hint"),
       }}
       root={root}
       footer={
         entries.length === MAX_RESULTS && (
           <div className="px-3 py-2 text-[11px] text-secondary">
-            Zobrazeno prvních {MAX_RESULTS} výsledků.
+            {t("search.limited", { count: MAX_RESULTS })}
           </div>
         )
       }

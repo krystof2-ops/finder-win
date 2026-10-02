@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Dialog } from "./Dialog";
 import { SmallEntryIcon } from "./icons";
 import { formatModified, formatSize } from "../format";
+import { useT } from "../i18n";
 import type { FileEntry } from "../types";
 
 export type ConflictChoice = "replace" | "rename" | "skip";
@@ -28,13 +29,14 @@ type ConflictDialogProps = ConflictRequest & {
 };
 
 function Details({ label, entry }: { label: string; entry: FileEntry }) {
+  const t = useT();
   return (
     <div className="flex items-center gap-2 rounded-md bg-hover px-2 py-1.5">
       <SmallEntryIcon entry={entry} />
       <div className="min-w-0 flex-1">
         <p className="text-[11px] font-medium text-secondary">{label}</p>
         <p className="truncate text-[12px] tabular-nums">
-          {[entry.is_dir ? "Složka" : formatSize(entry.size, false), formatModified(entry.modified)]
+          {[entry.is_dir ? t("kind.folder") : formatSize(entry.size, false), formatModified(entry.modified)]
             .filter(Boolean)
             .join(" · ")}
         </p>
@@ -57,6 +59,7 @@ export function ConflictDialog({
   onAnswer,
   onCancel,
 }: ConflictDialogProps) {
+  const t = useT();
   const [applyToAll, setApplyToAll] = useState(false);
 
   // Složka za soubor (ani naopak) nahradit nejde — backend by to odmítl.
@@ -71,35 +74,41 @@ export function ConflictDialog({
       width={400}
       closeOnOverlay={false}
       onClose={onCancel}
-      leftAction={{ label: "Zastavit", onClick: onCancel }}
+      leftAction={{ label: t("conflict.stop"), onClick: onCancel }}
       actions={[
-        { label: "Přeskočit", onClick: () => answer("skip") },
+        { label: t("conflict.skip"), onClick: () => answer("skip") },
         {
-          label: source.is_dir ? "Sloučit" : "Nahradit",
+          label: source.is_dir ? t("conflict.merge") : t("conflict.replace"),
           onClick: () => answer("replace"),
           disabled: typesDiffer,
         },
-        { label: "Ponechat obě", onClick: () => answer("rename"), kind: "primary", autoFocus: true },
+        {
+          label: t("conflict.keepBoth"),
+          onClick: () => answer("rename"),
+          kind: "primary",
+          autoFocus: true,
+        },
       ]}
     >
       <p id="fw-conflict-title" className="text-[14px] font-semibold break-words">
-        {source.is_dir ? "Složka" : "Soubor"} „{source.name}“ už ve složce „{folder}“ je.
+        {t(source.is_dir ? "conflict.titleFolder" : "conflict.titleFile", {
+          name: source.name,
+          folder,
+        })}
       </p>
       <p className="text-secondary">
-        {mode === "copy" ? "Kopírovanou" : "Přesouvanou"} položku můžete nahradit, ponechat obě
-        (nová dostane „(kopie)“), nebo ji přeskočit.
-        {source.is_dir && !typesDiffer && " Sloučení složek ponechá i soubory, které jsou jen v cíli."}
+        {t(mode === "copy" ? "conflict.bodyCopy" : "conflict.bodyMove", { copy: t("name.copySuffix") })}
+        {source.is_dir && !typesDiffer && ` ${t("conflict.mergeNote")}`}
       </p>
 
       <div className="flex flex-col gap-1.5">
-        <Details label={mode === "copy" ? "Kopírovaná" : "Přesouvaná"} entry={source} />
-        <Details label="Stávající" entry={existing} />
+        <Details label={mode === "copy" ? t("conflict.copying") : t("conflict.moving")} entry={source} />
+        <Details label={t("conflict.existing")} entry={existing} />
       </div>
 
       {typesDiffer && (
         <p className="text-secondary">
-          Nahradit nejde — {existing.is_dir ? "složku" : "soubor"} nelze nahradit{" "}
-          {source.is_dir ? "složkou" : "souborem"}.
+          {existing.is_dir ? t("conflict.folderByFile") : t("conflict.fileByFolder")}
         </p>
       )}
 
@@ -110,7 +119,7 @@ export function ConflictDialog({
             checked={applyToAll}
             onChange={(event) => setApplyToAll(event.target.checked)}
           />
-          Použít pro všechny (ještě {remaining})
+          {t("conflict.applyToAll", { count: remaining })}
         </label>
       )}
     </Dialog>

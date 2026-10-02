@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { localeSignal } from "../i18n";
+
 /** Stejná prodleva jako u macOS — rychlejší tooltip ruší při přejíždění myší. */
 const SHOW_DELAY_MS = 600;
 /** Jak dlouho po odjetí z bubliny zůstává vrstva "zahřátá": sousední tlačítko
@@ -99,8 +101,12 @@ export function TooltipLayer() {
     const options = { capture: true, passive: true };
     for (const name of hideEvents) window.addEventListener(name, hide, options);
     window.addEventListener("blur", hide);
+    // Text bubliny je z data-tooltip v okamžiku najetí — po přepnutí jazyka
+    // by visel ve starém, takže zmizí a při dalším najetí se načte nový.
+    const stopLocale = localeSignal.subscribe(hide);
 
     return () => {
+      stopLocale();
       cancel();
       document.removeEventListener("mouseover", onMouseOver, true);
       document.removeEventListener("mousemove", onMouseMove, true);

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
 
+import { invoke } from "./fileops";
 import { sortEntries, type SortDirection, type SortKey } from "./format";
+import { failure } from "./i18n";
 import type { FileEntry, SelectMods } from "./types";
 
 export type Column = {
@@ -406,7 +407,7 @@ export function useColumns(
       // doprava nic nemá smysl ukazovat. Kořenový sloupec se nechává, ten patří
       // nav.current a chybu u něj ukáže hlavní výpis.
       const failedAt = results.findIndex((result, index) => index > 0 && result.error !== null);
-      if (failedAt > 0) onErrorRef.current(`Složka zmizela — ${results[failedAt].error}`);
+      if (failedAt > 0) onErrorRef.current(failure("op.folderGone", results[failedAt].error));
 
       setColumns((prev) => {
         const kept = failedAt > 0 ? prev.slice(0, failedAt) : prev;
