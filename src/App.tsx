@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
@@ -29,7 +29,6 @@ import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
 import { TooltipLayer } from "./components/Tooltip";
 import { Skeleton, ViewTransition } from "./components/ViewTransition";
-import { useColumns } from "./columns";
 import {
   clipboardClear,
   clipboardHasFiles,
@@ -54,30 +53,31 @@ import {
 import {
   breadcrumbs,
   formatItemCount,
-  sortEntries,
   type SortKey,
 } from "./format";
 import { errorText, failure, t, useLocale, type MessageKey } from "./i18n";
-import { droppedPaths, isExternalFileDrag } from "./lib/dnd";
+import { canDropInto, droppedPaths, endDrag, getDrag, isExternalFileDrag } from "./lib/dnd";
 import { isTypingTarget } from "./lib/dom";
 import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, tagLabel } from "./lib/tags";
-import { useRubberBand } from "./lib/rubberBand";
 import { useStableCallback } from "./lib/rowDnd";
+import { usePanel, type Panel } from "./panel";
+
+/** Jen funkce panelu (settery, navigace) — viz activeFns. */
+type PanelFunctions = {
+  [K in keyof Panel as Panel[K] extends (...args: never[]) => unknown ? K : never]: Panel[K];
+};
 import { setSpecialFolders } from "./lib/specialFolders";
 import { checkForUpdate, type AvailableUpdate } from "./lib/updates";
 import { useStorage } from "./lib/useStorage";
-import type { ViewHandle } from "./lib/viewHandle";
-import { newTab, useBrowserState, type Tab, type TabSnapshot } from "./browser";
-import type { NavDirection } from "./navigation";
+import { blankSnapshot, newTab, tabFace, type Tab, type TabSnapshot } from "./browser";
 import { applyTheme, readStoredTheme } from "./theme";
 import { redoOp, trashTimestamp, undoLabel, undoOp, UNDO_LIMIT, type UndoOp } from "./undo";
 import type {
   Clipboard,
   FavoriteSection,
   FileEntry,
-  SelectMods,
   StatResult,
   TagColor,
   Theme,
@@ -130,56 +130,8 @@ function folderEntry(path: string): FileEntry {
   };
 }
 
-
-/** Odpověď `list_dir_stream` a jeho dávky (`dir-chunk`). */
-type DirListing = { entries: FileEntry[]; more: boolean };
-type DirChunk = { token: number; entries: FileEntry[]; done: boolean };
-
-/** Zpoždění filtru výpisu za psaním do pole hledání. */
-const FILTER_DEBOUNCE_MS = 100;
-
-/** Psaní písmen skáče na položku; po téhle pauze začíná nové slovo. */
-const TYPE_AHEAD_RESET_MS = 1000;
-
-/** Do téhle doby zůstává při navigaci vidět starý výpis; déle = kostra. */
-const SKELETON_DELAY_MS = 400;
-
-/**
- * Snímek view, které se právě opouští (ikony / seznam / sloupce). Klon DOMu
- * bez identifikátorů — querySelector na data-path ani role nesmí najít jeho
- * řádky místo skutečných. Posuny vnořených scrollerů (sloupce) klon sám
- * nepřevezme, proto se kopírují ručně.
- */
-function spawnViewGhost(source: HTMLElement, host: HTMLElement) {
-  // Posuny se čtou předem a najednou — střídání čtení se zápisem by nutilo
-  // prohlížeč přepočítat layout u každého prvku. Posouvat se dají jen
-  // .fw-scroll prvky, jinde není co kopírovat.
-  const scrollers = [source, ...source.querySelectorAll<HTMLElement>(".fw-scroll")];
-  const offsets = scrollers.map((element) => [element.scrollTop, element.scrollLeft] as const);
-
-  const ghost = source.cloneNode(true) as HTMLElement;
-  const identifying = ["id", "data-path", "data-column-path", "data-tooltip", "role", "tabindex"];
-  for (const element of ghost.querySelectorAll<HTMLElement>(identifying.map((name) => `[${name}]`).join(","))) {
-    for (const name of identifying) element.removeAttribute(name);
-  }
-  for (const name of identifying) ghost.removeAttribute(name);
-  ghost.className = "fw-view-ghost";
-  ghost.setAttribute("aria-hidden", "true");
-  ghost.inert = true;
-  host.appendChild(ghost);
-
-  const copies = [ghost, ...ghost.querySelectorAll<HTMLElement>(".fw-scroll")];
-  offsets.forEach(([top, left], index) => {
-    if (top === 0 && left === 0) return;
-    copies[index].scrollTop = top;
-    copies[index].scrollLeft = left;
-  });
-
-  const remove = () => ghost.remove();
-  ghost.addEventListener("animationend", remove, { once: true });
-  // Pojistka: s vypnutými animacemi (0 ms) se animationend nemusí dostavit.
-  window.setTimeout(remove, motionMs("--dur-nav") + 50);
-}
+/** Užší okno rozdělení schová (stav zůstává a vrátí se po zvětšení). */
+const SPLIT_MIN_WIDTH = 1000;
 
 function Placeholder({ children }: { children: React.ReactNode }) {
   return (
@@ -192,6 +144,8 @@ function Placeholder({ children }: { children: React.ReactNode }) {
 export default function App() {
   const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [windowFocused, setWindowFocused] = useState(true);
+  /** Fokus okna — panely si z něj odvodí vlastní (neaktivní panel je „bez fokusu"). */
+  const windowFocusedAll = windowFocused;
 
   const [sections, setSectionsState] = useState<FavoriteSection[]>([]);
   /** Sekce sidebaru — a z Oblíbených se odvodí speciální složky s glyfem. */
@@ -199,51 +153,16 @@ export default function App() {
     setSpecialFolders(next);
     setSectionsState(next);
   }, []);
-  const browser = useBrowserState();
-  const {
-    nav,
-    dispatch,
-    viewMode,
-    setViewMode,
-    sortKey,
-    setSortKey,
-    sortDirection,
-    setSortDirection,
-    query,
-    setQuery,
-    tagFilter,
-    setTagFilter,
-    search,
-    setSearch,
-    active,
-    setActive,
-    selection,
-    setSelection,
-  } = browser;
 
   /** Záložky. Živý stav (browser výš) má jen aktivní, ostatní leží jako snímky. */
   const [initialTab] = useState(() => newTab(null));
   const [tabs, setTabs] = useState<Tab[]>(() => [initialTab]);
   const [activeTabId, setActiveTabId] = useState(initialTab.id);
-  /** Výběr a posun záložky, na kterou se přepnulo — nastaví se, až dorazí
-   *  výpis její složky (dřív by ho srovnání s výpisem zahodilo). */
-  const tabRestore = useRef<{
-    path: string | null;
-    selection: string[];
-    active: string | null;
-    scrollTop: number;
-    seq: number;
-  } | null>(null);
-  /** Přepnutí záložky mění nav.current, její dotaz v poli hledání ale zůstává. */
-  const keepQueryOnNav = useRef(false);
+  /** applyTab pro efekt startu, který běží dřív, než je funkce definovaná. */
+  const applyTabRef = useRef<(tab: Tab) => void>(() => undefined);
   /** Záložky se do nastavení zapisují až po jejich obnovení při startu. */
   const tabsLoaded = useRef(false);
 
-  const [entries, setEntries] = useState<FileEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  /** Velká složka se dočítá po dávkách — kolik položek už dorazilo, jinak null. */
-  const [streamingCount, setStreamingCount] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
   /** `sticky` = chyba, visí do kliknutí / Escape. Informace mizí sama — ale
    *  "nemáte oprávnění" by se za dvě sekundy nedalo dočíst. */
   const [notice, setNoticeState] = useState<{ text: string; sticky: boolean } | null>(null);
@@ -270,133 +189,224 @@ export default function App() {
   );
   /** Menu z toolbaru (Seřadit / Sdílet / Štítky / Více) — drží ho Toolbar. */
   const [toolbarMenuOpen, setToolbarMenuOpen] = useState(false);
-  const [freeSpace, setFreeSpace] = useState<number | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
 
   /** Kopie systémové schránky — jen pro průhlednost vyjmutých položek.
    *  Vkládá se vždy z té skutečné (Ctrl+V čte schránku Windows). */
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
   /** Má systémová schránka soubory? Zjišťuje se při otevření menu (Vložit). */
   const [clipboardHasItems, setClipboardHasItems] = useState(false);
-  const [renamingPath, setRenamingPath] = useState<string | null>(null);
-  const [pathEditing, setPathEditing] = useState(false);
   const [menu, setMenu] = useState<MainMenu | null>(null);
   const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  const [tagCount, setTagCount] = useState(0);
 
-  const [searchCount, setSearchCount] = useState(0);
-  /** Co se má označit, až dorazí výpis složky `dir`. `seq` je stav načítacího
-   *  čítače v okamžiku požadavku — čeká se, až se posune. Bez toho by se
-   *  požadavek po přejmenování zahodil hned proti ještě starému výpisu, ve
-   *  kterém nová cesta pochopitelně není. */
-  const [pendingSelect, setPendingSelect] = useState<{
-    dir: string;
-    path: string;
-    seq: number;
-    /** Totéž pro Column View: `version` sloupce s cestou `dir` v okamžiku
-     *  požadavku (-1, když takový sloupec není otevřený). */
-    columnVersion: number;
-    /** Po označení rovnou otevřít přejmenování (Přejmenovat z výsledků hledání). */
-    rename?: boolean;
-  } | null>(null);
-  /** Složka, ke které patří obsah `entries`, a pořadí jejího načtení. Cesta
-   *  není totéž co nav.current — ten se změní hned, kdežto entries dojedou až
-   *  po odpovědi backendu. */
-  /** `direction` = jak se do složky přišlo (null u přenačtení a přepnutí view). */
-  const [loaded, setLoaded] = useState<{
-    path: string | null;
-    seq: number;
-    direction: NavDirection | null;
-  }>({ path: null, seq: 0, direction: null });
-  const loadedPath = loaded.path;
-
-  const { tags, favorites, motion, updates } = useStorage();
+  const { tags, favorites, motion, updates, splitRatio } = useStorage();
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
 
-  // Filtr výpisu jede se zpožděním 100 ms — v tisícové složce by každý úhoz
-  // přefiltroval a překreslil všechno. Smazání pole platí hned.
-  const [filterQuery, setFilterQuery] = useState("");
-  useEffect(() => {
-    if (query.trim() === "") {
-      setFilterQuery("");
-      return;
-    }
-    const timer = window.setTimeout(() => setFilterQuery(query), FILTER_DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [query]);
   const [quickLookOpen, setQuickLookOpen] = useState(false);
   /** Přepínač skrytých souborů. null = ještě se neví (čeká se na settings.json
    *  a případně na nastavení Průzkumníku) — výpis se do té doby nenačítá. */
   const [showHidden, setShowHidden] = useState<boolean | null>(null);
+
+  /* ---------------------------- dva panely ------------------------------- */
+
+  /** Rozdělené okno zapnuté uživatelem (Ctrl+Shift+D). */
+  const [splitOn, setSplitOn] = useState(false);
+  /** Panel, na který míří klávesnice, toolbar, status bar i sidebar. */
+  const [activePanel, setActivePanel] = useState<0 | 1>(0);
+  /** Úzké okno — rozdělení se schová a po zvětšení vrátí. */
+  const [narrow, setNarrow] = useState(() => window.innerWidth < SPLIT_MIN_WIDTH);
+  const splitVisible = splitOn && !narrow;
+
+  const panels = [
+    usePanel({ slot: 0, showHidden, setNotice }),
+    usePanel({ slot: 1, showHidden, setNotice }),
+  ] as const;
+  /** Aktivní panel — zbytek App pracuje s ním (jména jako dřív). */
+  const panel = panels[activePanel];
+  const otherPanel = splitVisible ? panels[activePanel === 0 ? 1 : 0] : null;
+  const panelRef = useRef(panel);
+  panelRef.current = panel;
+  /** Panely, které jsou vidět (bez rozdělení jen aktivní). */
+  const visiblePanels: (0 | 1)[] = splitVisible ? [0, 1] : [activePanel];
+  const panelsRef = useRef(panels);
+  panelsRef.current = panels;
+
+  /**
+   * Funkce aktivního panelu se stabilní identitou, které vždy zavolají ten
+   * panel, který je aktivní právě teď. Settery a callbacky jsou totiž pro
+   * každý panel jiné — memoizovaný callback v App by jinak po přepnutí panelu
+   * dál ovládal ten původní (pravý klik by měnil výběr v druhém panelu).
+   */
+  const activeFns = useMemo(() => {
+    const proxies: Record<string, (...args: unknown[]) => unknown> = {};
+    for (const [key, value] of Object.entries(panelRef.current)) {
+      if (typeof value !== "function") continue;
+      proxies[key] = (...args: unknown[]) =>
+        (panelRef.current as unknown as Record<string, (...args: unknown[]) => unknown>)[key](...args);
+    }
+    return proxies as unknown as PanelFunctions;
+  }, []);
+  const {
+    dispatch,
+    setSortKey,
+    setSortDirection,
+    setQuery,
+    setTagFilter,
+    setSearch,
+    setActive,
+    setSelection,
+    setError,
+    setRenamingPath,
+    setPathEditing,
+    setOverlaySelected,
+    navigate,
+    goBack,
+    goForward,
+    submitSearch,
+    selectEntry,
+    viewMetrics,
+    selectIndex,
+    moveSelection,
+    findByPrefix,
+    requestSelect,
+    reveal,
+    goToParent,
+    selectAll,
+    changeViewMode,
+  } = activeFns;
+  const {
+    nav,
+    viewMode,
+    sortKey,
+    sortDirection,
+    query,
+    tagFilter,
+    search,
+    streamingCount,
+    freeSpace,
+    pathEditing,
+    tagCount,
+    searchCount,
+    filterQuery,
+    overlaySelected,
+    columnsApi,
+    sortedEntries,
+    visibleEntries,
+    focusedColumn,
+    columnSelected,
+    isColumnView,
+    currentDir,
+    targetEntries,
+    activeEntry,
+  } = panel;
+
+  /** Klik do panelu ho aktivuje hned — ještě než dojde na výběr, menu nebo
+   *  tažení, které tak už míří na něj. */
+  const activatePanel = useCallback(
+    (index: 0 | 1) => {
+      if (index === activePanel) return;
+      flushSync(() => setActivePanel(index));
+    },
+    [activePanel],
+  );
+
+  // Fokus nesmí zůstat v neaktivním panelu (sloupce si ho drží na svém
+  // kontejneru) — šipky by jinak ovládaly jiný panel než Delete a Ctrl+C.
+  // Aktivní sloupcový panel si ho po „probuzení" vezme sám.
+  useEffect(() => {
+    const focused = document.activeElement;
+    const owner = focused instanceof Element ? focused.closest(".fw-panel") : null;
+    if (owner && !owner.classList.contains("is-active") && focused instanceof HTMLElement) focused.blur();
+  }, [activePanel]);
+
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth < SPLIT_MIN_WIDTH);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  /** Zapne / vypne rozdělení. Prázdný druhý panel začne ve stejné složce. */
+  const toggleSplit = useCallback(() => {
+    if (splitOn) {
+      setSplitOn(false);
+      return;
+    }
+    const current = panelRef.current;
+    const other = panelsRef.current[activePanel === 0 ? 1 : 0];
+    if (other.nav.current === null && current.currentDir !== null) {
+      other.applySnapshot(
+        blankSnapshot(current.currentDir, {
+          viewMode: current.viewMode,
+          sortKey: current.sortKey,
+          sortDirection: current.sortDirection,
+        }),
+      );
+    }
+    setSplitOn(true);
+  }, [splitOn, activePanel]);
+
+  /**
+   * Dělicí čára. Během tažení se mění jen styl levého panelu (jednou za
+   * snímek) — přes úložiště by každý pohyb myši překreslil celou aplikaci.
+   * Do nastavení až na konci; konec je i ztráta myši (Alt+Tab během tažení).
+   */
+  const panelsBoxRef = useRef<HTMLDivElement>(null);
+  const startSplitResize = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const box = panelsBoxRef.current?.getBoundingClientRect();
+    const left = panelsBoxRef.current?.querySelector<HTMLElement>(":scope > .fw-panel");
+    if (!box || !left) return;
+    handle.setPointerCapture(event.pointerId);
+    let ratio = splitRatio;
+    let frame = 0;
+    const onMove = (move: PointerEvent) => {
+      ratio = storage.clampSplitRatio((move.clientX - box.left) / box.width);
+      if (frame !== 0) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        left.style.flexBasis = `${ratio * 100}%`;
+      });
+    };
+    const finish = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      cancelAnimationFrame(frame);
+      document.body.style.cursor = "";
+      void storage.setSplitRatio(ratio);
+    };
+    document.body.style.cursor = "col-resize";
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
+  };
+
+  /** Po operaci se přenačtou viditelné panely — kopie mezi nimi mění oba.
+   *  Skrytý panel nikdo nevidí ani nehlídá; obnoví se, až se ukáže. */
+  const visibleRef = useRef(visiblePanels);
+  visibleRef.current = visiblePanels;
+  const refresh = useCallback(() => {
+    for (const index of visibleRef.current) panelsRef.current[index].refresh();
+  }, []);
+  const secondShown = splitVisible;
+  useEffect(() => {
+    if (secondShown) panelsRef.current[activePanel === 0 ? 1 : 0].refresh();
+    // Jen při zobrazení druhého panelu, ne při každém přepnutí aktivního.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondShown]);
   /** Náhled položky z výsledků hledání nebo z tag view — ty nejsou ve výpisu
    *  složky, takže běžný Quick Look nad `activeEntry` je neuvidí. */
   const [overlayPreview, setOverlayPreview] = useState<FileEntry | null>(null);
-  /** Vybraná položka ve výsledcích hledání / tag view (Ctrl+C, Enter). */
-  const [overlaySelected, setOverlaySelected] = useState<FileEntry | null>(null);
 
-  const requestId = useRef(0);
-  /** Roste s každým dokončeným výpisem. V refu, aby si ho requestSelect mohl
-   *  přečíst bez závislosti na renderu. */
-  const loadSeq = useRef(0);
-  /** Složka, jejíž výpis je právě v `entries` — pozná přenačtení od navigace. */
-  const loadedPathRef = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  /** Vrstva nad obsahem pro snímek opouštěného view (cross-fade). */
-  const ghostHost = useRef<HTMLDivElement>(null);
-  /** Kde byl výpis odscrollovaný, podle složky — Zpět / Vpřed se vrací na místo. */
-  const scrollMemory = useRef(new Map<string, number>());
-  /** View mode posledního načtení — přepnutí view není navigace, nic nepřijíždí. */
-  const lastLoadView = useRef<ViewMode | null>(null);
-  const navDirectionRef = useRef<NavDirection>("jump");
 
-  /**
-   * Opustí režimy, které překrývají obsah složky (tag view, výsledky hledání).
-   * Každý přechod do složky je musí zavřít — jinak by sidebar zvýrazňoval
-   * barvu, jejíž výsledky už nikdo nevidí, a hledání by viselo nad jinou cestou.
-   */
-  const leaveOverlays = useCallback(() => {
-    // Čekající výběr patří složce, ze které se odchází. Kdyby zůstal, vystřelil
-    // by při příštím refreshi — třeba nečekaně otevřeným přejmenováním.
-    setPendingSelect(null);
-    setOverlaySelected(null);
-    setTagFilter(null);
-    // Odchod z výsledků bere s sebou i dotaz. Bez toho by cílová složka zůstala
-    // zafiltrovaná textem, kterým uživatel jen hledal, a chyběla by v ní půlka
-    // souborů. Mimo hledání se filtr při navigaci nemaže — to je staré chování.
-    if (search !== null) setQuery("");
-    setSearch(null);
-  }, [search]);
-
-  const navigate = useCallback(
-    (path: string) => {
-      leaveOverlays();
-      dispatch({ type: "go", path });
-    },
-    [leaveOverlays],
-  );
-
-  const goBack = useCallback(() => {
-    leaveOverlays();
-    dispatch({ type: "back" });
-  }, [leaveOverlays]);
-
-  const goForward = useCallback(() => {
-    leaveOverlays();
-    dispatch({ type: "forward" });
-  }, [leaveOverlays]);
-
-  const columnsApi = useColumns(
-    nav.current,
-    viewMode === "column",
-    { key: sortKey, direction: sortDirection },
-    showHidden ?? false,
-    filterQuery,
-    setNotice,
-  );
 
   // Persistentní nastavení se načte jednou; do té doby jedou sekce prázdné.
   // Přepínač skrytých souborů bere uloženou volbu, a dokud si ho uživatel
@@ -576,7 +586,6 @@ export default function App() {
   // Kde uživatel právě je — pro odpovědi, které dorazí se zpožděním.
   const navCurrentRef = useRef(nav.current);
   navCurrentRef.current = nav.current;
-  navDirectionRef.current = nav.direction;
 
   useEffect(() => {
     const favorites = invoke<FavoriteSection[]>("get_favorites");
@@ -597,7 +606,22 @@ export default function App() {
           ]).then((ok) => (ok ? item : null)),
         ),
       );
-      return { items: checked.filter((item) => item !== null), active: checked[active] ?? null };
+      // Rozdělená záložka s nedostupnou složkou vpravo (odpojený disk) se vrátí
+      // jen s levým panelem.
+      const seconds = await Promise.all(
+        checked.map((item) =>
+          item?.second
+            ? invoke("can_list_dir", { path: item.second.path }).then(
+                () => true,
+                () => false,
+              )
+            : Promise.resolve(true),
+        ),
+      );
+      const cleaned = checked.map((item, index) =>
+        item && item.second && !seconds[index] ? { ...item, second: undefined, activePanel: 0 as const } : item,
+      );
+      return { items: cleaned.filter((item) => item !== null), active: cleaned[active] ?? null };
     });
 
     void Promise.all([favorites.catch(() => [] as FavoriteSection[]), savedTabs.catch(() => null)]).then(
@@ -608,16 +632,25 @@ export default function App() {
         if (navCurrentRef.current !== null) return;
 
         if (saved && saved.items.length > 0) {
-          const restored = saved.items.map((item) =>
-            newTab(item.path, { viewMode: item.view, sortKey: item.sortKey, sortDirection: item.sortDirection }),
-          );
+          const restored = saved.items.map((item): Tab => {
+            const tab = newTab(item.path, {
+              viewMode: item.view,
+              sortKey: item.sortKey,
+              sortDirection: item.sortDirection,
+            });
+            if (!item.second) return tab;
+            const { path, view, sortKey: key, sortDirection: direction } = item.second;
+            return {
+              ...tab,
+              second: blankSnapshot(path, { viewMode: view, sortKey: key, sortDirection: direction }),
+              split: true,
+              activePanel: item.activePanel ?? 0,
+            };
+          });
           const index = saved.active === null ? 0 : Math.max(0, saved.items.indexOf(saved.active));
           setTabs(restored);
           setActiveTabId(restored[index].id);
-          setViewMode(saved.items[index].view);
-          setSortKey(saved.items[index].sortKey);
-          setSortDirection(saved.items[index].sortDirection);
-          dispatch({ type: "go", path: saved.items[index].path });
+          applyTabRef.current(restored[index]);
           return;
         }
 
@@ -638,344 +671,6 @@ export default function App() {
     return () => void unlisten.then((stop) => stop());
   }, []);
 
-  // Reset stavu patří k navigaci, ne k přenačtení — jinak by refresh
-  // po každé operaci shodil výběr i rozepsané hledání.
-  useEffect(() => {
-    setSelection(new Set());
-    setActive(null);
-    if (keepQueryOnNav.current) keepQueryOnNav.current = false;
-    else setQuery("");
-    setRenamingPath(null);
-    setPathEditing(false);
-  }, [nav.current]);
-
-  useEffect(() => {
-    // Bez známého nastavení skrytých by se složka načetla dvakrát a obsah poskočil.
-    if (nav.current === null || showHidden === null) return;
-
-    const id = ++requestId.current;
-    const path = nav.current;
-
-    // Volné místo ukazuje status bar ve všech režimech.
-    invoke<number>("get_disk_free_space", { path })
-      .then((bytes) => {
-        if (requestId.current === id) setFreeSpace(bytes);
-      })
-      .catch(() => {
-        if (requestId.current === id) setFreeSpace(null);
-      });
-
-    // Column view si sloupce načítá sám (columns.ts) — výpis nav.current by
-    // se tu stahoval podruhé a nikde nepoužil. Při přepnutí zpátky se načte.
-    if (viewMode === "column") {
-      // Přerušené načtení v jiném view by jinak nechalo proužek svítit.
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    // Velká složka chodí po dávkách: prvních 300 v odpovědi, zbytek událostmi
-    // dir-chunk. Při navigaci se ukazuje hned, co dorazilo; při přenačtení té
-    // samé složky (hlídač, operace) až celek — jinak by výpis na okamžik
-    // spadl na 300 položek a zase narostl.
-    const refresh = loadedPathRef.current !== null && storage.samePath(loadedPathRef.current, path);
-    const viewChanged = lastLoadView.current !== null && lastLoadView.current !== viewMode;
-    lastLoadView.current = viewMode;
-    const direction = refresh || viewChanged ? null : navDirectionRef.current;
-    const collected: FileEntry[] = [];
-    let first = true;
-    let done = false;
-    let frame = 0;
-
-    const publish = () => {
-      frame = 0;
-      if (requestId.current !== id) return;
-      setEntries(collected.slice());
-      setStreamingCount(done ? null : collected.length);
-      if (first || done) {
-        // Směr patří k první výměně obsahu. Doběhnutí dávek ho nechává být —
-        // odebraná třída by animaci utnula uprostřed.
-        const seq = (loadSeq.current += 1);
-        const isFirst = first;
-        setLoaded((previous) => ({ path, seq, direction: isFirst ? direction : previous.direction }));
-        first = false;
-        loadedPathRef.current = path;
-      }
-    };
-    const received = (batch: FileEntry[], last: boolean) => {
-      if (requestId.current !== id) return;
-      collected.push(...batch);
-      done = last;
-      if (refresh && !done) return;
-      // První obsah hned; další dávky přicházejí v rychlém sledu —
-      // překreslí se jednou za snímek.
-      if (done || first) {
-        cancelAnimationFrame(frame);
-        publish();
-      } else if (frame === 0) {
-        frame = requestAnimationFrame(publish);
-      }
-    };
-
-    // Dávky můžou předběhnout odpověď — posluchač se musí registrovat první.
-    const pendingChunks: DirChunk[] = [];
-    let listed = false;
-    const unlisten = listen<DirChunk>("dir-chunk", ({ payload }) => {
-      if (payload.token !== id) return;
-      if (!listed) pendingChunks.push(payload);
-      else received(payload.entries, payload.done);
-    });
-
-    unlisten
-      .then(() => invoke<DirListing>("list_dir_stream", { path, showHidden, token: id }))
-      .then((result) => {
-        listed = true;
-        received(result.entries, !result.more);
-        for (const chunk of pendingChunks) received(chunk.entries, chunk.done);
-      })
-      .catch((err: unknown) => {
-        if (requestId.current !== id) return;
-        done = true;
-        setStreamingCount(null);
-        setEntries([]);
-        // I neúspěch je "dojeto" — jinak by čekající výběr visel navždy.
-        loadedPathRef.current = path;
-        setLoaded({ path, seq: (loadSeq.current += 1), direction: null });
-        setError(errorText(err));
-      })
-      .finally(() => {
-        if (requestId.current === id) setLoading(false);
-      });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      void unlisten.then((stop) => stop());
-      if (!done) setStreamingCount(null);
-    };
-  }, [nav.current, refreshToken, showHidden, viewMode]);
-
-  // Navigace čeká na data: starý výpis zůstává, kostra až po 400 ms.
-  const awaitingFolder = viewMode !== "column" && nav.current !== null && loadedPath !== nav.current;
-  const [skeletonShown, setSkeletonShown] = useState(false);
-  useEffect(() => {
-    setSkeletonShown(false);
-    if (!awaitingFolder) return;
-    const timer = window.setTimeout(() => setSkeletonShown(true), SKELETON_DELAY_MS);
-    return () => window.clearTimeout(timer);
-  }, [awaitingFolder, nav.current]);
-
-  // Druh i abeceda závisí na jazyce — po přepnutí se přeřadí.
-  const sortedEntries = useMemo(
-    () => sortEntries(entries, sortKey, sortDirection),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [entries, sortKey, sortDirection, locale],
-  );
-
-  const visibleEntries = useMemo(() => {
-    const needle = filterQuery.trim().toLowerCase();
-    if (!needle) return sortedEntries;
-    return sortedEntries.filter((entry) => entry.name.toLowerCase().includes(needle));
-  }, [sortedEntries, filterQuery]);
-
-  // Po každé změně výpisu i filtru se výběr musí sesouhlasit s tím, co je
-  // vidět. Po smazání nebo přejmenování by `active` jinak dál ukazoval na
-  // neexistující cestu, a položka schovaná filtrem by šla smazat Delete
-  // nebo přejmenovat F2, aniž by ji uživatel viděl. Musí to běžet před
-  // efektem pendingSelect, který výběr naopak nastavuje.
-  useEffect(() => {
-    setActive((current) =>
-      current === null
-        ? null
-        : (visibleEntries.find((entry) => entry.path === current.path) ?? null),
-    );
-
-    setSelection((current) => {
-      if (current.size === 0) return current;
-      const alive = new Set<string>();
-      for (const entry of visibleEntries) if (current.has(entry.path)) alive.add(entry.path);
-      // Stejná identita, dokud se opravdu nic nezměnilo — jinak by každý výpis
-      // zbytečně překreslil všechny řádky.
-      return alive.size === current.size ? current : alive;
-    });
-  }, [visibleEntries]);
-
-  /* ------------------------------ výběr ---------------------------------- */
-
-  const focusedColumn = columnsApi.columns[columnsApi.focusedIndex];
-  // Jen mezi viditelnými: vybraná položka, kterou schoval filtr, není cíl akcí.
-  const columnSelected =
-    columnsApi
-      .visibleEntries(columnsApi.focusedIndex)
-      .find((entry) => entry.path === focusedColumn?.selectedPath) ?? null;
-
-  const isColumnView = viewMode === "column";
-  const currentDir = isColumnView ? columnsApi.activePath : nav.current;
-
-  /**
-   * Enter v poli hledání. Filtr aktuálního výpisu se povýší na průchod stromem
-   * od složky, ve které uživatel právě je — v column view od té nejhlubší.
-   */
-  const submitSearch = useCallback(() => {
-    const needle = query.trim();
-    if (needle === "" || currentDir === null) return;
-
-    setTagFilter(null);
-    setOverlaySelected(null);
-    setSearch({ root: currentDir, query: needle });
-  }, [query, currentDir]);
-
-  // Vyprázdněné pole (křížek, Escape, smazání textu) zavírá výsledky —
-  // jinak by nad panelem visel výsledek dotazu, který už nikde není vidět.
-  useEffect(() => {
-    if (query.trim() === "") setSearch(null);
-  }, [query]);
-
-  /** Kotva pro Shift+klik / Shift+šipky: poslední položka vybraná bez Shiftu. */
-  const anchorRef = useRef<string | null>(null);
-
-  const selectEntry = useCallback((entry: FileEntry) => {
-    setActive(entry);
-    setSelection(new Set([entry.path]));
-    anchorRef.current = entry.path;
-  }, []);
-
-  /** Cesty mezi kotvou a `path` v pořadí výpisu (včetně obou konců). */
-  const rangeTo = useCallback(
-    (path: string): string[] => {
-      const anchor = anchorRef.current ?? path;
-      const from = visibleEntries.findIndex((entry) => entry.path === anchor);
-      const to = visibleEntries.findIndex((entry) => entry.path === path);
-      if (from < 0 || to < 0) return [path];
-      return visibleEntries
-        .slice(Math.min(from, to), Math.max(from, to) + 1)
-        .map((entry) => entry.path);
-    },
-    [visibleEntries],
-  );
-
-  /** Klik v Icon / List View: sám vybere, Ctrl přepne, Shift vybere rozsah. */
-  const clickSelect = useCallback(
-    (entry: FileEntry, mods: SelectMods) => {
-      if (mods.range) {
-        const range = rangeTo(entry.path);
-        // Ctrl+Shift přidává rozsah k dosavadnímu výběru.
-        setSelection((current) => new Set(mods.toggle ? [...current, ...range] : range));
-        setActive(entry);
-        return;
-      }
-
-      if (mods.toggle) {
-        anchorRef.current = entry.path;
-        const removing = selection.has(entry.path);
-        setSelection((current) => {
-          const next = new Set(current);
-          if (removing) next.delete(entry.path);
-          else next.add(entry.path);
-          return next;
-        });
-        // Odznačená položka nesmí zůstat cílem operací pro jednu položku.
-        setActive(removing ? null : entry);
-        return;
-      }
-
-      selectEntry(entry);
-    },
-    [rangeTo, selection, selectEntry],
-  );
-
-  /**
-   * Výběr položky na indexu `index` (Icon / List View). S Shiftem rozšiřuje
-   * od kotvy. Nová aktivní položka se vždy doscrolluje do obrazu.
-   */
-  // Posouvaný kontejner výpisu a ovládání virtualizovaného view. Kontejner se
-  // s view mode přemountuje (key); stav navíc vynutí překreslení, aby si
-  // virtualizace nový prvek převzala — v době jejího layout efektu ještě
-  // ref rodiče připojený není.
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [, setScrollElement] = useState<HTMLDivElement | null>(null);
-  const attachScroll = useCallback((element: HTMLDivElement | null) => {
-    scrollRef.current = element;
-    setScrollElement(element);
-  }, []);
-  const viewHandle = useRef<ViewHandle | null>(null);
-
-  /** Doscrolluje na položku i když zrovna není vykreslená. Column view
-   *  virtualizaci nevystavuje — tam si výběr hlídá každý sloupec sám. */
-  const scrollToPath = useCallback((path: string, behavior: "auto" | "smooth" = "auto") => {
-    if (viewHandle.current) {
-      viewHandle.current.scrollToPath(path, behavior);
-      return;
-    }
-    requestAnimationFrame(() => {
-      document.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
-    });
-  }, []);
-
-  /** Kolik položek je v řádku a kolik řádků na obrazovce (pro šipky, PgUp/PgDn). */
-  const viewMetrics = () => viewHandle.current?.metrics() ?? { columns: 1, rowsPerPage: 1 };
-
-  /** Šipky a type-ahead skočí (bez animace), PgUp/PgDn posunou plynule. */
-  const selectIndex = useCallback(
-    (index: number, extend: boolean, behavior: ScrollBehavior = "auto") => {
-      if (visibleEntries.length === 0) return;
-      const next = visibleEntries[Math.min(Math.max(index, 0), visibleEntries.length - 1)];
-
-      if (extend) {
-        if (anchorRef.current === null && active) anchorRef.current = active.path;
-        setSelection(new Set(rangeTo(next.path)));
-        setActive(next);
-      } else {
-        selectEntry(next);
-      }
-
-      scrollToPath(next.path, behavior === "smooth" ? "smooth" : "auto");
-    },
-    [visibleEntries, active, rangeTo, selectEntry, scrollToPath],
-  );
-
-  /** Posun o `delta` položek od aktivní; bez aktivní začíná od kraje. */
-  const moveSelection = useCallback(
-    (delta: number, extend: boolean, behavior: ScrollBehavior = "auto") => {
-      const current = active ? visibleEntries.findIndex((entry) => entry.path === active.path) : -1;
-      if (current < 0) selectIndex(delta > 0 ? 0 : visibleEntries.length - 1, extend, behavior);
-      else selectIndex(current + delta, extend, behavior);
-    },
-    [active, visibleEntries, selectIndex],
-  );
-
-  // Type-ahead: písmena psaná rychle za sebou tvoří slovo a výběr skočí na
-  // první položku, která jím začíná.
-  const typeAhead = useRef({ text: "", at: 0 });
-  const findByPrefix = useCallback((key: string, entries: FileEntry[]): FileEntry | null => {
-    const now = Date.now();
-    const state = typeAhead.current;
-    state.text = now - state.at > TYPE_AHEAD_RESET_MS ? key : state.text + key;
-    state.at = now;
-
-    const prefix = state.text.toLocaleLowerCase("cs");
-    return entries.find((entry) => entry.name.toLocaleLowerCase("cs").startsWith(prefix)) ?? null;
-  }, []);
-
-  /**
-   * Položky, na které míří operace — výběr v Icon / List View, v column view
-   * vícenásobný výběr zaměřeného sloupce, nebo jen jeho aktivní položka.
-   */
-  const targetEntries = useMemo((): FileEntry[] => {
-    if (isColumnView) {
-      const multi = focusedColumn?.selectedPaths ?? [];
-      if (multi.length > 0) {
-        return columnsApi
-          .visibleEntries(columnsApi.focusedIndex)
-          .filter((entry) => multi.includes(entry.path));
-      }
-      return columnSelected ? [columnSelected] : [];
-    }
-    return visibleEntries.filter((entry) => selection.has(entry.path));
-  }, [isColumnView, focusedColumn, columnsApi, columnSelected, visibleEntries, selection]);
-
-  const activeEntry = isColumnView ? columnSelected : active;
 
   // Soubor v náhledu zmizel (smazán zvenčí, sloupec zrušil výběr) — Quick Look
   // se odmontuje sám, ale příznak by zůstal a jako "otevřený modal" by
@@ -987,20 +682,12 @@ export default function App() {
 
   /* ---------------------------- operace ---------------------------------- */
 
-  const refresh = useCallback(() => {
-    setRefreshToken((token) => token + 1);
-    columnsApi.refresh();
-  }, [columnsApi]);
 
   /* ---------------------- živé obnovení otevřených složek ------------------- */
 
   // Backend hlídá jen to, co je vidět: v column view všechny sloupce, jinak
   // aktuální složku. Klíč místo pole, ať se hlídač nepřestavuje při každém renderu.
-  const watchedKey = (
-    isColumnView ? columnsApi.columns.map((column) => column.path) : [nav.current]
-  )
-    .filter((path): path is string => path !== null)
-    .join("\n");
+  const watchedKey = [...new Set(visiblePanels.flatMap((index) => panels[index].watchedPaths))].join("\n");
 
   // Pořadové číslo: volání běží souběžně a backend podle něj zahodí to starší,
   // kdyby doběhlo až po novějším.
@@ -1016,12 +703,12 @@ export default function App() {
   // Změnu na disku (nový soubor z prohlížeče, smazání v Průzkumníku…) ukáže
   // výpis sám. Ve výsledcích hledání ne — přehledávat kvůli každé změně
   // v podkladové složce celý strom by bylo drahé a výsledky by poskakovaly.
-  const liveRefresh = useRef({ refresh, searching: false });
-  liveRefresh.current = { refresh, searching: search !== null };
-
   useEffect(() => {
     const unlisten = listen("dir-changed", () => {
-      if (!liveRefresh.current.searching) liveRefresh.current.refresh();
+      for (const index of visibleRef.current) {
+        const target = panelsRef.current[index];
+        if (target.search === null) target.refresh();
+      }
     });
     return () => void unlisten.then((stop) => stop());
   }, []);
@@ -1093,86 +780,6 @@ export default function App() {
     [openFile],
   );
 
-  // requestSelect si potřebuje přečíst aktuální sloupce bez závislosti na renderu.
-  const columnsRef = useRef(columnsApi.columns);
-  columnsRef.current = columnsApi.columns;
-
-  /**
-   * Označí `path` ve složce `dir`, jakmile dorazí čerstvý výpis té složky —
-   * buď hlavního výpisu (Icon / List), nebo sloupce s tou cestou (Column View,
-   * i jiného než kořenového: Nová složka ve třetím sloupci).
-   */
-  const requestSelect = useCallback((dir: string, path: string, rename = false) => {
-    const column = columnsRef.current.find((item) => storage.samePath(item.path, dir));
-    setPendingSelect({
-      dir,
-      path,
-      seq: loadSeq.current,
-      columnVersion: column?.version ?? -1,
-      rename,
-    });
-  }, []);
-
-  /** Skočí do nadřazené složky a označí v ní danou položku. */
-  const reveal = useCallback(
-    (path: string, rename = false) => {
-      const parent = parentPath(path);
-      if (parent === null) return;
-
-      const alreadyThere = nav.current !== null && storage.samePath(parent, nav.current);
-      navigate(parent);
-      requestSelect(parent, path, rename);
-      // Navigace na tutéž složku nic nenačte a čekající výběr by se nikdy
-      // nedočkal čerstvého výpisu — vyvolá se proto ručně.
-      if (alreadyThere) refresh();
-    },
-    [nav.current, navigate, requestSelect, refresh],
-  );
-
-  // Čeká se na *čerstvý* výpis té složky, do které se odkrývá. Na `loading` se
-  // spolehnout nedá — v prvním průchodu efektů je ještě false z předchozí
-  // složky. Porovnání seq / version navíc pokrývá odkrytí v už otevřené složce
-  // (po přejmenování), kde by samotná shoda cesty prošla hned proti starým datům.
-  useEffect(() => {
-    if (pendingSelect === null) return;
-
-    /** Po označení: přejmenování a doscrollování, ať není mimo obrazovku. */
-    const finish = (found: FileEntry | undefined) => {
-      if (found) {
-        if (pendingSelect.rename) setRenamingPath(found.path);
-        scrollToPath(found.path);
-      }
-      // Zahazuje se i když se položka nenašla, ať požadavek nevisí dál.
-      setPendingSelect(null);
-    };
-
-    if (isColumnView) {
-      const index = columnsApi.columns.findIndex(
-        (column) => storage.samePath(column.path, pendingSelect.dir) && !column.loading,
-      );
-      const column = columnsApi.columns[index];
-      if (!column || column.version <= pendingSelect.columnVersion) return;
-
-      const found = column.entries.find((entry) => storage.samePath(entry.path, pendingSelect.path));
-      if (found) columnsApi.select(index, found);
-      finish(found);
-      return;
-    }
-
-    if (
-      loaded.path === null ||
-      !storage.samePath(loaded.path, pendingSelect.dir) ||
-      loaded.seq <= pendingSelect.seq
-    )
-      return;
-
-    const found = entries.find((entry) => storage.samePath(entry.path, pendingSelect.path));
-    if (found) {
-      setActive(found);
-      setSelection(new Set([found.path]));
-    }
-    finish(found);
-  }, [entries, loaded, pendingSelect, isColumnView, columnsApi]);
 
   /**
    * Kopie nenásleduje symlinky a junctions. Když nějaké přeskočila, musí se to
@@ -1589,6 +1196,29 @@ export default function App() {
     [clipboard, currentDir, transfer, setNotice],
   );
 
+  /** F5 / F6 a kontextové menu: výběr aktivního panelu do složky druhého. */
+  // Výsledky hledání a tag view nejsou složka — ani zdroj (výběr pod nimi je
+  // neviditelný), ani cíl (jejich podkladová složka není vidět).
+  const otherDir =
+    otherPanel !== null &&
+    otherPanel.search === null &&
+    otherPanel.tagFilter === null &&
+    search === null &&
+    tagFilter === null
+      ? otherPanel.currentDir
+      : null;
+  const transferToOther = useCallback(
+    (mode: "copy" | "cut", items: FileEntry[] = targetEntries) => {
+      if (otherDir === null || items.length === 0) return;
+      transfer(
+        items.map((entry) => entry.path),
+        otherDir,
+        mode,
+      ).catch((err: unknown) => setNotice(failure(mode === "copy" ? "op.copy" : "op.move", err)));
+    },
+    [otherDir, targetEntries, transfer, setNotice],
+  );
+
   /** Přetažení na složku: přesun, s Ctrl kopie. */
   const dropInto = useCallback(
     (folder: string, paths: string[], copy: boolean) => {
@@ -1601,112 +1231,44 @@ export default function App() {
 
   /** Soubory z Průzkumníku nad volnou plochou — padnou do aktuální složky
    *  (v column view do sloupce pod myší). Řádky složek si je chytí samy. */
-  const [backgroundDrop, setBackgroundDrop] = useState(false);
-  const backgroundDropDir = (event: React.DragEvent): string | null => {
-    if (tagFilter !== null || search !== null || !isExternalFileDrag(event)) return null;
+  const [backgroundDrop, setBackgroundDrop] = useState<0 | 1 | null>(null);
+  const backgroundDropDir = (q: Panel, event: React.DragEvent): string | null => {
+    if (q.tagFilter !== null || q.search !== null) return null;
     const column = (event.target as Element).closest<HTMLElement>("[data-column-path]");
-    return column?.dataset.columnPath ?? currentDir;
+    const dir = column?.dataset.columnPath ?? q.currentDir;
+    if (dir === null) return null;
+    if (isExternalFileDrag(event)) return dir;
+    // Položky z výpisu: jen když míří jinam, než kde už leží (typicky z druhého panelu).
+    const payload = getDrag();
+    if (payload?.kind !== "entry" || !canDropInto(dir, payload)) return null;
+    const elsewhere = payload.items.some((item) => {
+      const parent = parentPath(item.path);
+      return parent === null || !storage.samePath(parent, dir);
+    });
+    return elsewhere ? dir : null;
   };
 
-  /** Nahoru o úroveň — a v rodiči se označí složka, ze které se přišlo. */
-  const goToParent = useCallback(() => {
-    if (currentDir === null) return;
-    const parent = parentPath(currentDir);
-    if (parent === null) return;
-    navigate(parent);
-    requestSelect(parent, currentDir);
-  }, [currentDir, navigate, requestSelect]);
-
-  const selectAll = useCallback(() => {
-    if (isColumnView) return;
-    setSelection(new Set(visibleEntries.map((entry) => entry.path)));
-    if (visibleEntries.length > 0) {
-      setActive(visibleEntries[0]);
-      anchorRef.current = visibleEntries[0].path;
-    }
-  }, [isColumnView, visibleEntries]);
-
-  // Gumička v prázdné ploše Icon / List View. S Ctrl/Shift přidává k výběru,
-  // který byl na začátku tažení — ten musí zůstat stejný, jinak by výběr
-  // při couvání myší jen rostl.
-  const bandBase = useRef<Set<string>>(new Set());
-  const band = useRubberBand({
-    onStart: (additive) => {
-      bandBase.current = additive ? new Set(selection) : new Set();
-    },
-    // Řádky mimo obrazovku nejsou v DOM — zásah spočítá výpis z geometrie.
-    hitTest: (box) => viewHandle.current?.hitTest(box) ?? [],
-    onChange: (paths) => {
-      setSelection(new Set([...bandBase.current, ...paths]));
-      const first = visibleEntries.find((entry) => paths.includes(entry.path)) ?? null;
-      setActive(first);
-      anchorRef.current = first?.path ?? null;
-    },
-  });
 
   /* -------------------------------- záložky -------------------------------- */
 
-  /** Stav aktivní záložky jako snímek — při přepnutí na jinou. */
-  const captureSnapshot = (): TabSnapshot => ({
-    nav,
-    viewMode,
-    sortKey,
-    sortDirection,
-    query,
-    search,
-    tagFilter,
-    selection: [...selection],
-    active: active?.path ?? null,
-    scrollTop: scrollRef.current?.scrollTop ?? 0,
-    columns: columnsApi.columns.map((column) => ({
-      path: column.path,
-      selectedPath: column.selectedPath,
-      selectedPaths: column.selectedPaths,
-    })),
-    columnFocus: columnsApi.focusedIndex,
+  /** Stav celé aktivní záložky: oba panely, rozdělení a aktivní panel. */
+  const captureTab = (): Pick<Tab, "snapshot" | "second" | "split" | "activePanel"> => ({
+    snapshot: panels[0].captureSnapshot(),
+    second: panels[1].captureSnapshot(),
+    split: splitOn,
+    activePanel,
   });
 
-  /** Nahraje snímek záložky do živého stavu. Složka se vždy načte znovu —
-   *  neaktivní záložka nic nehlídala, mezitím se v ní mohlo cokoli změnit. */
-  const applySnapshot = (snapshot: TabSnapshot) => {
-    keepQueryOnNav.current = snapshot.nav.current !== nav.current;
-    tabRestore.current =
-      snapshot.viewMode === "column"
-        ? null
-        : {
-            path: snapshot.nav.current,
-            selection: snapshot.selection,
-            active: snapshot.active,
-            scrollTop: snapshot.scrollTop,
-            seq: loadSeq.current,
-          };
-
-    dispatch({ type: "restore", state: { ...snapshot.nav, direction: "jump" } });
-    setViewMode(snapshot.viewMode);
-    setSortKey(snapshot.sortKey);
-    setSortDirection(snapshot.sortDirection);
-    setQuery(snapshot.query);
-    setSearch(snapshot.search);
-    setTagFilter(snapshot.tagFilter);
-    setSelection(new Set());
-    setActive(null);
-    setOverlaySelected(null);
+  /** Nahraje záložku do obou panelů. */
+  const applyTab = (tab: Tab) => {
+    panels[0].applySnapshot(tab.snapshot);
+    panels[1].applySnapshot(tab.second ?? blankSnapshot(null));
+    setSplitOn(tab.split === true);
+    setActivePanel(tab.activePanel ?? 0);
     setOverlayPreview(null);
-    setPendingSelect(null);
-    setRenamingPath(null);
-    setPathEditing(false);
     setQuickLookOpen(false);
-
-    if (snapshot.viewMode === "column" && snapshot.nav.current !== null) {
-      columnsApi.restore(
-        snapshot.columns.length > 0
-          ? snapshot.columns
-          : [{ path: snapshot.nav.current, selectedPath: null, selectedPaths: [] }],
-        snapshot.columnFocus,
-      );
-    }
-    setRefreshToken((token) => token + 1);
   };
+  applyTabRef.current = applyTab;
 
   /** Otevřené záložky v pořadí lišty (bez těch, co právě odjíždějí). */
   const openTabs = tabs.filter((tab) => !tab.closing);
@@ -1716,23 +1278,23 @@ export default function App() {
     const target = openTabs.find((tab) => tab.id === id);
     if (!target) return;
 
-    const snapshot = captureSnapshot();
-    setTabs((current) => current.map((tab) => (tab.id === activeTabId ? { ...tab, snapshot } : tab)));
+    const captured = captureTab();
+    setTabs((current) => current.map((tab) => (tab.id === activeTabId ? { ...tab, ...captured } : tab)));
     setActiveTabId(id);
-    applySnapshot(target.snapshot);
+    applyTab(target);
   });
 
   /** Nová záložka na konci lišty (jako ve Finderu), hned aktivní. */
   const openTab = useStableCallback((path: string | null) => {
     if (path === null) return;
     const tab = { ...newTab(path, { viewMode, sortKey, sortDirection }), fresh: true };
-    const snapshot = captureSnapshot();
+    const captured = captureTab();
     setTabs((current) => [
-      ...current.map((item) => (item.id === activeTabId ? { ...item, snapshot } : item)),
+      ...current.map((item) => (item.id === activeTabId ? { ...item, ...captured } : item)),
       tab,
     ]);
     setActiveTabId(tab.id);
-    applySnapshot(tab.snapshot);
+    applyTab(tab);
     // Příznak jen na dobu animace — jinak by ouško vjelo znovu při každém
     // dalším připojení lišty.
     window.setTimeout(
@@ -1750,7 +1312,7 @@ export default function App() {
     if (id === activeTabId) {
       const neighbor = openTabs[index + 1] ?? openTabs[index - 1];
       setActiveTabId(neighbor.id);
-      applySnapshot(neighbor.snapshot);
+      applyTab(neighbor);
     }
     setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, closing: true } : tab)));
     // Ouško se zúží a zhasne, pak teprve zmizí z pole.
@@ -1784,51 +1346,32 @@ export default function App() {
     if (tab) switchTab(tab.id);
   });
 
-  // Výběr a posun obnovené záložky, jakmile dorazí čerstvý výpis její složky.
-  useEffect(() => {
-    const restore = tabRestore.current;
-    if (restore === null || isColumnView) return;
-    if (restore.path === null) {
-      tabRestore.current = null;
-      return;
-    }
-    if (loaded.path === null || loaded.seq <= restore.seq) return;
-    // Dorazila jiná složka (uživatel mezitím odešel jinam) — výběr záložky
-    // už nemá kam patřit a nesmí vystřelit při pozdějším návratu.
-    if (!storage.samePath(loaded.path, restore.path)) {
-      tabRestore.current = null;
-      return;
-    }
-
-    tabRestore.current = null;
-    const chosen = new Set(restore.selection);
-    setSelection(new Set(entries.filter((entry) => chosen.has(entry.path)).map((entry) => entry.path)));
-    setActive(entries.find((entry) => entry.path === restore.active) ?? null);
-    const top = restore.scrollTop;
-    requestAnimationFrame(() => {
-      if (scrollRef.current) scrollRef.current.scrollTop = top;
-    });
-  }, [entries, loaded, isColumnView]);
 
   // Otevřené záložky do settings.json — při startu se obnoví. S jedinou
   // záložkou se nic neukládá: start zůstává jako dřív, v první oblíbené.
   useEffect(() => {
     if (!tabsLoaded.current) return;
-    const items = openTabs.length < 2 ? [] : openTabs.flatMap((tab) => {
+    const saved = (state: Pick<TabSnapshot, "nav" | "viewMode" | "sortKey" | "sortDirection">) =>
+      state.nav.current === null
+        ? null
+        : { path: state.nav.current, view: state.viewMode, sortKey: state.sortKey, sortDirection: state.sortDirection };
+    // Rozdělená záložka se ukládá i s jedinou záložkou — jinak by se rozdělení ztratilo.
+    const worthSaving = openTabs.length >= 2 || splitOn;
+    const items = !worthSaving ? [] : openTabs.flatMap((tab) => {
       const live = tab.id === activeTabId;
-      const path = live ? nav.current : tab.snapshot.nav.current;
-      const state = live ? { viewMode, sortKey, sortDirection } : tab.snapshot;
-      return path === null
-        ? []
-        : [{ path, view: state.viewMode, sortKey: state.sortKey, sortDirection: state.sortDirection }];
+      const state = live ? { ...captureTab(), id: tab.id } : tab;
+      const first = saved(state.snapshot);
+      if (first === null) return [];
+      const second = state.split && state.second ? saved(state.second) : null;
+      return [second ? { ...first, second, activePanel: state.activePanel ?? 0 } : first];
     });
     const value = { items, active: Math.max(0, openTabs.findIndex((tab) => tab.id === activeTabId)) };
     if (JSON.stringify(storage.getSnapshot().tabs) !== JSON.stringify(value)) void storage.setSavedTabs(value);
-  }, [tabs, activeTabId, nav.current, viewMode, sortKey, sortDirection]);
+  }, [tabs, activeTabId, nav.current, viewMode, sortKey, sortDirection, splitOn, activePanel, panels[1].nav.current]);
 
   // Prostřední tlačítko na složce ve výpisu = otevřít v nové záložce.
   const folderAt = useStableCallback((path: string): boolean => {
-    const lists = [visibleEntries, ...columnsApi.columns.map((column) => column.entries)];
+    const lists = panels.flatMap((item) => [item.visibleEntries, ...item.columnsApi.columns.map((column) => column.entries)]);
     return lists.some((list) => list.some((entry) => entry.path === path && entry.is_dir));
   });
   useEffect(() => {
@@ -1884,6 +1427,11 @@ export default function App() {
         switchToTabNumber(Number(event.code.slice(5)));
         return;
       }
+      if (tabCtrl && event.shiftKey && event.code === "KeyD") {
+        event.preventDefault();
+        toggleSplit();
+        return;
+      }
       if (tabCtrl && !event.shiftKey && (event.key.toLowerCase() === "t" || event.key.toLowerCase() === "w")) {
         event.preventDefault();
         if (event.key.toLowerCase() === "t") openTab(currentDir);
@@ -1892,6 +1440,22 @@ export default function App() {
       }
 
       if (isTypingTarget(event.target)) return;
+
+      // Rozdělené okno: Tab přepíná panel, F5 / F6 kopíruje / přesouvá výběr
+      // do druhého panelu (jako Total Commander).
+      if (splitVisible && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        if (event.key === "Tab") {
+          event.preventDefault();
+          setActivePanel(activePanel === 0 ? 1 : 0);
+          return;
+        }
+        if ((event.key === "F5" || event.key === "F6") && !event.shiftKey) {
+          event.preventDefault();
+          // Ve výsledcích hledání / tag view nic — viz otherDir.
+          transferToOther(event.key === "F5" ? "copy" : "cut");
+          return;
+        }
+      }
 
       // Escape ve výsledcích hledání je zavře (a tím zastaví běžící průchod
       // disku), i když fokus není v poli hledání.
@@ -2125,6 +1689,10 @@ export default function App() {
     toggleHidden,
     putOnClipboard,
     stepHistory,
+    toggleSplit,
+    splitVisible,
+    activePanel,
+    transferToOther,
     cycleTab,
     switchToTabNumber,
     openTab,
@@ -2170,49 +1738,6 @@ export default function App() {
 
   /* ----------------------------- view mode -------------------------------- */
 
-  /**
-   * Přepnutí ikony / seznam / sloupce: nové view se vykreslí hned a starý
-   * snímek nad ním zhasne (cross-fade, oba chvíli v DOM). Vybraná položka
-   * zůstane vybraná a doscrolluje se do obrazu.
-   */
-  const changeViewMode = useCallback(
-    (mode: ViewMode) => {
-      if (mode === viewMode) return;
-
-      const scroller = scrollRef.current;
-      if (scroller && ghostHost.current) spawnViewGhost(scroller, ghostHost.current);
-
-      if (viewMode === "column") {
-        // Ze sloupců do složky zaměřeného sloupce s jeho výběrem; bez výběru
-        // do nejhlubšího sloupce, jako dřív.
-        const column = columnsApi.columns[columnsApi.focusedIndex];
-        const target = column?.selectedPath ? column.path : columnsApi.activePath;
-        if (target !== null && target !== nav.current) navigate(target);
-        if (column?.selectedPath) requestSelect(column.path, column.selectedPath);
-      } else if (mode === "column" && active !== null && nav.current !== null) {
-        requestSelect(nav.current, active.path);
-      }
-
-      setViewMode(mode);
-    },
-    [viewMode, columnsApi, nav.current, navigate, requestSelect, active],
-  );
-
-  // Ikony ↔ seznam: výběr zůstává, jen se musí doscrollovat v novém view.
-  const activeRef = useRef(active);
-  activeRef.current = active;
-  useEffect(() => {
-    if (viewMode !== "column" && activeRef.current) scrollToPath(activeRef.current.path);
-  }, [viewMode, scrollToPath]);
-
-  const sortBy = useCallback((key: SortKey) => {
-    setSortKey((currentKey) => {
-      setSortDirection((currentDirection) =>
-        currentKey === key ? (currentDirection === "asc" ? "desc" : "asc") : "asc",
-      );
-      return key;
-    });
-  }, []);
 
   const cutPaths = useMemo(
     () => new Set(clipboard?.mode === "cut" ? clipboard.paths : []),
@@ -2604,6 +2129,13 @@ export default function App() {
         disabled: !clipboardHasItems || pasteTarget === null,
         onSelect: () => paste(pasteTarget ?? undefined),
       },
+      otherDir === null || overlay ? null : { type: "separator" },
+      otherDir === null || overlay
+        ? null
+        : { type: "item", label: t("split.copyToOther"), shortcut: "F5", onSelect: () => transferToOther("copy", targets) },
+      otherDir === null || overlay
+        ? null
+        : { type: "item", label: t("split.moveToOther"), shortcut: "F6", onSelect: () => transferToOther("cut", targets) },
       { type: "separator" },
       {
         type: "item",
@@ -2696,6 +2228,8 @@ export default function App() {
     changeViewMode,
     changeTags,
     openTab,
+    otherDir,
+    transferToOther,
     locale,
   ]);
 
@@ -2879,7 +2413,115 @@ export default function App() {
   const statusSelectedCount =
     inSearch || inTagView ? 0 : isColumnView ? (columnSelected ? 1 : 0) : targetEntries.length;
 
-  function renderContent() {
+  /** Jeden panel: proužek načítání, výpis a vrstva pro snímek při přepnutí view. */
+  function renderPanel(index: 0 | 1) {
+    const q = panels[index];
+    return (
+      <div
+        className={`fw-panel relative flex min-h-0 min-w-0 flex-col ${
+          splitVisible && index === activePanel ? "is-active" : ""
+        }`}
+        style={splitVisible ? { flex: index === 0 ? `0 0 ${splitRatio * 100}%` : "1 1 0" } : { flex: "1 1 0" }}
+        // Klik kamkoli do panelu ho nejdřív aktivuje — teprve pak dojde na
+        // výběr, menu nebo tažení, a ty už míří na tenhle panel.
+        onMouseDownCapture={() => activatePanel(index)}
+        onDragStartCapture={() => activatePanel(index)}
+      >
+          {/* Navigace i přenačtení nechávají obsah na místě, takže by jinak
+              nebylo nijak poznat, že se něco děje. */}
+          {(q.loading || (q.isColumnView && q.columnsApi.rootLoading)) && q.search === null && q.tagFilter === null && (
+            <div className="fw-busy-line" aria-hidden />
+          )}
+
+          {/* key vynutí nový kontejner pro každé view (virtualizace si ho
+              přeměří). Menu volné plochy visí až tady, ne ve views — prázdno
+              pod řádky patří tomuhle scroll kontejneru, takže by ho mřížka
+              IconView nezachytila. Řádky si událost zastaví u sebe. */}
+          <div
+            key={q.viewMode}
+            ref={q.attachScroll}
+            data-view={q.viewMode}
+            onContextMenu={openBackgroundMenu}
+            onClick={clearSelectionOnBackground}
+            onScroll={(event) => {
+              // Pozice patří složce, jejíž výpis je právě vidět.
+              const shown = q.loadedPathRef.current;
+              if (shown !== null && !q.isColumnView) {
+                q.scrollMemory.current.set(storage.pathKey(shown), event.currentTarget.scrollTop);
+              }
+            }}
+            onMouseDown={(event) => {
+              // Gumička jen nad výpisem složky — column view má vlastní po
+              // sloupcích, výsledky hledání a tag view výběr nemají.
+              if (!q.isColumnView && q.tagFilter === null && q.search === null) q.band.onMouseDown(event);
+            }}
+            onDragOver={(event) => {
+              if (backgroundDropDir(q, event) === null) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
+              setBackgroundDrop(index);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBackgroundDrop(null);
+            }}
+            onDrop={(event) => {
+              setBackgroundDrop(null);
+              const dir = backgroundDropDir(q, event);
+              if (dir === null) return;
+              event.preventDefault();
+              const copy = event.ctrlKey;
+              const payload = getDrag();
+              if (!isExternalFileDrag(event) && payload?.kind === "entry") {
+                // Položky z druhého panelu do složky, kterou ukazuje tenhle.
+                endDrag();
+                dropInto(dir, payload.items.map((item) => item.path), copy);
+                return;
+              }
+              void droppedPaths(event.dataTransfer).then((paths) => {
+                if (paths.length > 0) dropInto(dir, paths, copy);
+              });
+            }}
+            className={`fw-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${
+              backgroundDrop === index ? "fw-drop-zone" : ""
+            }`}
+          >
+            {renderContent(q)}
+            {q.band.overlay}
+          </div>
+
+          {/* Sem se při přepnutí view vloží snímek starého (spawnViewGhost).
+              React do vrstvy nic nevykresluje, takže mu cizí uzel nevadí. */}
+          <div ref={q.ghostHost} className="pointer-events-none absolute inset-0 z-10 empty:hidden" />
+      </div>
+    );
+  }
+
+  function renderContent(q: Panel) {
+    const {
+      tagFilter,
+      overlaySelected,
+      setOverlaySelected,
+      refreshToken,
+      setTagCount,
+      search,
+      setSearchCount,
+      nav,
+      error,
+      isColumnView,
+      columnsApi,
+      renamingPath,
+      setRenamingPath,
+      pathEditing,
+      awaitingFolder,
+      skeletonShown,
+      loadedPath,
+      viewMode,
+      loaded,
+      scrollMemory,
+    } = q;
+    // Neaktivní panel ukazuje výběr šedě, jako okno bez fokusu.
+    const windowFocused = windowFocusedAll && q === panel;
+
     if (tagFilter !== null) {
       return (
         <TagView
@@ -2930,7 +2572,7 @@ export default function App() {
           onRenameCancel={() => setRenamingPath(null)}
           onContextMenu={openContextMenu}
           tags={tags}
-          suspended={modalOpen || renamingPath !== null || pathEditing}
+          suspended={modalOpen || renamingPath !== null || pathEditing || q !== panel}
           onDropInto={dropInto}
         />
       );
@@ -2956,13 +2598,30 @@ export default function App() {
         scrollTop={restoreTop}
         inert={awaitingFolder}
       >
-        {renderFolder(restoreTop)}
+        {renderFolder(q, restoreTop)}
       </ViewTransition>
     );
   }
 
   /** Obsah načtené složky v Icon / List View. */
-  function renderFolder(initialOffset: number) {
+  function renderFolder(q: Panel, initialOffset: number) {
+    const {
+      error,
+      visibleEntries,
+      query,
+      selection,
+      renamingPath,
+      setRenamingPath,
+      clickSelect,
+      scrollRef,
+      viewHandle,
+      viewMode,
+      sortKey,
+      sortDirection,
+      sortBy,
+    } = q;
+    const windowFocused = windowFocusedAll && q === panel;
+
     if (error) return <Placeholder>{failure("op.openFolder", error)}</Placeholder>;
     if (visibleEntries.length === 0) {
       return query ? (
@@ -3075,6 +2734,8 @@ export default function App() {
             historyItems={historyItems}
             onNewTab={() => openTab(currentDir)}
             canNewTab={currentDir !== null}
+            split={splitOn}
+            onToggleSplit={toggleSplit}
             onMenuOpenChange={setToolbarMenuOpen}
           />
 
@@ -3082,7 +2743,7 @@ export default function App() {
             <TabBar
               tabs={tabs.map((tab) => ({
                 id: tab.id,
-                path: tab.id === activeTabId ? nav.current : tab.snapshot.nav.current,
+                path: tab.id === activeTabId ? nav.current : tabFace(tab).nav.current,
                 closing: tab.closing === true,
                 fresh: tab.fresh === true,
               }))}
@@ -3096,65 +2757,22 @@ export default function App() {
             />
           )}
 
-          <div className="relative flex min-h-0 flex-1 flex-col">
-            {/* Navigace i přenačtení nechávají obsah na místě, takže by jinak
-                nebylo nijak poznat, že se něco děje. */}
-            {(loading || (isColumnView && columnsApi.rootLoading)) && !inSearch && !inTagView && (
-              <div className="fw-busy-line" aria-hidden />
-            )}
-
-            {/* key vynutí nový kontejner pro každé view (virtualizace si ho
-                přeměří). Menu volné plochy visí až tady, ne ve views — prázdno
-                pod řádky patří tomuhle scroll kontejneru, takže by ho mřížka
-                IconView nezachytila. Řádky si událost zastaví u sebe. */}
-            <div
-              key={viewMode}
-              ref={attachScroll}
-              data-view={viewMode}
-              onContextMenu={openBackgroundMenu}
-              onClick={clearSelectionOnBackground}
-              onScroll={(event) => {
-                // Pozice patří složce, jejíž výpis je právě vidět.
-                const shown = loadedPathRef.current;
-                if (shown !== null && !isColumnView) {
-                  scrollMemory.current.set(storage.pathKey(shown), event.currentTarget.scrollTop);
-                }
-              }}
-              onMouseDown={(event) => {
-                // Gumička jen nad výpisem složky — column view má vlastní po
-                // sloupcích, výsledky hledání a tag view výběr nemají.
-                if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
-              }}
-              onDragOver={(event) => {
-                if (backgroundDropDir(event) === null) return;
-                event.preventDefault();
-                event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
-                setBackgroundDrop(true);
-              }}
-              onDragLeave={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBackgroundDrop(false);
-              }}
-              onDrop={(event) => {
-                setBackgroundDrop(false);
-                const dir = backgroundDropDir(event);
-                if (dir === null) return;
-                event.preventDefault();
-                const copy = event.ctrlKey;
-                void droppedPaths(event.dataTransfer).then((paths) => {
-                  if (paths.length > 0) dropInto(dir, paths, copy);
-                });
-              }}
-              className={`fw-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${
-                backgroundDrop ? "fw-drop-zone" : ""
-              }`}
-            >
-              {renderContent()}
-              {band.overlay}
-            </div>
-
-            {/* Sem se při přepnutí view vloží snímek starého (spawnViewGhost).
-                React do vrstvy nic nevykresluje, takže mu cizí uzel nevadí. */}
-            <div ref={ghostHost} className="pointer-events-none absolute inset-0 z-10 empty:hidden" />
+          <div ref={panelsBoxRef} className="flex min-h-0 flex-1">
+            {visiblePanels.map((index) => (
+              <Fragment key={index}>
+                {index === 1 && splitVisible && (
+                  <div
+                    className="fw-split-divider"
+                    role="separator"
+                    aria-orientation="vertical"
+                    aria-label={t("split.divider")}
+                    onPointerDown={startSplitResize}
+                    onDoubleClick={() => void storage.setSplitRatio(0.5)}
+                  />
+                )}
+                {renderPanel(index)}
+              </Fragment>
+            ))}
           </div>
         </main>
       </div>

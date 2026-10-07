@@ -76,8 +76,14 @@ export type TabSnapshot = {
 
 export type Tab = {
   id: number;
-  /** Pro aktivní záložku zastaralý — platí živý stav z useBrowserState. */
+  /** Levý panel. Pro aktivní záložku zastaralý — platí živý stav panelů. */
   snapshot: TabSnapshot;
+  /** Pravý panel (rozdělené okno); chybí, dokud záložka rozdělená nebyla. */
+  second?: TabSnapshot;
+  /** Záložka je rozdělená na dva panely. */
+  split?: boolean;
+  /** Který panel byl aktivní (0 = levý). */
+  activePanel?: 0 | 1;
   /** Záložka se právě zavírá (animace) — už není cílem zkratek ani kliků. */
   closing?: boolean;
   /** Právě otevřená — ouško vjede animací (jen chvíli po otevření). */
@@ -88,21 +94,31 @@ let nextTabId = 1;
 
 /** Nová záložka ve složce `path`; zobrazení a řazení si vezme po otevírající. */
 export function newTab(path: string | null, from?: Pick<TabSnapshot, "viewMode" | "sortKey" | "sortDirection">): Tab {
+  return { id: nextTabId++, snapshot: blankSnapshot(path, from) };
+}
+
+/** Panel ve složce `path` bez historie a výběru (null = prázdný panel). */
+export function blankSnapshot(
+  path: string | null,
+  from?: Pick<TabSnapshot, "viewMode" | "sortKey" | "sortDirection">,
+): TabSnapshot {
   return {
-    id: nextTabId++,
-    snapshot: {
-      nav: { current: path, back: [], forward: [], direction: "jump" },
-      viewMode: from?.viewMode ?? "icon",
-      sortKey: from?.sortKey ?? "name",
-      sortDirection: from?.sortDirection ?? "asc",
-      query: "",
-      search: null,
-      tagFilter: null,
-      selection: [],
-      active: null,
-      scrollTop: 0,
-      columns: [],
-      columnFocus: 0,
-    },
+    nav: { current: path, back: [], forward: [], direction: "jump" },
+    viewMode: from?.viewMode ?? "icon",
+    sortKey: from?.sortKey ?? "name",
+    sortDirection: from?.sortDirection ?? "asc",
+    query: "",
+    search: null,
+    tagFilter: null,
+    selection: [],
+    active: null,
+    scrollTop: 0,
+    columns: [],
+    columnFocus: 0,
   };
+}
+
+/** Panel, který záložka ukazuje navenek (název ouška, uložení) — ten aktivní. */
+export function tabFace(tab: Tab): TabSnapshot {
+  return tab.activePanel === 1 && tab.second ? tab.second : tab.snapshot;
 }

@@ -66,6 +66,11 @@ export const en = {
   "tabs.label": "Tabs",
   "tabs.new": "New Tab",
   "tabs.newWithShortcut": "New Tab (Ctrl+T)",
+  "split.toggle": "Split Window",
+  "split.toggleWithShortcut": "Split Window (Ctrl+Shift+D)",
+  "split.divider": "Panel divider",
+  "split.copyToOther": "Copy to Other Panel",
+  "split.moveToOther": "Move to Other Panel",
   "tabs.close": "Close Tab",
 
   /* ------------------------------- undo / redo -------------------------------- */

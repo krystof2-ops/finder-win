@@ -65,6 +65,11 @@ export const cs = {
   "tabs.label": "Záložky",
   "tabs.new": "Nová záložka",
   "tabs.newWithShortcut": "Nová záložka (Ctrl+T)",
+  "split.toggle": "Rozdělit okno",
+  "split.toggleWithShortcut": "Rozdělit okno (Ctrl+Shift+D)",
+  "split.divider": "Dělicí čára panelů",
+  "split.copyToOther": "Kopírovat do druhého panelu",
+  "split.moveToOther": "Přesunout do druhého panelu",
   "tabs.close": "Zavřít záložku",
 
   /* ------------------------------- zpět / znovu ------------------------------- */

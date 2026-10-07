@@ -502,8 +502,10 @@ export function ColumnView({
   const infoEntry = selectedInLast && !selectedInLast.is_dir ? selectedInLast : null;
 
   // Klávesnice musí fungovat hned po přepnutí do column view.
+  // V rozděleném okně jen aktivní panel — neaktivní (suspended) by fokus ukradl.
   useEffect(() => {
-    containerRef.current?.focus();
+    if (!suspended) containerRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Po zavření menu / potvrzení přejmenování fokus nikde není (prvek, který ho
@@ -551,6 +553,8 @@ export function ColumnView({
     // Ctrl+šipky (nadřazená složka, otevřít) patří globálním zkratkám v App.
     // Bez tohohle by se provedly obě akce naráz.
     if (event.ctrlKey || event.altKey || event.metaKey) return;
+    // Neaktivní panel, menu, přejmenování — klávesy patří jinam.
+    if (suspended) return;
 
     switch (event.key) {
       case "Escape":

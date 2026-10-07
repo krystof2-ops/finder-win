@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Columns2,
   Columns3,
   LayoutGrid,
   List,
@@ -170,6 +171,9 @@ type ToolbarProps = {
   onNewTab: () => void;
   /** Ještě není otevřená žádná složka (start) — nová záložka nemá co ukázat. */
   canNewTab: boolean;
+  /** Rozdělené okno (dva panely) — Ctrl+Shift+D. */
+  split: boolean;
+  onToggleSplit: () => void;
   /** Otevřené menu musí App znát kvůli globálním zkratkám (modalOpen). */
   onMenuOpenChange: (open: boolean) => void;
 };
@@ -209,6 +213,8 @@ export function Toolbar({
   historyItems,
   onNewTab,
   canNewTab,
+  split,
+  onToggleSplit,
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
@@ -237,6 +243,7 @@ export function Toolbar({
     ...historyItems,
     { type: "separator" },
     { type: "item", label: t("tabs.new"), shortcut: "Ctrl+T", disabled: !canNewTab, onSelect: onNewTab },
+    { type: "item", label: t("split.toggle"), shortcut: "Ctrl+Shift+D", checked: split, onSelect: onToggleSplit },
     { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: onRefresh },
     {
       type: "item",
@@ -353,6 +360,14 @@ export function Toolbar({
           onMouseDown={toggleMenu("tags")}
         />
       </div>
+
+      <IconButton
+        Icon={Columns2}
+        label={t("split.toggleWithShortcut")}
+        secondary
+        active={split}
+        onClick={onToggleSplit}
+      />
 
       <IconButton
         Icon={Plus}

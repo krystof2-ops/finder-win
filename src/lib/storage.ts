@@ -26,6 +26,7 @@ const KEY_MOTION = "motion";
 const KEY_LANGUAGE = "language";
 const KEY_TABS = "tabs";
 const KEY_UPDATES = "updates";
+const KEY_SPLIT_RATIO = "splitRatio";
 
 /** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
 export type MotionPreference = "system" | "on" | "off";
@@ -33,8 +34,11 @@ export type MotionPreference = "system" | "on" | "off";
 /** Jazyk UI: podle systému, nebo napevno (viz i18n/index.ts). */
 export type LanguagePreference = "system" | "en" | "cs";
 
-/** Záložky z minulého spuštění: složka, zobrazení a řazení každé, a která byla aktivní. */
-export type SavedTab = { path: string; view: ViewMode; sortKey: SortKey; sortDirection: SortDirection };
+/** Jeden panel uložené záložky: složka, zobrazení a řazení. */
+export type SavedPanel = { path: string; view: ViewMode; sortKey: SortKey; sortDirection: SortDirection };
+
+/** Záložky z minulého spuštění. Rozdělená záložka má i pravý panel. */
+export type SavedTab = SavedPanel & { second?: SavedPanel; activePanel?: 0 | 1 };
 export type SavedTabs = { items: SavedTab[]; active: number };
 
 /** Kontrola aktualizací: zapnutá?, kdy naposled (ms) a co našla. */
@@ -63,6 +67,8 @@ export type Snapshot = {
   language: LanguagePreference;
   tabs: SavedTabs;
   updates: UpdateSettings;
+  /** Poměr šířky levého panelu v rozděleném okně (0,25–0,75). */
+  splitRatio: number;
 };
 
 const EMPTY: Snapshot = {
@@ -75,7 +81,15 @@ const EMPTY: Snapshot = {
   language: "system",
   tabs: { items: [], active: 0 },
   updates: { check: true, lastCheck: 0, latest: null },
+  splitRatio: 0.5,
 };
+
+export const SPLIT_RATIO_MIN = 0.25;
+export const SPLIT_RATIO_MAX = 0.75;
+
+export function clampSplitRatio(value: number): number {
+  return Number.isFinite(value) ? Math.min(SPLIT_RATIO_MAX, Math.max(SPLIT_RATIO_MIN, value)) : 0.5;
+}
 
 function clampSidebar(width: number): number {
   return Math.round(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, width)));
@@ -201,19 +215,26 @@ function sanitizeTabs(value: unknown): SavedTabs {
   const { items, active } = value as Record<string, unknown>;
   if (!Array.isArray(items)) return EMPTY.tabs;
 
+  const panel = (value: unknown): SavedPanel | null => {
+    if (typeof value !== "object" || value === null) return null;
+    const { path, view, sortKey, sortDirection } = value as Record<string, unknown>;
+    if (typeof path !== "string" || path === "") return null;
+    return {
+      path,
+      view: view === "list" || view === "column" ? view : "icon",
+      // Chybí u záložek uložených starší verzí — výchozí řazení.
+      sortKey: sortKey === "modified" || sortKey === "size" || sortKey === "kind" ? sortKey : "name",
+      sortDirection: sortDirection === "desc" ? "desc" : "asc",
+    };
+  };
+
   const valid = items.flatMap((item): SavedTab[] => {
-    if (typeof item !== "object" || item === null) return [];
-    const { path, view, sortKey, sortDirection } = item as Record<string, unknown>;
-    if (typeof path !== "string" || path === "") return [];
-    return [
-      {
-        path,
-        view: view === "list" || view === "column" ? view : "icon",
-        // Chybí u záložek uložených verzí 1.3.0 před touhle změnou — výchozí řazení.
-        sortKey: sortKey === "modified" || sortKey === "size" || sortKey === "kind" ? sortKey : "name",
-        sortDirection: sortDirection === "desc" ? "desc" : "asc",
-      },
-    ];
+    const first = panel(item);
+    if (first === null) return [];
+    const record = item as Record<string, unknown>;
+    const second = panel(record.second);
+    if (second === null) return [first];
+    return [{ ...first, second, activePanel: record.activePanel === 1 ? 1 : 0 }];
   });
   const index = typeof active === "number" && Number.isInteger(active) ? active : 0;
   return { items: valid, active: Math.min(Math.max(index, 0), Math.max(valid.length - 1, 0)) };
@@ -245,17 +266,19 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates] = await Promise.all([
-      store.get<unknown>(KEY_FAVORITES),
-      store.get<unknown>(KEY_RECENTS),
-      store.get<unknown>(KEY_TAGS),
-      store.get<unknown>(KEY_SHOW_HIDDEN),
-      store.get<unknown>(KEY_SIDEBAR_WIDTH),
-      store.get<unknown>(KEY_MOTION),
-      store.get<unknown>(KEY_LANGUAGE),
-      store.get<unknown>(KEY_TABS),
-      store.get<unknown>(KEY_UPDATES),
-    ]);
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates, splitRatio] =
+      await Promise.all([
+        store.get<unknown>(KEY_FAVORITES),
+        store.get<unknown>(KEY_RECENTS),
+        store.get<unknown>(KEY_TAGS),
+        store.get<unknown>(KEY_SHOW_HIDDEN),
+        store.get<unknown>(KEY_SIDEBAR_WIDTH),
+        store.get<unknown>(KEY_MOTION),
+        store.get<unknown>(KEY_LANGUAGE),
+        store.get<unknown>(KEY_TABS),
+        store.get<unknown>(KEY_UPDATES),
+        store.get<unknown>(KEY_SPLIT_RATIO),
+      ]);
 
     commit({
       favorites: sanitizeFavorites(favorites),
@@ -267,6 +290,7 @@ export function init(): Promise<void> {
       language: language === "en" || language === "cs" ? language : "system",
       tabs: sanitizeTabs(tabs),
       updates: sanitizeUpdates(updates),
+      splitRatio: typeof splitRatio === "number" ? clampSplitRatio(splitRatio) : 0.5,
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -323,6 +347,14 @@ export async function setLanguage(value: LanguagePreference): Promise<void> {
 export async function setSavedTabs(value: SavedTabs): Promise<void> {
   commit({ tabs: value });
   await persist(KEY_TABS, value);
+}
+
+/* ---------------------------- rozdělené okno --------------------------------- */
+
+/** Během tažení dělicí čáry se jen překresluje (persist = false), na disk až na konci. */
+export async function setSplitRatio(value: number, persistNow = true): Promise<void> {
+  commit({ splitRatio: clampSplitRatio(value) });
+  if (persistNow) await persist(KEY_SPLIT_RATIO, cache.splitRatio);
 }
 
 /* ----------------------------- aktualizace ---------------------------------- */

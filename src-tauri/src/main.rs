@@ -401,9 +401,11 @@ fn can_list_dir(path: String) -> CmdResult<()> {
 const LIST_FIRST_BATCH: usize = 300;
 const LIST_CHUNK: usize = 500;
 
-/// Token posledního streamovaného výpisu. Starší výpis (uživatel mezitím
-/// odešel jinam) se podle něj přestane posílat.
-static LIST_TOKEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Token posledního streamovaného výpisu pro každý panel (rozdělené okno má
+/// dva). Starší výpis téhož panelu (uživatel mezitím odešel jinam) se podle
+/// něj přestane posílat; výpis druhého panelu tím nedotčen běží dál.
+static LIST_TOKENS: [std::sync::atomic::AtomicU64; 2] =
+    [std::sync::atomic::AtomicU64::new(0), std::sync::atomic::AtomicU64::new(0)];
 
 #[derive(Serialize)]
 struct DirListing {
@@ -429,11 +431,13 @@ fn list_dir_stream(
     path: String,
     show_hidden: Option<bool>,
     token: u64,
+    slot: Option<usize>,
 ) -> CmdResult<DirListing> {
     use std::sync::atomic::Ordering;
     use tauri::Emitter;
 
-    LIST_TOKEN.store(token, Ordering::SeqCst);
+    let latest = &LIST_TOKENS[slot.unwrap_or(0).min(LIST_TOKENS.len() - 1)];
+    latest.store(token, Ordering::SeqCst);
     let show_hidden = show_hidden.unwrap_or(false);
     let reader = fs::read_dir(&path).map_err(|err| AppError::at(&path, describe_io(&err)))?;
 
@@ -451,7 +455,7 @@ fn list_dir_stream(
     }
 
     std::thread::spawn(move || loop {
-        if LIST_TOKEN.load(Ordering::SeqCst) != token {
+        if latest.load(Ordering::SeqCst) != token {
             return;
         }
         let entries: Vec<FileEntry> = items.by_ref().take(LIST_CHUNK).collect();

@@ -1111,6 +1111,37 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Rozdělené okno: aktivní panel má nahoře tenkou linku akcentu. */
+.fw-panel.is-active::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 20;
+  height: 2px;
+  background-color: var(--accent);
+  pointer-events: none;
+}
+
+/* Dělicí čára: viditelná 1 px, chytatelná 7 px. */
+.fw-split-divider {
+  position: relative;
+  flex-shrink: 0;
+  width: 1px;
+  background-color: var(--border);
+  cursor: col-resize;
+}
+
+.fw-split-divider::after {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+  z-index: 21;
+}
+
+.fw-split-divider:hover {
+  background-color: var(--accent);
+}
+
 /* Nenápadný proužek nad status barem: je k dispozici nová verze. */
 .fw-update-bar {
   display: flex;
