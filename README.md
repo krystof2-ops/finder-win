@@ -17,6 +17,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 ## Features
 
 - **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
+- **Tabs** – Ctrl+T opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
 - **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
 - **Sidebar**
   - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos, Home), OneDrive / iCloud Drive when present,
@@ -26,11 +27,13 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
   - **Tags** – colors that are in use, with item counts,
   - collapsible sections.
 - **Selection** – Ctrl+click, Shift+click, Shift+arrow keys and rubber-band selection by dragging in empty space (in every view).
-- **Drag & drop inside the app** – drag items onto a folder to move them (hold Ctrl to copy); drag onto the sidebar to add favorites.
+- **Drag & drop** – drag items onto a folder, a sidebar location or a tab to move them (hold Ctrl to copy); drag onto *My Favorites* to add favorites. Files dragged in from Explorer or the desktop land in the folder under the cursor, or in the current folder.
+- **Windows clipboard** – Ctrl+C / Ctrl+X put real files on the clipboard: paste them in Explorer, attach them in Outlook or a web mail, or paste files copied in Explorer into Finder-Win. Cut files are moved and the clipboard is cleared, like in Explorer.
+- **Undo / Redo** – Ctrl+Z / Ctrl+Shift+Z for the last 50 renames, moves, copies, new items, deletions (restored from the Recycle Bin) and tag changes; More shows what will be undone.
 - **Name conflicts** – when pasting or dropping, a dialog offers *Replace* (folders are merged), *Keep both* or *Skip*, with *Apply to all*.
 - **Quick Look** (Space) – preview images, PDF, video, audio, text/source code and rendered Markdown; ←/→ to step through files.
-- **File operations** – rename inline, duplicate, new folder / new file, move to Recycle Bin (asks first on drives without one), copy / cut / paste within the app, Open with…, open in Explorer, open in Windows Terminal, copy path / name, properties with folder size.
-- **Toolbar** – Sort (by name, date, size, kind), Share (copy path, open in Explorer), Tags for the whole selection.
+- **File operations** – rename inline, duplicate, new folder / new file, move to Recycle Bin (asks first on drives without one), copy / cut / paste, Open with…, open in Explorer, open in Windows Terminal, copy path / name, properties with folder size.
+- **Toolbar** – Sort (by name, date, size, kind), Share (copy path, copy files, open in Explorer), Tags for the whole selection.
 - **Context menus** on files, empty space, sidebar items, status bar and Quick Look, also keyboard-navigable.
 - **Color tags** – 7 Finder colors; tags follow files when they are renamed or moved inside the app.
 - **Search** – typing filters the current folder; Enter runs a recursive search by file name (cancelled by Esc).
@@ -38,6 +41,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 - **Live updates** – the folder listing refreshes by itself when files change on disk.
 - **Light and dark mode**, smooth macOS-like animations (disabled when Windows "reduce motion" is on), works offline.
 - **English and Czech UI, follows your Windows language** – switch any time in More → Language / Jazyk.
+- **Install with winget** and an optional once-a-day update check (see below).
 
 ## Keyboard shortcuts
 
@@ -55,7 +59,12 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Alt+↑` / `Ctrl+↑` | Go to parent folder |
 | `Ctrl+L` | Edit path |
 | `Ctrl+F` | Focus search field (`Enter` = recursive search, `↓` = into results, `Esc` = clear) |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste (Windows clipboard) |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
+| `Ctrl+T` / `Ctrl+W` | New tab / close tab |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Ctrl+1` … `Ctrl+9` | Go to tab 1–8 / the last tab |
 | `Ctrl+D` | Duplicate |
 | `Ctrl+A` | Select all (not in Column view) |
 | `Ctrl+Shift+N` | New folder |
@@ -66,6 +75,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Esc` | Clear selection; close search results; close menus and dialogs |
 | `←` / `→`, `Esc` | Previous / next file, close (in Quick Look) |
 | Mouse button 4 / 5 | Back / forward |
+| Middle click on a folder / tab | Open in a new tab / close the tab |
 
 ## Install
 
@@ -113,16 +123,22 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 ## Known limitations
 
 - **Windows only.**
-- **No Undo** – deletions go to the Recycle Bin, but renames, moves and replacements can't be undone from the app.
-- **No Windows clipboard for files** – copy / cut / paste works only inside the app; you can't paste files into Explorer or from it. "Copy path" does use the system clipboard.
-- **No dragging to or from Windows Explorer** – drag & drop works only inside the app.
-- **No shell icons** – `.lnk`, `.exe` and other files show a generic icon by type, not the icon Windows shows. No image thumbnails either.
+- **Undo history is not saved** – it lives only while the app runs (last 50 operations). A file overwritten by *Replace* can't be brought back, and undoing a copy or a new item on a drive without a Recycle Bin is refused rather than deleting permanently.
+- **No dragging out of the app** – files can be dragged *into* Finder-Win from Explorer, but not from Finder-Win to Explorer, the desktop or other apps. Use Ctrl+C and paste there instead.
 - **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
 - Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
-- No tabs or multiple windows.
+- Tabs, but no multiple windows.
 - The installer is **not code-signed** (see SmartScreen above).
 
 ## Changelog
+
+### 1.3.0
+
+- **Tabs** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, middle-click and *Open in New Tab*; each tab has its own history, view, sorting, selection, columns and search; reorder by dragging, drop files on a tab, restored on start.
+- **Windows clipboard** – copy / cut / paste files between Finder-Win, Explorer, Outlook and browsers (CF_HDROP).
+- **Drag & drop from Explorer** – drop files from Explorer or the desktop onto a folder, a sidebar item, a tab or empty space.
+- **Undo / Redo** – rename, move, copy, new item, delete (from the Recycle Bin) and tags, last 50 operations.
+- **winget manifest** and an opt-out update check (one GET to the GitHub API per day, no telemetry).
 
 ### 1.2.0
 

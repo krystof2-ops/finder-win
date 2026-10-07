@@ -17,6 +17,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 ## Funkce
 
 - **Tři režimy zobrazení** – Ikony, Seznam (řaditelné sloupce, pruhované řádky) a Sloupce (Miller columns s info panelem vybraného souboru).
+- **Záložky** – Ctrl+T otevře aktuální složku v nové záložce, prostřední klik nebo *Otevřít v nové záložce* otevře složku; každá záložka má vlastní historii, zobrazení, řazení, výběr i hledání. Přetažením se přerovnávají, soubor puštěný na záložku se přesune do její složky; při dalším spuštění se obnoví.
 - **Okno ve stylu macOS** – vlastní titulkový pruh se „semaforem“, zaoblené rohy, tenké scrollbary.
 - **Postranní panel**
   - standardní složky (Plocha, Stažené, Dokumenty, Obrázky, Hudba, Videa, Domů), OneDrive / iCloud Drive, pokud existují,
@@ -26,11 +27,13 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
   - **Tagy** – použité barvy s počtem položek,
   - sekce se dají sbalit.
 - **Výběr** – Ctrl+klik, Shift+klik, Shift+šipky a gumičkový výběr tažením v prázdné ploše (ve všech zobrazeních).
-- **Přetahování uvnitř aplikace** – položky přetažené na složku se přesunou (s Ctrl zkopírují); do panelu se přidají do oblíbených.
+- **Přetahování** – položky přetažené na složku, místo v panelu nebo záložku se přesunou (s Ctrl zkopírují); do *Moje oblíbené* se přidají do oblíbených. Soubory přetažené z Průzkumníku nebo z plochy padnou do složky pod kurzorem, jinak do aktuální složky.
+- **Schránka Windows** – Ctrl+C / Ctrl+X dávají do schránky skutečné soubory: vložíš je v Průzkumníku, přiložíš v Outlooku nebo ve webovém mailu, a soubory zkopírované v Průzkumníku vložíš do Finder-Winu. Vyjmuté se přesunou a schránka se vyprázdní, jako v Průzkumníku.
+- **Zpět / Znovu** – Ctrl+Z / Ctrl+Shift+Z pro posledních 50 přejmenování, přesunů, kopií, nových položek, smazání (obnoví z Koše) a změn štítků; menu Více ukáže, co se vrátí.
 - **Kolize názvů** – při vložení nebo přetažení nabídne dialog *Nahradit* (složky se sloučí), *Ponechat obě* nebo *Přeskočit*, včetně *Použít pro všechny*.
 - **Quick Look** (mezerník) – náhled obrázků, PDF, videa, zvuku, textu/zdrojáků a vykresleného Markdownu; ←/→ přepíná soubory.
-- **Souborové operace** – přejmenování na místě, duplikace, nová složka / nový soubor, přesun do koše (na discích bez koše se nejdřív zeptá), kopírovat / vyjmout / vložit v rámci aplikace, Otevřít v aplikaci…, otevřít v Průzkumníku, otevřít ve Windows Terminálu, kopírovat cestu / název, vlastnosti včetně velikosti složky.
-- **Toolbar** – Seřadit (podle názvu, data, velikosti, druhu), Sdílet (kopírovat cestu, otevřít v Průzkumníku), Štítky pro celý výběr.
+- **Souborové operace** – přejmenování na místě, duplikace, nová složka / nový soubor, přesun do koše (na discích bez koše se nejdřív zeptá), kopírovat / vyjmout / vložit, Otevřít v aplikaci…, otevřít v Průzkumníku, otevřít ve Windows Terminálu, kopírovat cestu / název, vlastnosti včetně velikosti složky.
+- **Toolbar** – Seřadit (podle názvu, data, velikosti, druhu), Sdílet (kopírovat cestu, kopírovat soubory, otevřít v Průzkumníku), Štítky pro celý výběr.
 - **Kontextová menu** na souborech, volné ploše, v panelu, ve stavovém řádku i v Quick Look, ovladatelná i klávesnicí.
 - **Barevné tagy** – 7 barev jako ve Finderu; při přejmenování nebo přesunu v aplikaci jdou s položkou.
 - **Hledání** – psaní filtruje aktuální složku, Enter spustí rekurzivní hledání podle názvu (Esc ho zruší).
@@ -38,6 +41,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 - **Živá aktualizace** – výpis složky se sám obnoví, když se soubory na disku změní.
 - **Světlý a tmavý režim**, plynulé animace jako na macOS (vypnou se, když je ve Windows zapnuté omezení animací), funguje offline.
 - **Rozhraní anglicky a česky, řídí se jazykem Windows** – přepnout jde kdykoli v menu Více → Language / Jazyk.
+- **Instalace přes winget** a volitelná kontrola aktualizací jednou denně (viz níže).
 
 ## Klávesové zkratky
 
@@ -55,7 +59,12 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 | `Alt+↑` / `Ctrl+↑` | Nadřazená složka |
 | `Ctrl+L` | Editace cesty |
 | `Ctrl+F` | Pole hledání (`Enter` = rekurzivní hledání, `↓` = do výsledků, `Esc` = vymazat) |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Kopírovat / vyjmout / vložit |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Kopírovat / vyjmout / vložit (schránka Windows) |
+| `Ctrl+Z` | Zpět |
+| `Ctrl+Shift+Z` / `Ctrl+Y` | Znovu |
+| `Ctrl+T` / `Ctrl+W` | Nová záložka / zavřít záložku |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Další / předchozí záložka |
+| `Ctrl+1` … `Ctrl+9` | Záložka 1–8 / poslední záložka |
 | `Ctrl+D` | Duplikovat |
 | `Ctrl+A` | Vybrat vše (ne ve sloupcovém zobrazení) |
 | `Ctrl+Shift+N` | Nová složka |
@@ -66,6 +75,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 | `Esc` | Zrušit výběr; zavřít výsledky hledání; zavřít menu a dialogy |
 | `←` / `→`, `Esc` | Předchozí / další soubor, zavřít (v Quick Look) |
 | Tlačítko myši 4 / 5 | Zpět / vpřed |
+| Prostřední klik na složku / záložku | Otevřít v nové záložce / zavřít záložku |
 
 ## Instalace
 
@@ -113,16 +123,22 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 ## Známá omezení
 
 - **Jen pro Windows.**
-- **Bez Zpět (Undo)** – smazané jde do koše, ale přejmenování, přesuny a nahrazení se z aplikace vrátit nedají.
-- **Bez schránky Windows pro soubory** – kopírovat / vyjmout / vložit funguje jen uvnitř aplikace; do Průzkumníku ani z něj soubory vložit nejde. „Kopírovat cestu“ systémovou schránku používá.
-- **Bez tažení do Průzkumníku a z něj** – drag & drop funguje jen uvnitř aplikace.
-- **Bez ikon ze shellu** – `.lnk`, `.exe` a další soubory mají obecnou ikonu podle typu, ne tu, kterou ukazují Windows. Náhledy obrázků také nejsou.
+- **Historie Zpět se neukládá** – platí jen za běhu aplikace (posledních 50 operací). Soubor přepsaný volbou *Nahradit* se vrátit nedá a Zpět u kopie nebo nové položky na disku bez Koše se odmítne, místo aby smazalo natrvalo.
+- **Bez tažení ven z aplikace** – soubory jde do Finder-Winu přetáhnout z Průzkumníku, ale ne z Finder-Winu do Průzkumníku, na plochu ani do jiných aplikací. Místo toho Ctrl+C a vložit tam.
 - **Telefony a fotoaparáty** (iPhone, Android — zařízení MTP) jsou v panelu vidět, ale klik je otevře v Průzkumníku Windows; přímo v aplikaci se procházet nedají.
 - Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a rustové `target` (jen ty vedle `Cargo.toml`).
-- Žádné taby ani víc oken.
+- Záložky ano, víc oken ne.
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 
 ## Changelog
+
+### 1.3.0
+
+- **Záložky** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, prostřední klik a *Otevřít v nové záložce*; každá záložka má vlastní historii, zobrazení, řazení, výběr, sloupce i hledání; přerovnání tažením, drop souboru na záložku, obnovení při startu.
+- **Schránka Windows** – kopírování / vyjmutí / vložení souborů mezi Finder-Winem, Průzkumníkem, Outlookem a prohlížeči (CF_HDROP).
+- **Drag & drop z Průzkumníku** – soubory z Průzkumníku nebo z plochy jde pustit na složku, položku panelu, záložku i do prázdné plochy.
+- **Zpět / Znovu** – přejmenování, přesun, kopie, nová položka, smazání (z Koše) a štítky, posledních 50 operací.
+- **Manifest pro winget** a vypínatelná kontrola aktualizací (jeden GET na GitHub API denně, žádná telemetrie).
 
 ### 1.2.0
 

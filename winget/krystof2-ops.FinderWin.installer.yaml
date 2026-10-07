@@ -10,6 +10,6 @@ UpgradeBehavior: install
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/krystof2-ops/finder-win/releases/download/v1.3.0/Finder-Win_1.3.0_x64-setup.exe
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 226D411CBAF60EE597AF5B082EF6DF0540037A4AF5375B218733AB1ED36B6DEB
 ManifestType: installer
 ManifestVersion: 1.6.0
