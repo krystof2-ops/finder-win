@@ -1278,9 +1278,15 @@ export default function App() {
         return Object.fromEntries(paths.map((path) => [path, storage.tagsOf(tags, path)]));
       };
       const before = snapshot();
-      void action().then(() => record({ kind: "tags", before, after: snapshot() }));
+      void action()
+        .then(() => {
+          const after = snapshot();
+          // Klik, který nic nezměnil, nemá být krok Zpět.
+          if (JSON.stringify(before) !== JSON.stringify(after)) record({ kind: "tags", before, after });
+        })
+        .catch((err: unknown) => setNotice(failure("op.saveSettings", err)));
     },
-    [record],
+    [record, setNotice],
   );
 
   const submitRename = useCallback(
@@ -1523,7 +1529,11 @@ export default function App() {
           if (mode === "copy") await storage.copyTags(path, result.path);
           else await storage.remapPath(path, result.path);
           skipped += result.skipped_links;
-          if (!storage.samePath(path, result.path)) done.push({ from: path, to: result.path });
+          // „Nahradit" přepsalo cizí položku — Zpět by ji nevrátil, jen by
+          // smazal i tu novou. Taková operace do historie nepatří.
+          if (onConflict !== "replace" && !storage.samePath(path, result.path)) {
+            done.push({ from: path, to: result.path });
+          }
         },
       );
 
@@ -1774,7 +1784,13 @@ export default function App() {
       tabRestore.current = null;
       return;
     }
-    if (loaded.path === null || !storage.samePath(loaded.path, restore.path) || loaded.seq <= restore.seq) return;
+    if (loaded.path === null || loaded.seq <= restore.seq) return;
+    // Dorazila jiná složka (uživatel mezitím odešel jinam) — výběr záložky
+    // už nemá kam patřit a nesmí vystřelit při pozdějším návratu.
+    if (!storage.samePath(loaded.path, restore.path)) {
+      tabRestore.current = null;
+      return;
+    }
 
     tabRestore.current = null;
     const chosen = new Set(restore.selection);
