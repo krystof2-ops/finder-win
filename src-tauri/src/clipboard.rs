@@ -168,7 +168,7 @@ mod win {
 #[cfg(windows)]
 #[tauri::command(async)]
 pub fn clipboard_write_files(window: tauri::WebviewWindow, paths: Vec<String>, cut: bool) -> CmdResult<()> {
-    let owner = window.hwnd().map_err(|err| AppError::raw(err))?;
+    let owner = window.hwnd().map_err(AppError::raw)?;
     win::write(owner, &paths, cut)
 }
 
@@ -190,7 +190,7 @@ pub fn clipboard_has_files() -> bool {
 #[cfg(windows)]
 #[tauri::command(async)]
 pub fn clipboard_clear(window: tauri::WebviewWindow) -> CmdResult<()> {
-    let owner = window.hwnd().map_err(|err| AppError::raw(err))?;
+    let owner = window.hwnd().map_err(AppError::raw)?;
     win::clear(owner)
 }
 

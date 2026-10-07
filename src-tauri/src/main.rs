@@ -760,7 +760,7 @@ fn spawn_drive_watcher(app: tauri::AppHandle) {
                 changed = true;
             }
 
-            if round % 2 == 0 {
+            if round.is_multiple_of(2) {
                 let devices = devices_now();
                 if devices != last_devices {
                     last_devices = devices;
@@ -1491,7 +1491,7 @@ fn remove_partial(target: &Path) {
 fn copy_or_clean(source: &Path, target: &Path, label: &str) -> CmdResult<u32> {
     copy_tree(source, target).map_err(|err| {
         remove_partial(target);
-        AppError::at(&label, describe_io(&err))
+        AppError::at(label, describe_io(&err))
     })
 }
 
