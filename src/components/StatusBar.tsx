@@ -61,7 +61,9 @@ function PathInput({
         setInvalid(false);
       }}
       onKeyDown={(event) => {
-        event.stopPropagation();
+        // Ctrl+zkratky (nová záložka, paleta…) propustí dál — handler aplikace
+        // v textovém poli pustí jen ty globální, Ctrl+A apod. patří poli.
+        if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
         if (event.key === "Enter") {
           event.preventDefault();
           void submit();

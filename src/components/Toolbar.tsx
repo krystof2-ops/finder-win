@@ -19,9 +19,8 @@ import {
 } from "lucide-react";
 
 import { ContextMenu, type MenuItem } from "./ContextMenu";
-import { languageSetting, useT, type MessageKey } from "../i18n";
-import type { MotionPreference } from "../lib/storage";
-import { useStorage } from "../lib/useStorage";
+import type { CommandId, Command, Commands } from "../commands";
+import { useT, type MessageKey } from "../i18n";
 import type { Theme, ViewMode } from "../types";
 
 type IconButtonProps = {
@@ -131,14 +130,10 @@ type ToolbarProps = {
   folderPath: string | null;
   /** Malá ikona před názvem — stejná jako u složky v sidebaru. */
   folderIcon: React.ReactNode;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  onBack: () => void;
-  onForward: () => void;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
+  /** Jen kvůli ikoně tlačítka (slunce / měsíc) — přepnutí je příkaz. */
   theme: Theme;
-  onToggleTheme: () => void;
   query: string;
   onQueryChange: (query: string) => void;
   /** Enter v poli — filtr aktuální složky se povýší na rekurzivní hledání. */
@@ -146,37 +141,29 @@ type ToolbarProps = {
   /** ↓ v poli hledání — přesun do výsledků. */
   onSearchArrowDown: () => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
-  onRefresh: () => void;
-  onGoToParent: () => void;
-  canGoToParent: boolean;
-  /** About dialog drží App, aby byl stav modálů na jednom místě — globální
-   *  zkratky se pod otevřeným dialogem musí vypnout. */
-  onShowAbout: () => void;
-  showHidden: boolean;
-  onToggleHidden: () => void;
-  /** Animace: systém / zapnuto / vypnuto (uloženo v settings.json). */
-  motion: MotionPreference;
-  onMotionChange: (value: MotionPreference) => void;
-  /** Kontrola nové verze na GitHubu (výchozí zapnuto). */
-  checkUpdates: boolean;
-  onCheckUpdatesChange: (value: boolean) => void;
   /** Položky menu Seřadit / Sdílet / Štítky — sestavuje je App, zná výběr. */
   sortItems: MenuItem[];
   shareItems: MenuItem[];
   /** null = nic není vybrané, tlačítko Štítky je vypnuté. */
   tagItems: MenuItem[] | null;
-  /** Zpět / Znovu na začátku menu Více — popisky skládá App podle zásobníku. */
-  historyItems: MenuItem[];
-  /** Nová záložka s aktuální složkou — totéž co Ctrl+T. */
-  onNewTab: () => void;
-  /** Ještě není otevřená žádná složka (start) — nová záložka nemá co ukázat. */
-  canNewTab: boolean;
-  /** Rozdělené okno (dva panely) — Ctrl+Shift+D. */
-  split: boolean;
-  onToggleSplit: () => void;
+  /** Registr příkazů (commands.ts) — tlačítka i menu Více z něj berou akce,
+   *  stav i zkratky, takže se s klávesnicí a paletou nerozejdou. */
+  commands: Commands;
   /** Otevřené menu musí App znát kvůli globálním zkratkám (modalOpen). */
   onMenuOpenChange: (open: boolean) => void;
 };
+
+/** Položka menu z příkazu registru — název, zkratka a stav z jednoho místa. */
+export function commandMenuItem(command: Command, label?: string): MenuItem & { type: "item" } {
+  return {
+    type: "item",
+    label: label ?? command.title,
+    shortcut: command.shortcut,
+    disabled: !command.enabled,
+    checked: command.checked,
+    onSelect: command.run,
+  };
+}
 
 type ToolbarMenu = "sort" | "share" | "tags" | "more";
 
@@ -184,41 +171,21 @@ export function Toolbar({
   folderName,
   folderPath,
   folderIcon,
-  canGoBack,
-  canGoForward,
-  onBack,
-  onForward,
   viewMode,
   onViewModeChange,
   theme,
-  onToggleTheme,
   query,
   onQueryChange,
   onSearchSubmit,
   onSearchArrowDown,
   searchRef,
-  onRefresh,
-  onGoToParent,
-  canGoToParent,
-  onShowAbout,
-  showHidden,
-  onToggleHidden,
-  motion,
-  onMotionChange,
-  checkUpdates,
-  onCheckUpdatesChange,
   sortItems,
   shareItems,
   tagItems,
-  historyItems,
-  onNewTab,
-  canNewTab,
-  split,
-  onToggleSplit,
+  commands,
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
-  const { language } = useStorage();
   // Otevřené může být jen jedno menu. Pozice se bere z rámečku tlačítka.
   const [menu, setMenu] = useState<{ kind: ToolbarMenu; x: number; y: number } | null>(null);
 
@@ -239,67 +206,39 @@ export function Toolbar({
     };
   }
 
+  const item = (id: CommandId, label?: string) => commandMenuItem(commands[id], label);
+
   const moreItems: MenuItem[] = [
-    ...historyItems,
+    item("undo"),
+    item("redo"),
     { type: "separator" },
-    { type: "item", label: t("tabs.new"), shortcut: "Ctrl+T", disabled: !canNewTab, onSelect: onNewTab },
-    { type: "item", label: t("split.toggle"), shortcut: "Ctrl+Shift+D", checked: split, onSelect: onToggleSplit },
-    { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: onRefresh },
-    {
-      type: "item",
-      label: t("toolbar.parentFolder"),
-      shortcut: "Ctrl+↑",
-      disabled: !canGoToParent,
-      onSelect: onGoToParent,
-    },
-    {
-      type: "item",
-      label: t("toolbar.showHidden"),
-      shortcut: "Ctrl+Shift+.",
-      checked: showHidden,
-      onSelect: onToggleHidden,
-    },
+    item("newTab"),
+    item("toggleSplit"),
+    item("palette"),
+    item("refresh"),
+    item("goParent"),
+    item("toggleHidden"),
     {
       type: "submenu",
       label: t("toolbar.animations"),
-      items: (
-        [
-          ["system", "motion.system"],
-          ["on", "motion.on"],
-          ["off", "motion.off"],
-        ] as const
-      ).map(([value, label]) => ({
-        type: "item" as const,
-        label: t(label),
-        checked: motion === value,
-        onSelect: () => onMotionChange(value),
-      })),
+      items: [
+        item("motionSystem", t("motion.system")),
+        item("motionOn", t("motion.on")),
+        item("motionOff", t("motion.off")),
+      ],
     },
     {
       type: "submenu",
       label: t("language.menu"),
-      items: (
-        [
-          ["system", "language.system"],
-          ["en", "language.english"],
-          ["cs", "language.czech"],
-        ] as const
-      ).map(([value, label]) => ({
-        type: "item" as const,
-        label: t(label),
-        checked: language === value,
-        // Uloží se do settings.json a UI se přeloží hned, bez restartu.
-        onSelect: () => void languageSetting.set(value),
-      })),
+      items: [
+        item("languageSystem", t("language.system")),
+        item("languageEnglish", t("language.english")),
+        item("languageCzech", t("language.czech")),
+      ],
     },
     { type: "separator" },
-    {
-      type: "item",
-      label: t("toolbar.checkUpdates"),
-      checked: checkUpdates,
-      onSelect: () => onCheckUpdatesChange(!checkUpdates),
-    },
-    { type: "item", label: t("toolbar.about"), onSelect: onShowAbout },
+    item("checkUpdates"),
+    item("about"),
   ];
 
   return (
@@ -307,12 +246,17 @@ export function Toolbar({
     // [sdílet, štítky] [více] [téma] [hledání].
     <header className="fw-toolbar flex h-10 shrink-0 items-center gap-3 px-3">
       <div className="flex shrink-0 items-center gap-0.5">
-        <IconButton Icon={ChevronLeft} label={t("toolbar.back")} disabled={!canGoBack} onClick={onBack} />
+        <IconButton
+          Icon={ChevronLeft}
+          label={t("toolbar.back")}
+          disabled={!commands.goBack.enabled}
+          onClick={commands.goBack.run}
+        />
         <IconButton
           Icon={ChevronRight}
           label={t("toolbar.forward")}
-          disabled={!canGoForward}
-          onClick={onForward}
+          disabled={!commands.goForward.enabled}
+          onClick={commands.goForward.run}
         />
       </div>
 
@@ -365,16 +309,16 @@ export function Toolbar({
         Icon={Columns2}
         label={t("split.toggleWithShortcut")}
         secondary
-        active={split}
-        onClick={onToggleSplit}
+        active={commands.toggleSplit.checked}
+        onClick={commands.toggleSplit.run}
       />
 
       <IconButton
         Icon={Plus}
         label={t("tabs.newWithShortcut")}
         secondary
-        disabled={!canNewTab}
-        onClick={onNewTab}
+        disabled={!commands.newTab.enabled}
+        onClick={commands.newTab.run}
       />
 
       <IconButton
@@ -390,7 +334,7 @@ export function Toolbar({
         Icon={theme === "dark" ? Sun : Moon}
         label={theme === "dark" ? t("toolbar.lightMode") : t("toolbar.darkMode")}
         secondary
-        onClick={onToggleTheme}
+        onClick={commands.toggleTheme.run}
         iconClassName="fw-theme-spin"
       />
 
@@ -404,7 +348,9 @@ export function Toolbar({
             value={query}
             onChange={(event) => onQueryChange(event.target.value)}
             onKeyDown={(event) => {
-              event.stopPropagation();
+              // Ctrl+zkratky (nová záložka, paleta…) propustí dál — handler aplikace
+              // v textovém poli pustí jen ty globální, Ctrl+A apod. patří poli.
+              if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
               if (event.key === "Escape") {
                 event.preventDefault();
                 onQueryChange("");

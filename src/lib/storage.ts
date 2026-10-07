@@ -27,6 +27,7 @@ const KEY_LANGUAGE = "language";
 const KEY_TABS = "tabs";
 const KEY_UPDATES = "updates";
 const KEY_SPLIT_RATIO = "splitRatio";
+const KEY_COMMAND_USAGE = "commandUsage";
 
 /** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
 export type MotionPreference = "system" | "on" | "off";
@@ -69,6 +70,8 @@ export type Snapshot = {
   updates: UpdateSettings;
   /** Poměr šířky levého panelu v rozděleném okně (0,25–0,75). */
   splitRatio: number;
+  /** Kolikrát se který příkaz spustil — paleta z toho ukazuje nejpoužívanější. */
+  commandUsage: Record<string, number>;
 };
 
 const EMPTY: Snapshot = {
@@ -82,6 +85,7 @@ const EMPTY: Snapshot = {
   tabs: { items: [], active: 0 },
   updates: { check: true, lastCheck: 0, latest: null },
   splitRatio: 0.5,
+  commandUsage: {},
 };
 
 export const SPLIT_RATIO_MIN = 0.25;
@@ -240,6 +244,15 @@ function sanitizeTabs(value: unknown): SavedTabs {
   return { items: valid, active: Math.min(Math.max(index, 0), Math.max(valid.length - 1, 0)) };
 }
 
+function sanitizeUsage(value: unknown): Record<string, number> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const result: Record<string, number> = {};
+  for (const [id, count] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof count === "number" && Number.isFinite(count) && count > 0) result[id] = Math.floor(count);
+  }
+  return result;
+}
+
 function sanitizeUpdates(value: unknown): UpdateSettings {
   if (typeof value !== "object" || value === null) return EMPTY.updates;
   const { check, lastCheck, latest } = value as Record<string, unknown>;
@@ -266,7 +279,7 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates, splitRatio] =
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates, splitRatio, usage] =
       await Promise.all([
         store.get<unknown>(KEY_FAVORITES),
         store.get<unknown>(KEY_RECENTS),
@@ -278,6 +291,7 @@ export function init(): Promise<void> {
         store.get<unknown>(KEY_TABS),
         store.get<unknown>(KEY_UPDATES),
         store.get<unknown>(KEY_SPLIT_RATIO),
+        store.get<unknown>(KEY_COMMAND_USAGE),
       ]);
 
     commit({
@@ -291,6 +305,7 @@ export function init(): Promise<void> {
       tabs: sanitizeTabs(tabs),
       updates: sanitizeUpdates(updates),
       splitRatio: typeof splitRatio === "number" ? clampSplitRatio(splitRatio) : 0.5,
+      commandUsage: sanitizeUsage(usage),
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -347,6 +362,15 @@ export async function setLanguage(value: LanguagePreference): Promise<void> {
 export async function setSavedTabs(value: SavedTabs): Promise<void> {
   commit({ tabs: value });
   await persist(KEY_TABS, value);
+}
+
+/* ---------------------------- paleta příkazů --------------------------------- */
+
+/** Jedno spuštění příkazu navíc — zápis na disk slije autoSave pluginu. */
+export async function countCommand(id: string): Promise<void> {
+  const usage = { ...cache.commandUsage, [id]: (cache.commandUsage[id] ?? 0) + 1 };
+  commit({ commandUsage: usage });
+  await persist(KEY_COMMAND_USAGE, usage);
 }
 
 /* ---------------------------- rozdělené okno --------------------------------- */

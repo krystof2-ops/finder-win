@@ -27,6 +27,8 @@ import { TagView } from "./components/TagView";
 import { FolderIcon, folderDisplayName, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
+import { CommandPalette, type PaletteFolder } from "./components/CommandPalette";
+import { buildCommands, commandForKey, type Commands } from "./commands";
 import { TooltipLayer } from "./components/Tooltip";
 import { Skeleton, ViewTransition } from "./components/ViewTransition";
 import {
@@ -55,7 +57,8 @@ import {
   formatItemCount,
   type SortKey,
 } from "./format";
-import { errorText, failure, t, useLocale, type MessageKey } from "./i18n";
+import { errorText, failure, languageSetting, t, useLocale, type MessageKey } from "./i18n";
+import { homeDir } from "@tauri-apps/api/path";
 import { canDropInto, droppedPaths, endDrag, getDrag, isExternalFileDrag } from "./lib/dnd";
 import { isTypingTarget } from "./lib/dom";
 import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
@@ -198,9 +201,13 @@ export default function App() {
   const [menu, setMenu] = useState<MainMenu | null>(null);
   const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
+  /** Paleta příkazů (Ctrl+K). */
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  /** Registr příkazů z posledního renderu — pro handler kláves. */
+  const commandsRef = useRef<Commands | null>(null);
 
 
-  const { tags, favorites, motion, updates, splitRatio } = useStorage();
+  const { tags, favorites, recents, motion, updates, splitRatio, language, commandUsage } = useStorage();
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
@@ -1401,6 +1408,7 @@ export default function App() {
     menu !== null ||
     propertiesFor !== null ||
     aboutOpen ||
+    paletteOpen ||
     confirm !== null ||
     conflict !== null ||
     toolbarMenuOpen;
@@ -1415,47 +1423,29 @@ export default function App() {
       // pod nimi nesmí projít Delete, F2 ani Ctrl+V. Menu se pozná podle DOM.
       if (document.querySelector("[data-fw-menu]")) return;
 
-      // Záložky jako v prohlížeči — fungují i s fokusem v poli hledání.
-      const tabCtrl = (event.ctrlKey || event.metaKey) && !event.altKey;
-      if (tabCtrl && event.key === "Tab") {
-        event.preventDefault();
-        cycleTab(event.shiftKey ? -1 : 1);
-        return;
-      }
-      if (tabCtrl && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
+      // Ctrl+1…8 záložka podle pořadí, Ctrl+9 poslední — jako v prohlížeči.
+      // Podle fyzické klávesy: na české klávesnici jsou na číslicích háčky.
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
         event.preventDefault();
         switchToTabNumber(Number(event.code.slice(5)));
         return;
       }
-      if (tabCtrl && event.shiftKey && event.code === "KeyD") {
+
+      // Zkratky příkazů z registru (commands.ts) — stejné jako v menu a paletě.
+      const typing = isTypingTarget(event.target);
+      // Tag view a výsledky hledání nemají výběr v hlavním panelu — příkazy nad
+      // výběrem by mířily na položky podkladové složky, které uživatel nevidí
+      // (nejnebezpečnější je Delete). Projdou jen ty s rozsahem „overlay".
+      const overlayMode = tagFilter !== null || search !== null;
+      const command = commandsRef.current
+        ? commandForKey(commandsRef.current, event, { typing, overlay: overlayMode })
+        : null;
+      if (command) {
         event.preventDefault();
-        toggleSplit();
+        command.run();
         return;
       }
-      if (tabCtrl && !event.shiftKey && (event.key.toLowerCase() === "t" || event.key.toLowerCase() === "w")) {
-        event.preventDefault();
-        if (event.key.toLowerCase() === "t") openTab(currentDir);
-        else closeTab(activeTabId);
-        return;
-      }
-
-      if (isTypingTarget(event.target)) return;
-
-      // Rozdělené okno: Tab přepíná panel, F5 / F6 kopíruje / přesouvá výběr
-      // do druhého panelu (jako Total Commander).
-      if (splitVisible && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        if (event.key === "Tab") {
-          event.preventDefault();
-          setActivePanel(activePanel === 0 ? 1 : 0);
-          return;
-        }
-        if ((event.key === "F5" || event.key === "F6") && !event.shiftKey) {
-          event.preventDefault();
-          // Ve výsledcích hledání / tag view nic — viz otherDir.
-          transferToOther(event.key === "F5" ? "copy" : "cut");
-          return;
-        }
-      }
+      if (typing) return;
 
       // Escape ve výsledcích hledání je zavře (a tím zastaví běžící průchod
       // disku), i když fokus není v poli hledání.
@@ -1464,140 +1454,14 @@ export default function App() {
         setQuery("");
         return;
       }
+      if (overlayMode) return;
 
       const ctrl = event.ctrlKey || event.metaKey;
-
-      // Historie a rodič fungují všude — i ve výsledcích hledání a v tag view
-      // (odchod z nich je zavře).
-      if (event.altKey && !ctrl) {
-        const action =
-          event.key === "ArrowLeft"
-            ? goBack
-            : event.key === "ArrowRight"
-              ? goForward
-              : event.key === "ArrowUp"
-                ? goToParent
-                : null;
-        if (action) {
-          event.preventDefault();
-          action();
-          return;
-        }
-      }
-      if (event.key === "Backspace" && !ctrl && !event.altKey) {
-        event.preventDefault();
-        goBack();
-        return;
-      }
-
-      // Zpět / Znovu míří na operace, ne na výběr — fungují všude kromě
-      // textových polí (tam má Ctrl+Z vlastní význam, odfiltrováno výš).
-      if (ctrl && !event.altKey) {
-        const key = event.key.toLowerCase();
-        if (key === "z" || key === "y") {
-          event.preventDefault();
-          void stepHistory(key === "z" && !event.shiftKey ? "undo" : "redo");
-          return;
-        }
-      }
-
-      // Tag view a výsledky hledání nemají výběr v hlavním panelu — zkratky
-      // by mířily na položky podkladové složky, které uživatel nevidí
-      // (nejnebezpečnější je Delete). Projdou jen ty bezpečné.
-      if (tagFilter !== null || search !== null) {
-        const key = event.key.toLowerCase();
-        if (ctrl && key === "f") {
-          event.preventDefault();
-          searchRef.current?.focus();
-          searchRef.current?.select();
-        } else if (ctrl && key === "l") {
-          event.preventDefault();
-          setPathEditing(true);
-        } else if (event.key === "F5" || (ctrl && key === "r")) {
-          event.preventDefault();
-          refresh();
-        } else if (ctrl && key === "c" && overlaySelected) {
-          event.preventDefault();
-          putOnClipboard([overlaySelected.path], "copy");
-        }
-        return;
-      }
-
-      // Ctrl+Shift+. (jako Cmd+Shift+. ve Finderu) — podle fyzické klávesy,
-      // tečka je na české klávese jinde než na anglické.
-      if (ctrl && event.shiftKey && event.code === "Period") {
-        event.preventDefault();
-        toggleHidden();
-        return;
-      }
-
-      if (ctrl) {
-        switch (event.key.toLowerCase()) {
-          case "arrowup":
-            event.preventDefault();
-            goToParent();
-            return;
-          case "arrowdown":
-            event.preventDefault();
-            if (activeEntry) open(activeEntry);
-            return;
-          case "l":
-            event.preventDefault();
-            setPathEditing(true);
-            return;
-          case "f":
-            event.preventDefault();
-            searchRef.current?.focus();
-            searchRef.current?.select();
-            return;
-          case "c":
-            event.preventDefault();
-            copyToClipboard("copy");
-            return;
-          case "x":
-            event.preventDefault();
-            copyToClipboard("cut");
-            return;
-          case "v":
-            event.preventDefault();
-            paste();
-            return;
-          case "d":
-            event.preventDefault();
-            duplicateActive();
-            return;
-          case "a":
-            event.preventDefault();
-            selectAll();
-            return;
-          case "n":
-            // Samotné Ctrl+N nemá co dělat — nové okno aplikace neumí.
-            if (!event.shiftKey) return;
-            event.preventDefault();
-            newFolder();
-            return;
-          case "r":
-            event.preventDefault();
-            refresh();
-            return;
-          default:
-            return;
-        }
-      }
+      // Ctrl/Alt + klávesa je vždy příkaz. Zakázaný (Ctrl+↑ v kořeni disku,
+      // Ctrl+↓ bez výběru) nesmí propadnout do obyčejného pohybu výběru.
+      if (ctrl || event.altKey) return;
 
       switch (event.key) {
-        case "F5":
-          event.preventDefault();
-          refresh();
-          break;
-        case "F2":
-          event.preventDefault();
-          if (activeEntry) setRenamingPath(activeEntry.path);
-          break;
-        case "Delete":
-          event.preventDefault();
-          deleteTargets();
-          break;
         case " ":
           if (activeEntry && !activeEntry.is_dir) {
             event.preventDefault();
@@ -1669,36 +1533,17 @@ export default function App() {
     search,
     isColumnView,
     activeEntry,
-    goToParent,
     open,
-    copyToClipboard,
-    paste,
-    duplicateActive,
-    selectAll,
-    refresh,
-    deleteTargets,
-    newFolder,
     moveSelection,
     selectIndex,
     findByPrefix,
     visibleEntries,
     viewMode,
-    goBack,
-    goForward,
-    overlaySelected,
-    toggleHidden,
-    putOnClipboard,
-    stepHistory,
-    toggleSplit,
-    splitVisible,
-    activePanel,
-    transferToOther,
-    cycleTab,
+    viewMetrics,
+    setQuery,
+    setSelection,
+    setActive,
     switchToTabNumber,
-    openTab,
-    closeTab,
-    currentDir,
-    activeTabId,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -2263,26 +2108,143 @@ export default function App() {
   );
 
   /** Zpět / Znovu na začátku menu Více — s názvem operace, jako ve Finderu. */
-  const historyItems = useMemo((): MenuItem[] => {
-    const lastUndo = history.undo[history.undo.length - 1];
-    const lastRedo = history.redo[history.redo.length - 1];
-    return [
-      {
-        type: "item",
-        label: lastUndo ? t("undo.undoAction", { action: undoLabel(lastUndo) }) : t("undo.undo"),
-        shortcut: "Ctrl+Z",
-        disabled: lastUndo === undefined,
-        onSelect: () => void stepHistory("undo"),
+  /* -------------------------------- příkazy -------------------------------- */
+
+  const lastUndo = history.undo[history.undo.length - 1];
+  const lastRedo = history.redo[history.redo.length - 1];
+  const overlayMode = tagFilter !== null || search !== null;
+  const commands = buildCommands(
+    {
+      palette: { run: () => setPaletteOpen(true) },
+      newTab: { run: () => openTab(currentDir), enabled: currentDir !== null },
+      closeTab: { run: () => closeTab(activeTabId), enabled: openTabs.length > 1 },
+      nextTab: { run: () => cycleTab(1), enabled: openTabs.length > 1 },
+      previousTab: { run: () => cycleTab(-1), enabled: openTabs.length > 1 },
+      toggleSplit: { run: toggleSplit, checked: splitOn },
+      switchPanel: { run: () => setActivePanel(activePanel === 0 ? 1 : 0), enabled: splitVisible },
+      copyToOther: { run: () => transferToOther("copy"), enabled: splitVisible && otherDir !== null },
+      moveToOther: { run: () => transferToOther("cut"), enabled: splitVisible && otherDir !== null },
+      newFolder: { run: () => newFolder(), enabled: currentDir !== null && !overlayMode },
+      newFile: {
+        run: () => {
+          if (currentDir !== null) newFile(currentDir);
+        },
+        enabled: currentDir !== null && !overlayMode,
       },
-      {
-        type: "item",
-        label: lastRedo ? t("undo.redoAction", { action: undoLabel(lastRedo) }) : t("undo.redo"),
-        shortcut: "Ctrl+Shift+Z",
-        disabled: lastRedo === undefined,
-        onSelect: () => void stepHistory("redo"),
+      viewIcons: { run: () => changeViewMode("icon"), checked: viewMode === "icon" },
+      viewList: { run: () => changeViewMode("list"), checked: viewMode === "list" },
+      viewColumns: { run: () => changeViewMode("column"), checked: viewMode === "column" },
+      toggleHidden: { run: toggleHidden, checked: showHidden === true },
+      toggleTheme: { run: toggleTheme, title: theme === "dark" ? t("toolbar.lightMode") : t("toolbar.darkMode") },
+      languageSystem: { run: () => void languageSetting.set("system"), checked: language === "system" },
+      languageEnglish: { run: () => void languageSetting.set("en"), checked: language === "en" },
+      languageCzech: { run: () => void languageSetting.set("cs"), checked: language === "cs" },
+      motionSystem: { run: () => void storage.setMotion("system"), checked: motion === "system" },
+      motionOn: { run: () => void storage.setMotion("on"), checked: motion === "on" },
+      motionOff: { run: () => void storage.setMotion("off"), checked: motion === "off" },
+      goBack: { run: goBack, enabled: nav.back.length > 0 },
+      goForward: { run: goForward, enabled: nav.forward.length > 0 },
+      goParent: { run: goToParent, enabled: currentDir !== null && parentPath(currentDir) !== null },
+      openSelection: {
+        run: () => {
+          if (activeEntry) open(activeEntry);
+        },
+        enabled: activeEntry !== null,
       },
-    ];
-  }, [history, stepHistory, locale]);
+      editPath: { run: () => setPathEditing(true) },
+      find: {
+        run: () => {
+          searchRef.current?.focus();
+          searchRef.current?.select();
+        },
+      },
+      refresh: { run: refresh },
+      undo: {
+        run: () => void stepHistory("undo"),
+        enabled: lastUndo !== undefined,
+        title: lastUndo ? t("undo.undoAction", { action: undoLabel(lastUndo) }) : undefined,
+      },
+      redo: {
+        run: () => void stepHistory("redo"),
+        enabled: lastRedo !== undefined,
+        title: lastRedo ? t("undo.redoAction", { action: undoLabel(lastRedo) }) : undefined,
+      },
+      copy: {
+        // Ve výsledcích hledání / tag view jen položka vybraná tam.
+        run: () => {
+          if (!overlayMode) copyToClipboard("copy");
+          else if (overlaySelected) putOnClipboard([overlaySelected.path], "copy");
+        },
+      },
+      cut: { run: () => copyToClipboard("cut") },
+      paste: { run: () => paste() },
+      duplicate: { run: duplicateActive },
+      selectAll: { run: selectAll, enabled: !isColumnView },
+      rename: {
+        run: () => {
+          if (activeEntry) setRenamingPath(activeEntry.path);
+        },
+        enabled: activeEntry !== null,
+      },
+      delete: { run: deleteTargets, enabled: targetEntries.length > 0 },
+      copyPath: {
+        run: () => {
+          const path = activeEntry?.path ?? currentDir;
+          if (path !== null) copyText(path, "op.copyPath");
+        },
+        enabled: activeEntry !== null || currentDir !== null,
+      },
+      openTerminal: {
+        run: () => {
+          if (currentDir !== null) openTerminalAt(currentDir);
+        },
+        enabled: currentDir !== null,
+      },
+      checkUpdates: { run: () => void storage.setUpdates({ check: !updates.check }), checked: updates.check },
+      about: { run: () => setAboutOpen(true) },
+    },
+    t,
+  );
+  commandsRef.current = commands;
+
+  /* ---------------------------- paleta příkazů ----------------------------- */
+
+  /** Složky pro paletu: oblíbené, nedávné, otevřené záložky, podsložky aktuální. */
+  const paletteFolders = useMemo((): PaletteFolder[] => {
+    if (!paletteOpen) return [];
+    const list: PaletteFolder[] = [];
+    for (const section of sections) {
+      for (const item of section.items) if (!item.external) list.push({ path: item.path, source: "favorite" });
+    }
+    for (const item of favorites) if (item.type === "folder") list.push({ path: item.path, source: "favorite" });
+    for (const item of recents) if (item.type === "folder") list.push({ path: item.path, source: "recent" });
+    for (const tab of tabs) {
+      const path = tab.id === activeTabId ? nav.current : tabFace(tab).nav.current;
+      if (path !== null) list.push({ path, source: "tab" });
+    }
+    const children = isColumnView ? (focusedColumn?.entries ?? []) : visibleEntries;
+    for (const entry of children) if (entry.is_dir) list.push({ path: entry.path, source: "subfolder" });
+    return list;
+  }, [paletteOpen, sections, favorites, recents, tabs, activeTabId, nav.current, isColumnView, focusedColumn, visibleEntries]);
+
+  /** Text z palety, který vypadá jako cesta: ~ = domovská složka, soubor se odkryje. */
+  const goToTypedPath = useCallback(
+    async (text: string) => {
+      let path = text.trim().replace(/\//g, "\\");
+      if (/^~([\\]|$)/.test(path)) path = (await homeDir()).replace(/\\$/, "") + path.slice(1);
+      if (/^[a-z]:$/i.test(path)) path += "\\";
+      try {
+        await invoke("can_list_dir", { path });
+        navigate(path);
+      } catch (err: unknown) {
+        // Soubor: otevře se složka, ve které leží, a označí se v ní.
+        const [stat] = await statPaths([path]).catch(() => [] as StatResult[]);
+        if (stat?.entry && !stat.entry.is_dir) reveal(stat.entry.path);
+        else setNotice(failure("op.openFolder", err));
+      }
+    },
+    [navigate, reveal, setNotice],
+  );
 
   // Sdílet míří na výběr; bez výběru na složku, ve které uživatel stojí.
   const sharePaths = useMemo(
@@ -2702,14 +2664,9 @@ export default function App() {
             // Přeložený popisek ("Pictures") nesmí schovat, kde složka opravdu je.
             folderPath={tagFilter === null && search === null ? nav.current : null}
             folderIcon={folderIcon}
-            canGoBack={nav.back.length > 0}
-            canGoForward={nav.forward.length > 0}
-            onBack={goBack}
-            onForward={goForward}
             viewMode={viewMode}
             onViewModeChange={changeViewMode}
             theme={theme}
-            onToggleTheme={toggleTheme}
             query={query}
             onQueryChange={setQuery}
             onSearchSubmit={submitSearch}
@@ -2718,24 +2675,10 @@ export default function App() {
               document.querySelector<HTMLElement>('[role="listbox"] [role="option"]')?.focus()
             }
             searchRef={searchRef}
-            onRefresh={refresh}
-            onGoToParent={goToParent}
-            canGoToParent={currentDir !== null && parentPath(currentDir) !== null}
-            onShowAbout={() => setAboutOpen(true)}
-            showHidden={showHidden ?? false}
-            onToggleHidden={toggleHidden}
-            motion={motion}
-            onMotionChange={(value) => void storage.setMotion(value)}
-            checkUpdates={updates.check}
-            onCheckUpdatesChange={(value) => void storage.setUpdates({ check: value })}
             sortItems={toolbarSortItems}
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
-            historyItems={historyItems}
-            onNewTab={() => openTab(currentDir)}
-            canNewTab={currentDir !== null}
-            split={splitOn}
-            onToggleSplit={toggleSplit}
+            commands={commands}
             onMenuOpenChange={setToolbarMenuOpen}
           />
 
@@ -2753,7 +2696,7 @@ export default function App() {
               onClose={closeTab}
               onReorder={reorderTab}
               onDropInto={dropInto}
-              onNew={() => openTab(currentDir)}
+              onNew={commands.newTab.run}
             />
           )}
 
@@ -2873,6 +2816,35 @@ export default function App() {
 
       {propertiesFor && (
         <PropertiesDialog entry={propertiesFor} onClose={() => setPropertiesFor(null)} />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette
+          commands={Object.values(commands).filter((command) => command.palette && command.enabled)}
+          folders={paletteFolders}
+          recentFolders={recents.filter((item) => item.type === "folder").map((item) => item.path)}
+          usage={commandUsage}
+          onClose={() => setPaletteOpen(false)}
+          onOpenFolder={(path) => {
+            void storage.addRecent(path, storage.lastSegment(path), "folder");
+            navigate(path);
+          }}
+          onGoToPath={(text) => void goToTypedPath(text)}
+          onSelectTag={selectTag}
+          onSearchFiles={(text) => {
+            if (currentDir === null) return;
+            setQuery(text);
+            setTagFilter(null);
+            setOverlaySelected(null);
+            setSearch({ root: currentDir, query: text });
+          }}
+          onRunCommand={(command) => {
+            // Počítají se jen spuštění z palety — podle nich se nabízí
+            // „nejpoužívanější" akce (zkratky typu Ctrl+C by je přebily).
+            void storage.countCommand(command.id);
+            command.run();
+          }}
+        />
       )}
 
       {aboutOpen && (

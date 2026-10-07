@@ -1111,6 +1111,34 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Paleta příkazů (Ctrl+K): nahoře uprostřed, jako Spotlight. Okno přijede
+   ze 0,98 a zprůhlednění, výsledky se překreslují bez animace. */
+.fw-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+}
+
+.fw-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(580px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow: hidden;
+  border-radius: 12px;
+  animation: fw-palette-in calc(140ms * var(--motion-scale)) var(--ease-out) both;
+}
+
+@keyframes fw-palette-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
 /* Rozdělené okno: aktivní panel má nahoře tenkou linku akcentu. */
 .fw-panel.is-active::before {
   content: "";
