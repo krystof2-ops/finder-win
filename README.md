@@ -127,7 +127,7 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - **No dragging out of the app** – files can be dragged *into* Finder-Win from Explorer, but not from Finder-Win to Explorer, the desktop or other apps. Use Ctrl+C and paste there instead.
 - **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
 - Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
-- Tabs, but no multiple windows.
+- Tabs, but no multiple windows. Tabs are restored on start only when 2 or more are open, and only with their folder and view mode (history, sorting and selection start fresh).
 - The installer is **not code-signed** (see SmartScreen above).
 
 ## Changelog

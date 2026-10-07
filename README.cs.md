@@ -127,7 +127,7 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 - **Bez tažení ven z aplikace** – soubory jde do Finder-Winu přetáhnout z Průzkumníku, ale ne z Finder-Winu do Průzkumníku, na plochu ani do jiných aplikací. Místo toho Ctrl+C a vložit tam.
 - **Telefony a fotoaparáty** (iPhone, Android — zařízení MTP) jsou v panelu vidět, ale klik je otevře v Průzkumníku Windows; přímo v aplikaci se procházet nedají.
 - Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a rustové `target` (jen ty vedle `Cargo.toml`).
-- Záložky ano, víc oken ne.
+- Záložky ano, víc oken ne. Záložky se při startu obnoví jen tehdy, když jsou otevřené 2 a více, a jen se svou složkou a zobrazením (historie, řazení a výběr začínají znovu).
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 
 ## Changelog
