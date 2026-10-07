@@ -1,5 +1,6 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
+import type { SortDirection, SortKey } from "../format";
 import type { CustomFavorite, RecentEntry, RecentKind, TagColor, TagMap, ViewMode } from "../types";
 
 /**
@@ -32,8 +33,8 @@ export type MotionPreference = "system" | "on" | "off";
 /** Jazyk UI: podle systému, nebo napevno (viz i18n/index.ts). */
 export type LanguagePreference = "system" | "en" | "cs";
 
-/** Záložky z minulého spuštění: složka a zobrazení každé, a která byla aktivní. */
-export type SavedTab = { path: string; view: ViewMode };
+/** Záložky z minulého spuštění: složka, zobrazení a řazení každé, a která byla aktivní. */
+export type SavedTab = { path: string; view: ViewMode; sortKey: SortKey; sortDirection: SortDirection };
 export type SavedTabs = { items: SavedTab[]; active: number };
 
 /** Kontrola aktualizací: zapnutá?, kdy naposled (ms) a co našla. */
@@ -202,9 +203,17 @@ function sanitizeTabs(value: unknown): SavedTabs {
 
   const valid = items.flatMap((item): SavedTab[] => {
     if (typeof item !== "object" || item === null) return [];
-    const { path, view } = item as Record<string, unknown>;
+    const { path, view, sortKey, sortDirection } = item as Record<string, unknown>;
     if (typeof path !== "string" || path === "") return [];
-    return [{ path, view: view === "list" || view === "column" ? view : "icon" }];
+    return [
+      {
+        path,
+        view: view === "list" || view === "column" ? view : "icon",
+        // Chybí u záložek uložených verzí 1.3.0 před touhle změnou — výchozí řazení.
+        sortKey: sortKey === "modified" || sortKey === "size" || sortKey === "kind" ? sortKey : "name",
+        sortDirection: sortDirection === "desc" ? "desc" : "asc",
+      },
+    ];
   });
   const index = typeof active === "number" && Number.isInteger(active) ? active : 0;
   return { items: valid, active: Math.min(Math.max(index, 0), Math.max(valid.length - 1, 0)) };
@@ -216,7 +225,9 @@ function sanitizeUpdates(value: unknown): UpdateSettings {
   const found = latest as Record<string, unknown> | null | undefined;
   return {
     check: typeof check === "boolean" ? check : true,
-    lastCheck: typeof lastCheck === "number" ? lastCheck : 0,
+    // Čas z budoucnosti (ručně upravený soubor, posunuté hodiny) by kontrolu
+    // zablokoval navždy — takový se zahodí.
+    lastCheck: typeof lastCheck === "number" && Number.isFinite(lastCheck) && lastCheck <= Date.now() ? lastCheck : 0,
     latest:
       found && typeof found.version === "string" && typeof found.url === "string"
         ? { version: found.version, url: found.url }

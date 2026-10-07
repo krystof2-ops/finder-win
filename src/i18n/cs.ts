@@ -229,6 +229,7 @@ export const cs = {
   "op.duplicate": "Duplikace selhala",
   "op.newFolder": "Složku se nepodařilo vytvořit",
   "op.newFile": "Soubor se nepodařilo vytvořit",
+  "op.paste": "Vložení selhalo",
   "op.copy": "Kopírování selhalo",
   "op.move": "Přesun selhal",
   "op.explorer": "Průzkumníka se nepodařilo otevřít",

@@ -127,14 +127,14 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - **No dragging out of the app** – files can be dragged *into* Finder-Win from Explorer, but not from Finder-Win to Explorer, the desktop or other apps. Use Ctrl+C and paste there instead.
 - **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
 - Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
-- Tabs, but no multiple windows. Tabs are restored on start only when 2 or more are open, and only with their folder and view mode (history, sorting and selection start fresh).
+- Tabs, but no multiple windows. Tabs are restored on start only when 2 or more are open, and only with their folder, view mode and sorting (history and selection start fresh).
 - The installer is **not code-signed** (see SmartScreen above).
 
 ## Changelog
 
 ### 1.3.0
 
-- **Tabs** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, middle-click and *Open in New Tab*; each tab has its own history, view, sorting, selection, columns and search; reorder by dragging, drop files on a tab, restored on start.
+- **Tabs** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, middle-click and *Open in New Tab*; each tab has its own history, view, sorting, selection, columns and search; reorder by dragging, drop files on a tab, restored on start (folder, view and sorting).
 - **Windows clipboard** – copy / cut / paste files between Finder-Win, Explorer, Outlook and browsers (CF_HDROP).
 - **Drag & drop from Explorer** – drop files from Explorer or the desktop onto a folder, a sidebar item, a tab or empty space.
 - **Undo / Redo** – rename, move, copy, new item, delete (from the Recycle Bin) and tags, last 50 operations.

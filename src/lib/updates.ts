@@ -8,8 +8,13 @@ import * as storage from "./storage";
  */
 
 const LATEST_RELEASE = "https://api.github.com/repos/krystof2-ops/finder-win/releases/latest";
-/** Stejný prefix hlídá i backend (open_release_page). */
-const RELEASES_PAGE = "https://github.com/krystof2-ops/finder-win/releases/";
+/** Stránka vydání — stejné pravidlo hlídá i backend (is_release_page). */
+const RELEASE_PAGE = /^https:\/\/github\.com\/krystof2-ops\/finder-win\/releases\/tag\/[A-Za-z0-9.-]+$/;
+
+function isReleasePage(url: string): boolean {
+  return RELEASE_PAGE.test(url) && !url.includes("..");
+}
+
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 export type AvailableUpdate = { version: string; url: string };
@@ -52,6 +57,6 @@ export async function checkForUpdate(): Promise<AvailableUpdate | null> {
   }
 
   const [latest, current] = [storage.getSnapshot().updates.latest, await getVersion()];
-  if (latest === null || !latest.url.startsWith(RELEASES_PAGE)) return null;
+  if (latest === null || !isReleasePage(latest.url)) return null;
   return isNewerVersion(latest.version, current) ? latest : null;
 }

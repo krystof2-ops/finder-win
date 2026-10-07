@@ -37,29 +37,22 @@ pub fn install(window: &tauri::WebviewWindow) {
 
     let app = window.app_handle().clone();
     let _ = window.with_webview(move |webview| unsafe {
-        let Ok(core) = webview.controller().CoreWebView2() else { return };
+        let Ok(core) = webview.controller().CoreWebView2() else {
+            return;
+        };
 
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
             let Some(args) = args else { return Ok(()) };
 
             let mut json = PWSTR::null();
             args.WebMessageAsJson(&mut json)?;
-            let Some(id) = drop_id(&take_pwstr(json)) else { return Ok(()) };
+            let Some(id) = drop_id(&take_pwstr(json)) else {
+                return Ok(());
+            };
 
-            let mut paths = Vec::new();
-            let objects = args.cast::<ICoreWebView2WebMessageReceivedEventArgs2>()?.AdditionalObjects()?;
-            let mut count = 0;
-            objects.Count(&mut count)?;
-            for index in 0..count {
-                let Ok(file) = objects.GetValueAtIndex(index)?.cast::<ICoreWebView2File>() else {
-                    continue;
-                };
-                let mut path = PWSTR::null();
-                if file.Path(&mut path).is_ok() {
-                    paths.push(take_pwstr(path));
-                }
-            }
-
+            // Odpověď musí odejít vždy — i prázdná. Jinak by frontend čekal na
+            // timeout a uživatel by nevěděl, proč se nic nestalo.
+            let paths = dropped_files(&args).unwrap_or_default();
             let _ = app.emit("external-drop", ExternalDrop { id, paths });
             Ok(())
         }));
@@ -67,6 +60,32 @@ pub fn install(window: &tauri::WebviewWindow) {
         let mut token = 0i64;
         let _ = core.add_WebMessageReceived(&handler, &mut token);
     });
+
+    /// Cesty k File objektům, které stránka přiložila ke zprávě.
+    unsafe fn dropped_files(
+        args: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2WebMessageReceivedEventArgs,
+    ) -> windows::core::Result<Vec<String>> {
+        let mut paths = Vec::new();
+        let objects = args
+            .cast::<ICoreWebView2WebMessageReceivedEventArgs2>()?
+            .AdditionalObjects()?;
+        let mut count = 0;
+        objects.Count(&mut count)?;
+        for index in 0..count {
+            // Jeden nečitelný objekt nesmí shodit celý drop — ostatní soubory projdou.
+            let Ok(file) = objects
+                .GetValueAtIndex(index)
+                .and_then(|item| item.cast::<ICoreWebView2File>())
+            else {
+                continue;
+            };
+            let mut path = PWSTR::null();
+            if file.Path(&mut path).is_ok() {
+                paths.push(take_pwstr(path));
+            }
+        }
+        Ok(paths)
+    }
 }
 
 #[cfg(not(windows))]

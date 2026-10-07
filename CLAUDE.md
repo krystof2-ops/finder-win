@@ -29,7 +29,7 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 ## Známé pasti
 - `dragDropEnabled` v `tauri.conf.json` musí zůstat `false` – jinak WebView2 vypne HTML5 drag & drop a interní tažení přestane fungovat. Drop zvenku jde přes `postMessageWithAdditionalObjects` (`dnd.ts` → `external_drop.rs`).
 - Tažení ven z aplikace není (tauri-plugin-drag by kolidoval s HTML5 dragem).
-- Záložky: živý je jen stav aktivní záložky, ostatní jsou `TabSnapshot`; watcher (`watch_dirs`) běží jen pro aktivní. Na disk se ukládají jen při 2+ záložkách (cesta + zobrazení).
+- Záložky: živý je jen stav aktivní záložky, ostatní jsou `TabSnapshot`; watcher (`watch_dirs`) běží jen pro aktivní. Na disk se ukládají jen při 2+ záložkách (cesta, zobrazení, řazení).
 - Python na tomhle stroji není – skripty přes node.
 - Osiřelý vite po ukončení `tauri dev` drží port 1420.
 - Pokud běží `finder-win.exe`, build přepisující binárku selže – použít jiný `CARGO_TARGET_DIR`.

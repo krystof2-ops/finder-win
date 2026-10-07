@@ -108,8 +108,8 @@ export function canDropInto(folder: string, payload: DragPayload | null): boolea
 export function isExternalFileDrag(event: { dataTransfer: DataTransfer | null }): boolean {
   if (current !== null || event.dataTransfer === null) return false;
   if (!Array.from(event.dataTransfer.types).includes("Files")) return false;
-  // Posluchač musí stát dřív, než přijde drop.
-  void ensureDropListener();
+  // Posluchač musí stát dřív, než přijde drop. Selhání řeší droppedPaths.
+  ensureDropListener().catch(() => undefined);
   return true;
 }
 
@@ -127,6 +127,10 @@ function ensureDropListener(): Promise<unknown> {
     const resolve = pendingDrops.get(payload.id);
     pendingDrops.delete(payload.id);
     resolve?.(payload.paths);
+  }).catch((err: unknown) => {
+    // Nepovedená registrace se nesmí zapamatovat — příští drop to zkusí znovu.
+    dropListener = null;
+    throw err;
   });
   return dropListener;
 }
@@ -145,7 +149,12 @@ export async function droppedPaths(dataTransfer: DataTransfer): Promise<string[]
   const webview = (window as unknown as { chrome?: { webview?: WebView2 } }).chrome?.webview;
   if (files.length === 0 || !webview?.postMessageWithAdditionalObjects) return [];
 
-  await ensureDropListener();
+  try {
+    await ensureDropListener();
+  } catch {
+    // Bez posluchače by se cesty nikdy nedozvěděly — drop se zahodí.
+    return [];
+  }
   const id = (nextDropId += 1);
   return new Promise<string[]>((resolve) => {
     pendingDrops.set(id, resolve);

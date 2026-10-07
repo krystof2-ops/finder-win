@@ -477,9 +477,12 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     let alive = true;
-    void checkForUpdate().then((found) => {
-      if (alive) setUpdate(found);
-    });
+    // Kontrola aktualizací nesmí nic rozbít ani hlásit — tiše bez proužku.
+    void checkForUpdate()
+      .then((found) => {
+        if (alive) setUpdate(found);
+      })
+      .catch(() => undefined);
     return () => {
       alive = false;
     };
@@ -606,12 +609,14 @@ export default function App() {
 
         if (saved && saved.items.length > 0) {
           const restored = saved.items.map((item) =>
-            newTab(item.path, { viewMode: item.view, sortKey: "name", sortDirection: "asc" }),
+            newTab(item.path, { viewMode: item.view, sortKey: item.sortKey, sortDirection: item.sortDirection }),
           );
           const index = saved.active === null ? 0 : Math.max(0, saved.items.indexOf(saved.active));
           setTabs(restored);
           setActiveTabId(restored[index].id);
           setViewMode(saved.items[index].view);
+          setSortKey(saved.items[index].sortKey);
+          setSortDirection(saved.items[index].sortDirection);
           dispatch({ type: "go", path: saved.items[index].path });
           return;
         }
@@ -1578,17 +1583,20 @@ export default function App() {
               clipboardClear().catch(() => undefined);
             }
           });
-        });
+        })
+        .catch((err: unknown) => setNotice(failure("op.paste", err)));
     },
-    [clipboard, currentDir, transfer],
+    [clipboard, currentDir, transfer, setNotice],
   );
 
   /** Přetažení na složku: přesun, s Ctrl kopie. */
   const dropInto = useCallback(
     (folder: string, paths: string[], copy: boolean) => {
-      void transfer(paths, folder, copy ? "copy" : "cut");
+      transfer(paths, folder, copy ? "copy" : "cut").catch((err: unknown) =>
+        setNotice(failure(copy ? "op.copy" : "op.move", err)),
+      );
     },
-    [transfer],
+    [transfer, setNotice],
   );
 
   /** Soubory z Průzkumníku nad volnou plochou — padnou do aktuální složky
@@ -1809,11 +1817,14 @@ export default function App() {
     const items = openTabs.length < 2 ? [] : openTabs.flatMap((tab) => {
       const live = tab.id === activeTabId;
       const path = live ? nav.current : tab.snapshot.nav.current;
-      return path === null ? [] : [{ path, view: live ? viewMode : tab.snapshot.viewMode }];
+      const state = live ? { viewMode, sortKey, sortDirection } : tab.snapshot;
+      return path === null
+        ? []
+        : [{ path, view: state.viewMode, sortKey: state.sortKey, sortDirection: state.sortDirection }];
     });
     const value = { items, active: Math.max(0, openTabs.findIndex((tab) => tab.id === activeTabId)) };
     if (JSON.stringify(storage.getSnapshot().tabs) !== JSON.stringify(value)) void storage.setSavedTabs(value);
-  }, [tabs, activeTabId, nav.current, viewMode]);
+  }, [tabs, activeTabId, nav.current, viewMode, sortKey, sortDirection]);
 
   // Prostřední tlačítko na složce ve výpisu = otevřít v nové záložce.
   const folderAt = useStableCallback((path: string): boolean => {

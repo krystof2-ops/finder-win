@@ -210,6 +210,7 @@ export const en = {
   "op.duplicate": "Duplicate failed",
   "op.newFolder": "Couldn't create the folder",
   "op.newFile": "Couldn't create the file",
+  "op.paste": "Paste failed",
   "op.copy": "Copy failed",
   "op.move": "Move failed",
   "op.explorer": "Couldn't open File Explorer",

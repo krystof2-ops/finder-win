@@ -127,14 +127,14 @@ Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
 - **Bez tažení ven z aplikace** – soubory jde do Finder-Winu přetáhnout z Průzkumníku, ale ne z Finder-Winu do Průzkumníku, na plochu ani do jiných aplikací. Místo toho Ctrl+C a vložit tam.
 - **Telefony a fotoaparáty** (iPhone, Android — zařízení MTP) jsou v panelu vidět, ale klik je otevře v Průzkumníku Windows; přímo v aplikaci se procházet nedají.
 - Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a rustové `target` (jen ty vedle `Cargo.toml`).
-- Záložky ano, víc oken ne. Záložky se při startu obnoví jen tehdy, když jsou otevřené 2 a více, a jen se svou složkou a zobrazením (historie, řazení a výběr začínají znovu).
+- Záložky ano, víc oken ne. Záložky se při startu obnoví jen tehdy, když jsou otevřené 2 a více, a jen se svou složkou, zobrazením a řazením (historie a výběr začínají znovu).
 - Instalátor **není podepsaný** (viz SmartScreen výše).
 
 ## Changelog
 
 ### 1.3.0
 
-- **Záložky** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, prostřední klik a *Otevřít v nové záložce*; každá záložka má vlastní historii, zobrazení, řazení, výběr, sloupce i hledání; přerovnání tažením, drop souboru na záložku, obnovení při startu.
+- **Záložky** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, prostřední klik a *Otevřít v nové záložce*; každá záložka má vlastní historii, zobrazení, řazení, výběr, sloupce i hledání; přerovnání tažením, drop souboru na záložku, obnovení při startu (složka, zobrazení a řazení).
 - **Schránka Windows** – kopírování / vyjmutí / vložení souborů mezi Finder-Winem, Průzkumníkem, Outlookem a prohlížeči (CF_HDROP).
 - **Drag & drop z Průzkumníku** – soubory z Průzkumníku nebo z plochy jde pustit na složku, položku panelu, záložku i do prázdné plochy.
 - **Zpět / Znovu** – přejmenování, přesun, kopie, nová položka, smazání (z Koše) a štítky, posledních 50 operací.

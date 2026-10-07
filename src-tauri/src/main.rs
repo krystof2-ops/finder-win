@@ -931,12 +931,22 @@ fn open_file(path: String) -> CmdResult<()> {
 }
 
 /// Stránka release v prohlížeči (proužek „Je k dispozici nová verze").
-/// Jen stránky tohohle repozitáře — command nesmí otevírat cokoli.
-const RELEASES_URL: &str = "https://github.com/krystof2-ops/finder-win/releases/";
+/// Jen stránka vydání tohohle repozitáře — command nesmí otevírat cokoli.
+const RELEASE_TAG_URL: &str = "https://github.com/krystof2-ops/finder-win/releases/tag/";
+
+/// `…/releases/tag/<tag>`, kde tag je jen z písmen, číslic, teček a pomlček.
+/// Prefix sám nestačí: `…/releases/../../jiny/repo` by prohlížeč dot-segmenty
+/// srovnal a otevřel úplně jiné místo.
+fn is_release_page(url: &str) -> bool {
+    let Some(tag) = url.strip_prefix(RELEASE_TAG_URL) else { return false };
+    !tag.is_empty()
+        && !tag.contains("..")
+        && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
+}
 
 #[tauri::command(async)]
 fn open_release_page(url: String) -> CmdResult<()> {
-    if !url.starts_with(RELEASES_URL) {
+    if !is_release_page(&url) {
         return Err(AppError::new("error.notReleaseUrl"));
     }
     opener::open_browser(&url).map_err(|err| describe_open(&err))
@@ -2542,6 +2552,22 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod release_url_tests {
+    use super::is_release_page;
+
+    #[test]
+    fn accepts_only_release_tag_pages() {
+        assert!(is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/v1.3.0"));
+        assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/"));
+        assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/../../evil/repo"));
+        assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/../../x"));
+        assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/v1/x"));
+        assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/v1?x=1"));
+        assert!(!is_release_page("https://evil.example/krystof2-ops/finder-win/releases/tag/v1"));
+    }
 }
 
 #[cfg(test)]
