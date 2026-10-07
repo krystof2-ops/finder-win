@@ -17,7 +17,9 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 ## Features
 
 - **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
-- **Tabs** – Ctrl+T, the **+** button in the toolbar (and at the end of the tab bar) or More → New Tab opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
+- **Tabs** – Explorer-style tab bar, always visible. Ctrl+T, the **+** button right after the last tab or More → New Tab opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
+- **Split window** – Ctrl+Shift+D (toolbar button or More) splits the window into two independent panels, each with its own folder, view, sorting and selection. `Tab` switches the active panel, `F5` copies and `F6` moves the selection to the other panel (like Total Commander). Drag the divider to resize (double-click = 1:1); the ratio is remembered.
+- **Command palette** – Ctrl+K searches folders (favorites, recents, tabs, subfolders), actions and tags; type `~` or a path to go there directly, Ctrl+Enter searches files, the most used commands come first.
 - **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
 - **Sidebar**
   - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos, Home), OneDrive / iCloud Drive when present,
@@ -32,15 +34,17 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 - **Undo / Redo** – Ctrl+Z / Ctrl+Shift+Z for the last 50 renames, moves, copies, new items, deletions (restored from the Recycle Bin) and tag changes; More shows what will be undone.
 - **Name conflicts** – when pasting or dropping, a dialog offers *Replace* (folders are merged), *Keep both* or *Skip*, with *Apply to all*.
 - **Quick Look** (Space) – preview images, PDF, video, audio, text/source code and rendered Markdown; ←/→ to step through files.
-- **File operations** – rename inline, duplicate, new folder / new file, move to Recycle Bin (asks first on drives without one), copy / cut / paste, Open with…, open in Explorer, open in Windows Terminal, copy path / name, properties with folder size.
+- **Video and PDF thumbnails** – Icons view and the preview column of Columns view show a Windows thumbnail for videos (mp4, mov, mkv, webm, avi, m4v, wmv; with a ▶ badge) and PDFs (first page); the preview column also shows duration, resolution / dimensions and page count.
+- **File operations** – rename inline, duplicate, new folder / new file, move to Recycle Bin (asks first on drives without one), copy / cut / paste, Open with…, open in Explorer, open in a terminal (More → Terminal: Automatic, Windows Terminal, PowerShell or Command Prompt), copy path / name, properties with folder size.
 - **Toolbar** – Sort (by name, date, size, kind), Share (copy path, copy files, open in Explorer), Tags for the whole selection.
 - **Context menus** on files, empty space, sidebar items, status bar and Quick Look, also keyboard-navigable.
 - **Color tags** – 7 Finder colors; tags follow files when they are renamed or moved inside the app.
 - **Search** – typing filters the current folder; Enter runs a recursive search by file name (cancelled by Esc).
 - **Hidden files** – follows the Explorer setting, toggle with Ctrl+Shift+.
 - **Live updates** – the folder listing refreshes by itself when files change on disk.
-- **Light and dark mode**, smooth macOS-like animations (disabled when Windows "reduce motion" is on), works offline.
+- **Light and dark mode** – follows Windows (and switches live when it changes); override in More → Appearance (Light · Dark · Match System). Smooth macOS-like animations (disabled when Windows "reduce motion" is on), works offline.
 - **English and Czech UI, follows your Windows language** – switch any time in More → Language / Jazyk.
+- **Czech installer** – language choice during setup.
 - **Install with winget** and an optional once-a-day update check (see below).
 
 ## Keyboard shortcuts
@@ -57,11 +61,15 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Backspace` / `Alt+←` | Back |
 | `Alt+→` | Forward |
 | `Alt+↑` / `Ctrl+↑` | Go to parent folder |
+| `Ctrl+K` | Command palette (`Ctrl+Enter` = search files) |
 | `Ctrl+L` | Edit path |
 | `Ctrl+F` | Focus search field (`Enter` = recursive search, `↓` = into results, `Esc` = clear) |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste (Windows clipboard) |
 | `Ctrl+Z` | Undo |
 | `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
+| `Ctrl+Shift+D` | Split window into two panels |
+| `Tab` | Switch active panel (split window) |
+| `F5` / `F6` | Copy / move selection to the other panel (split window) |
 | `Ctrl+T` / `Ctrl+W` | New tab / close tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+1` … `Ctrl+9` | Go to tab 1–8 / the last tab |
@@ -70,7 +78,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Ctrl+Shift+N` | New folder |
 | `F2` | Rename |
 | `Delete` | Move to Recycle Bin |
-| `Ctrl+R` / `F5` | Refresh |
+| `Ctrl+R` / `F5` | Refresh (`F5` outside the split window) |
 | `Ctrl+Shift+.` | Show / hide hidden files |
 | `Esc` | Clear selection; close search results; close menus and dialogs |
 | `←` / `→`, `Esc` | Previous / next file, close (in Quick Look) |
@@ -128,9 +136,20 @@ The installer is written to `src-tauri/target/release/bundle/nsis/`.
 - **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
 - Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
 - Tabs, but no multiple windows. Tabs are restored on start only when 2 or more are open, and only with their folder, view mode and sorting (history and selection start fresh).
+- **Local cache** – thumbnails are cached on disk in `%LOCALAPPDATA%\finder-win\thumbnails` (deleted after 30 days) and file icons in `%LOCALAPPDATA%\finder-win\icons`; nothing leaves your computer. At most 200 shell thumbnails are made per folder, the rest show an icon.
 - The installer is **not code-signed** (see SmartScreen above).
 
 ## Changelog
+
+### 1.4.0
+
+- **Split window** – two independent panels (Ctrl+Shift+D), Tab switches, F5 / F6 copy / move to the other panel, draggable divider with a remembered ratio.
+- **Command palette** – Ctrl+K: folders, actions, tags, paths, Ctrl+Enter file search; one command registry drives shortcuts, the More menu, toolbar and palette.
+- **Video and PDF thumbnails** – in Icons view and the preview column, plus duration, resolution and page count; cached locally on disk.
+- **Terminal choice** – More → Terminal: Automatic, Windows Terminal, PowerShell, Command Prompt.
+- **Explorer-style tabs** – tab bar always visible, content-sized tabs, **+** right after the last tab, × on hover.
+- **Appearance menu** – Light · Dark · Match System (default, follows Windows live); lower title bar (32 px).
+- **Czech installer** – language choice during setup.
 
 ### 1.3.0
 

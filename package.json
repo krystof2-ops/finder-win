@@ -2,7 +2,7 @@
   "name": "finder-win",
   "productName": "Finder-Win",
   "private": true,
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "A macOS Finder-like file explorer for Windows",
   "author": "krystof2-ops",
   "license": "MIT",
