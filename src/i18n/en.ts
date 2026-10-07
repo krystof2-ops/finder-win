@@ -58,6 +58,22 @@ export const en = {
   "motion.on": "On",
   "motion.off": "Off",
 
+  /* ------------------------------- undo / redo -------------------------------- */
+  "undo.undo": "Undo",
+  "undo.redo": "Redo",
+  "undo.undoAction": "Undo {action}",
+  "undo.redoAction": "Redo {action}",
+  "undo.rename": "Rename “{name}”",
+  "undo.moveOne": "Move “{name}”",
+  "undo.moveMany": { one: "Move {count} Item", other: "Move {count} Items" },
+  "undo.copyOne": "Copy “{name}”",
+  "undo.copyMany": { one: "Copy {count} Item", other: "Copy {count} Items" },
+  "undo.newFolder": "New Folder “{name}”",
+  "undo.newFile": "New File “{name}”",
+  "undo.trashOne": "Delete “{name}”",
+  "undo.trashMany": { one: "Delete {count} Item", other: "Delete {count} Items" },
+  "undo.tags": "Change Tags",
+
   /* ----------------------------------- menu ----------------------------------- */
   "menu.open": "Open",
   "menu.openWith": "Open With…",
@@ -197,6 +213,8 @@ export const en = {
   "op.watch": "Can't watch this folder; changes won't show up automatically",
   "op.checkTarget": "Couldn't check the destination",
   "op.clipboard": "Clipboard operation failed",
+  "op.undo": "Undo failed",
+  "op.redo": "Redo failed",
   "op.copyPath": "Couldn't copy the path",
   "op.copyPaths": "Couldn't copy the paths",
   "op.copyName": "Couldn't copy the name",
@@ -365,5 +383,8 @@ export const en = {
   "error.iconTimeout": "the icon took too long",
   "error.clipboardBusy": "the clipboard is in use by another app",
   "error.clipboardWrite": "couldn't write to the clipboard",
+  "error.undoConflict": "another item is already in the original location",
+  "error.undoNoTrash": "this drive has no Recycle Bin, the item would be deleted permanently",
+  "error.notInTrash": "the item is no longer in the Recycle Bin",
   "error.notText": "the file isn't text",
 } satisfies Dictionary;

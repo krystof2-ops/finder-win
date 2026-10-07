@@ -69,6 +69,7 @@ import { useStorage } from "./lib/useStorage";
 import type { ViewHandle } from "./lib/viewHandle";
 import { INITIAL_NAV, navReducer, type NavDirection } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
+import { redoOp, trashTimestamp, undoLabel, undoOp, UNDO_LIMIT, type UndoOp } from "./undo";
 import type {
   Clipboard,
   FavoriteSection,
@@ -1154,6 +1155,60 @@ export default function App() {
     [refresh],
   );
 
+  /* ------------------------------ zpět / znovu ----------------------------- */
+
+  const [history, setHistory] = useState<{ undo: UndoOp[]; redo: UndoOp[] }>({ undo: [], redo: [] });
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  /** Zpět / Znovu běží po jednom — dvojí Ctrl+Z by jinak vracelo totéž dvakrát. */
+  const historyBusy = useRef(false);
+
+  /** Nová operace: na vrchol zásobníku, Znovu tím propadá. */
+  const record = useCallback((op: UndoOp) => {
+    setHistory((current) => ({ undo: [...current.undo, op].slice(-UNDO_LIMIT), redo: [] }));
+  }, []);
+
+  const stepHistory = useCallback(
+    async (direction: "undo" | "redo") => {
+      const stack = historyRef.current[direction];
+      const op = stack[stack.length - 1];
+      if (op === undefined || historyBusy.current) return;
+
+      historyBusy.current = true;
+      // Ze zásobníku pryč hned — když inverze selže, operace se zahodí.
+      setHistory((current) => ({ ...current, [direction]: current[direction].slice(0, -1) }));
+      setNotice(null);
+      try {
+        if (direction === "undo") {
+          await undoOp(op);
+          setHistory((current) => ({ ...current, redo: [...current.redo, op] }));
+        } else {
+          const again = await redoOp(op);
+          setHistory((current) => ({ ...current, undo: [...current.undo, again].slice(-UNDO_LIMIT) }));
+        }
+      } catch (err: unknown) {
+        setNotice(failure(direction === "undo" ? "op.undo" : "op.redo", err));
+      } finally {
+        historyBusy.current = false;
+        refresh();
+      }
+    },
+    [refresh, setNotice],
+  );
+
+  /** Změna tagů s možností Zpět: stav před a po pro dotčené cesty. */
+  const changeTags = useCallback(
+    (paths: string[], action: () => Promise<void>) => {
+      const snapshot = () => {
+        const tags = storage.getSnapshot().tags;
+        return Object.fromEntries(paths.map((path) => [path, storage.tagsOf(tags, path)]));
+      };
+      const before = snapshot();
+      void action().then(() => record({ kind: "tags", before, after: snapshot() }));
+    },
+    [record],
+  );
+
   const submitRename = useCallback(
     (entry: FileEntry, name: string) => {
       setRenamingPath(null);
@@ -1166,12 +1221,13 @@ export default function App() {
         const renamed = await renamePath(entry.path, next);
         // Tagy, oblíbené a nedávné jsou klíčované cestou — musí jít s položkou.
         await storage.remapPath(entry.path, renamed);
+        record({ kind: "rename", from: entry.path, to: renamed });
         // Přejmenovaná položka má novou cestu, takže by po refreshi vypadla
         // z výběru. Takhle zůstane označená, jak to dělá Finder i Průzkumník.
         if (dir !== null) requestSelect(dir, renamed);
       });
     },
-    [runOperation, requestSelect],
+    [runOperation, requestSelect, record],
   );
 
   const deleteEntries = useCallback(
@@ -1179,14 +1235,20 @@ export default function App() {
       const paths = items.map((entry) => entry.path);
       if (paths.length === 0) return;
 
-      const run = () => void runOperation("op.delete", () => moveToTrash(paths));
+      // Zpět jde jen u Koše — trvale smazané se vrátit nedá.
+      const run = (undoable: boolean) =>
+        void runOperation("op.delete", async () => {
+          const since = trashTimestamp();
+          await moveToTrash(paths);
+          if (undoable) record({ kind: "trash", paths, since });
+        });
 
       // Flashka (FAT32 / exFAT) ani síťová cesta Koš nemají — "do koše" by tam
       // smazalo trvale a bez varování. Když se to nedá zjistit, radši se ptát.
       trashIsPermanent(paths)
         .catch(() => true)
         .then((permanent) => {
-          if (!permanent) return run();
+          if (!permanent) return run(true);
           setConfirm({
             title:
               paths.length === 1
@@ -1195,11 +1257,11 @@ export default function App() {
             message: t("confirm.deleteMessage"),
             confirmLabel: t("confirm.deleteConfirm"),
             danger: true,
-            onConfirm: run,
+            onConfirm: () => run(false),
           });
         });
     },
-    [runOperation],
+    [runOperation, record],
   );
 
   const deleteTargets = useCallback(() => deleteEntries(targetEntries), [deleteEntries, targetEntries]);
@@ -1213,11 +1275,12 @@ export default function App() {
       void runOperation("op.duplicate", async () => {
         const copy = await duplicatePath(entry.path);
         await storage.copyTags(entry.path, copy.path);
+        record({ kind: "copy", items: [{ from: entry.path, to: copy.path }] });
         if (select && dir !== null) requestSelect(dir, copy.path);
         noteSkippedLinks(copy.skipped_links);
       });
     },
-    [runOperation, requestSelect, noteSkippedLinks],
+    [runOperation, requestSelect, noteSkippedLinks, record],
   );
 
   const duplicateActive = useCallback(() => {
@@ -1234,20 +1297,22 @@ export default function App() {
 
     void runOperation("op.newFolder", async () => {
       const created = await createFolder(dir, t("name.newFolder"));
+      record({ kind: "create", path: created, folder: true });
       requestSelect(dir, created);
       setRenamingPath(created);
     });
-  }, [currentDir, runOperation, requestSelect]);
+  }, [currentDir, runOperation, requestSelect, record]);
 
   /** Prázdný textový soubor, rovnou v přejmenování — stejně jako Nová složka. */
   const newFile = useCallback(
     (dir: string) => {
       void runOperation("op.newFile", async () => {
         const created = await createFile(dir, t("name.newFile"));
+        record({ kind: "create", path: created, folder: false });
         requestSelect(dir, created, true);
       });
     },
-    [runOperation, requestSelect],
+    [runOperation, requestSelect, record],
   );
 
   /** `failed` = hláška pro případ, že schránka zápis odmítne. */
@@ -1369,6 +1434,7 @@ export default function App() {
       }
 
       let skipped = 0;
+      const done: { from: string; to: string }[] = [];
 
       const { ok } = await runBatch(
         mode === "copy" ? "op.copy" : "op.move",
@@ -1383,13 +1449,15 @@ export default function App() {
           if (mode === "copy") await storage.copyTags(path, result.path);
           else await storage.remapPath(path, result.path);
           skipped += result.skipped_links;
+          if (!storage.samePath(path, result.path)) done.push({ from: path, to: result.path });
         },
       );
 
+      if (done.length > 0) record({ kind: mode === "copy" ? "copy" : "move", items: done });
       noteSkippedLinks(skipped);
       return ok;
     },
-    [runBatch, noteSkippedLinks, askConflict, setNotice],
+    [runBatch, noteSkippedLinks, askConflict, setNotice, record],
   );
 
   /** Vloží do `into`, bez něj do složky, ve které uživatel stojí. */
@@ -1539,6 +1607,17 @@ export default function App() {
         event.preventDefault();
         goBack();
         return;
+      }
+
+      // Zpět / Znovu míří na operace, ne na výběr — fungují všude kromě
+      // textových polí (tam má Ctrl+Z vlastní význam, odfiltrováno výš).
+      if (ctrl && !event.altKey) {
+        const key = event.key.toLowerCase();
+        if (key === "z" || key === "y") {
+          event.preventDefault();
+          void stepHistory(key === "z" && !event.shiftKey ? "undo" : "redo");
+          return;
+        }
       }
 
       // Tag view a výsledky hledání nemají výběr v hlavním panelu — zkratky
@@ -1728,6 +1807,7 @@ export default function App() {
     overlaySelected,
     toggleHidden,
     putOnClipboard,
+    stepHistory,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -2234,17 +2314,18 @@ export default function App() {
         // U výběru se barva přidá všem (nebo všem odebere, když ji mají všichni).
         onToggle: (color) =>
           single
-            ? void storage.toggleTag(entry.path, color)
-            : void storage.setTag(targetPaths, color, !sharedTags.includes(color)),
+            ? changeTags([entry.path], () => storage.toggleTag(entry.path, color))
+            : changeTags(targetPaths, () => storage.setTag(targetPaths, color, !sharedTags.includes(color))),
       },
       !anyTags
         ? null
         : {
             type: "item",
             label: t("menu.removeTags"),
-            onSelect: () => {
-              for (const path of targetPaths) void storage.clearTags(path);
-            },
+            onSelect: () =>
+              changeTags(targetPaths, async () => {
+                for (const path of targetPaths) await storage.clearTags(path);
+              }),
           },
       { type: "separator" },
       {
@@ -2287,6 +2368,7 @@ export default function App() {
     refresh,
     selectAll,
     changeViewMode,
+    changeTags,
     locale,
   ]);
 
@@ -2318,6 +2400,28 @@ export default function App() {
     ],
     [sortKey, sortDirection, locale],
   );
+
+  /** Zpět / Znovu na začátku menu Více — s názvem operace, jako ve Finderu. */
+  const historyItems = useMemo((): MenuItem[] => {
+    const lastUndo = history.undo[history.undo.length - 1];
+    const lastRedo = history.redo[history.redo.length - 1];
+    return [
+      {
+        type: "item",
+        label: lastUndo ? t("undo.undoAction", { action: undoLabel(lastUndo) }) : t("undo.undo"),
+        shortcut: "Ctrl+Z",
+        disabled: lastUndo === undefined,
+        onSelect: () => void stepHistory("undo"),
+      },
+      {
+        type: "item",
+        label: lastRedo ? t("undo.redoAction", { action: undoLabel(lastRedo) }) : t("undo.redo"),
+        shortcut: "Ctrl+Shift+Z",
+        disabled: lastRedo === undefined,
+        onSelect: () => void stepHistory("redo"),
+      },
+    ];
+  }, [history, stepHistory, locale]);
 
   // Sdílet míří na výběr; bez výběru na složku, ve které uživatel stojí.
   const sharePaths = useMemo(
@@ -2371,10 +2475,10 @@ export default function App() {
         label: tagLabel(color),
         dot: TAG_HEX[color],
         checked: everywhere,
-        onSelect: () => void storage.setTag(paths, color, !everywhere),
+        onSelect: () => changeTags(paths, () => storage.setTag(paths, color, !everywhere)),
       };
     });
-  }, [targetEntries, tags, locale]);
+  }, [targetEntries, tags, changeTags, locale]);
 
   // Ikona před názvem v toolbaru: stejná jako u složky v sidebaru, jinak
   // obecná složka; v tag view puntík barvy, ve výsledcích lupa.
@@ -2639,6 +2743,7 @@ export default function App() {
             sortItems={toolbarSortItems}
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
+            historyItems={historyItems}
             onMenuOpenChange={setToolbarMenuOpen}
           />
 

@@ -57,6 +57,11 @@ export function moveToTrash(paths: string[]): Promise<void> {
   return invoke<void>("move_to_trash", { paths });
 }
 
+/** Zpět u smazání: vrátí položky z Koše (smazané v `deletedSince` a později). */
+export function restoreFromTrash(paths: string[], deletedSince: number): Promise<void> {
+  return invoke<void>("restore_from_trash", { paths, deletedSince });
+}
+
 /** Smaže se některá z cest trvale? (Svazek bez Koše — flashka, síť.) */
 export function trashIsPermanent(paths: string[]): Promise<boolean> {
   return invoke<boolean>("trash_is_permanent", { paths });

@@ -374,6 +374,17 @@ export async function setTag(paths: string[], color: TagColor, on: boolean): Pro
   await setTags(map);
 }
 
+/** Nastaví položkám přesně dané barvy (prázdné pole = žádné) — pro Zpět / Znovu. */
+export async function setTagsOf(colorsByPath: Record<string, TagColor[]>): Promise<void> {
+  const map = { ...cache.tags };
+  for (const [path, colors] of Object.entries(colorsByPath)) {
+    const key = pathKey(path);
+    if (colors.length === 0) delete map[key];
+    else map[key] = orderColors(colors);
+  }
+  await setTags(map);
+}
+
 /** Sundá z položky všechny barvy naráz — po jedné by to bylo až sedm kliků. */
 export async function clearTags(path: string): Promise<void> {
   const key = pathKey(path);

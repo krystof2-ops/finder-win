@@ -160,6 +160,8 @@ type ToolbarProps = {
   shareItems: MenuItem[];
   /** null = nic není vybrané, tlačítko Štítky je vypnuté. */
   tagItems: MenuItem[] | null;
+  /** Zpět / Znovu na začátku menu Více — popisky skládá App podle zásobníku. */
+  historyItems: MenuItem[];
   /** Otevřené menu musí App znát kvůli globálním zkratkám (modalOpen). */
   onMenuOpenChange: (open: boolean) => void;
 };
@@ -194,6 +196,7 @@ export function Toolbar({
   sortItems,
   shareItems,
   tagItems,
+  historyItems,
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
@@ -219,6 +222,8 @@ export function Toolbar({
   }
 
   const moreItems: MenuItem[] = [
+    ...historyItems,
+    { type: "separator" },
     { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: onRefresh },
     {
       type: "item",

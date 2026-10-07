@@ -1394,6 +1394,45 @@ fn move_to_trash(paths: Vec<String>) -> CmdResult<()> {
     trash::delete_all(&paths).map_err(|err| describe_trash(&err))
 }
 
+/// Zpět u smazání: vrátí z Koše položky s danými původními cestami, smazané
+/// v `deleted_since` (unix sekundy) nebo později. Leží-li v Koši tentýž soubor
+/// víckrát, bere se nejnovější. Najde se buď všechno, nebo se nic neobnoví.
+#[tauri::command(async)]
+fn restore_from_trash(paths: Vec<String>, deleted_since: i64) -> CmdResult<()> {
+    use trash::os_limited;
+
+    let items = os_limited::list().map_err(|err| describe_trash(&err))?;
+    let lower = |path: &Path| path.to_string_lossy().to_lowercase();
+
+    let mut chosen = Vec::with_capacity(paths.len());
+    for path in &paths {
+        let original = Path::new(path);
+        let parent = original.parent().map(lower).unwrap_or_default();
+        let name = original.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        // Název z Koše je zobrazovaný název — s Průzkumníkem nastaveným na
+        // skryté přípony chybí přípona.
+        let stem = original.file_stem().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+
+        let found = items
+            .iter()
+            .filter(|item| item.time_deleted >= deleted_since && lower(&item.original_parent) == parent)
+            .filter(|item| {
+                let trashed = item.name.to_string_lossy().to_lowercase();
+                trashed == name || trashed == stem
+            })
+            .max_by_key(|item| item.time_deleted)
+            .ok_or_else(|| AppError::at(path, AppError::new("error.notInTrash")))?;
+        chosen.push(found.clone());
+    }
+
+    os_limited::restore_all(chosen).map_err(|err| match err {
+        trash::Error::RestoreCollision { path, .. } => {
+            AppError::at(path.to_string_lossy(), AppError::new("error.alreadyExists"))
+        }
+        other => describe_trash(&other),
+    })
+}
+
 /// Skončí smazání z těchhle cest v Koši? Jen pevné disky Koš mají — na FAT32 /
 /// exFAT flashce nebo síťové cestě by "do koše" smazalo trvale a bez varování.
 #[tauri::command(async)]
@@ -2463,6 +2502,7 @@ fn main() {
             read_text_file,
             rename_path,
             move_to_trash,
+            restore_from_trash,
             copy_path,
             move_path,
             duplicate_path,
@@ -2489,4 +2529,26 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod trash_tests {
+    /// Sahá na skutečný Koš — spouští se ručně: cargo test -- --ignored
+    #[test]
+    #[ignore]
+    fn restores_trashed_file() {
+        let path = std::env::temp_dir().join(format!("finder-win-undo-{}.txt", std::process::id()));
+        std::fs::write(&path, "undo").unwrap();
+        let since = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64
+            - 2;
+        trash::delete(&path).unwrap();
+        assert!(!path.exists());
+
+        super::restore_from_trash(vec![path.to_string_lossy().to_string()], since).unwrap();
+        assert!(path.exists());
+        std::fs::remove_file(&path).unwrap();
+    }
 }

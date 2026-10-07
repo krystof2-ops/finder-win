@@ -57,6 +57,22 @@ export const cs = {
   "motion.on": "Zapnuto",
   "motion.off": "Vypnuto",
 
+  /* ------------------------------- zpět / znovu ------------------------------- */
+  "undo.undo": "Zpět",
+  "undo.redo": "Znovu",
+  "undo.undoAction": "Zpět: {action}",
+  "undo.redoAction": "Znovu: {action}",
+  "undo.rename": "Přejmenovat „{name}“",
+  "undo.moveOne": "Přesunout „{name}“",
+  "undo.moveMany": { one: "Přesunout {count} položku", few: "Přesunout {count} položky", other: "Přesunout {count} položek" },
+  "undo.copyOne": "Kopírovat „{name}“",
+  "undo.copyMany": { one: "Kopírovat {count} položku", few: "Kopírovat {count} položky", other: "Kopírovat {count} položek" },
+  "undo.newFolder": "Nová složka „{name}“",
+  "undo.newFile": "Nový soubor „{name}“",
+  "undo.trashOne": "Smazat „{name}“",
+  "undo.trashMany": { one: "Smazat {count} položku", few: "Smazat {count} položky", other: "Smazat {count} položek" },
+  "undo.tags": "Změnit štítky",
+
   /* ----------------------------------- menu ----------------------------------- */
   "menu.open": "Otevřít",
   "menu.openWith": "Otevřít v aplikaci…",
@@ -216,6 +232,8 @@ export const cs = {
   "op.watch": "Složku nejde hlídat, změny se neukážou samy",
   "op.checkTarget": "Cíl se nepodařilo zkontrolovat",
   "op.clipboard": "Schránku se nepodařilo použít",
+  "op.undo": "Zpět se nepodařilo",
+  "op.redo": "Znovu se nepodařilo",
   "op.copyPath": "Cestu se nepodařilo zkopírovat",
   "op.copyPaths": "Cesty se nepodařilo zkopírovat",
   "op.copyName": "Název se nepodařilo zkopírovat",
@@ -387,5 +405,8 @@ export const cs = {
   "error.iconTimeout": "ikona nestihla doběhnout",
   "error.clipboardBusy": "schránku právě drží jiná aplikace",
   "error.clipboardWrite": "do schránky se nepodařilo zapsat",
+  "error.undoConflict": "na původním místě už je jiná položka",
+  "error.undoNoTrash": "tenhle disk nemá Koš, položka by se smazala natrvalo",
+  "error.notInTrash": "položka už v Koši není",
   "error.notText": "soubor není textový",
 } as const;
