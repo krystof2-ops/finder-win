@@ -75,6 +75,24 @@ Download the latest `Finder-Win_…_x64-setup.exe` from the [Releases](https://g
 
 The installer is not code-signed, so Windows SmartScreen will show *"Windows protected your PC"*. To install anyway, click **More info** and then **Run anyway**.
 
+### winget
+
+```powershell
+winget install krystof2-ops.FinderWin
+```
+
+The manifest lives in [`winget/`](winget) (format 1.6). After a release is published, the *Update winget manifest* workflow downloads the installer, recomputes its SHA256 and opens a pull request in this repository (allow *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests* for that). Submitting to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) is a manual step, either with [wingetcreate](https://github.com/microsoft/winget-create):
+
+```powershell
+wingetcreate submit --token <GITHUB_PAT> winget
+```
+
+or by a pull request that copies the three files to `manifests/k/krystof2-ops/FinderWin/<version>/` in winget-pkgs (validate first with `winget validate winget`).
+
+### Update check
+
+Once a day at most, the app asks `https://api.github.com/repos/krystof2-ops/finder-win/releases/latest` whether a newer version exists and, if so, shows a small bar at the bottom with a link to the release page. That single GET is the only network request the app makes — no telemetry, nothing is sent. Turn it off in More → Check for Updates.
+
 ## Build from source
 
 Prerequisites:
