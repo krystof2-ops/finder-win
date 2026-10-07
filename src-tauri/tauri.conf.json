@@ -64,6 +64,7 @@
       "nsis": {
         "installMode": "currentUser",
         "languages": ["English", "Czech"],
+        "customLanguageFiles": { "Czech": "./nsis/Czech.nsh" },
         "displayLanguageSelector": true
       }
     }
