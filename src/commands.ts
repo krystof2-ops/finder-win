@@ -36,6 +36,10 @@ export type CommandId =
   | "motionSystem"
   | "motionOn"
   | "motionOff"
+  | "terminalAuto"
+  | "terminalWindows"
+  | "terminalPowerShell"
+  | "terminalCmd"
   | "goBack"
   | "goForward"
   | "goParent"
@@ -131,6 +135,10 @@ const DEFINITIONS: Record<CommandId, CommandDefinition> = {
   motionSystem: { title: "command.motionSystem" },
   motionOn: { title: "command.motionOn" },
   motionOff: { title: "command.motionOff" },
+  terminalAuto: { title: "command.terminalAuto" },
+  terminalWindows: { title: "command.terminalWindows" },
+  terminalPowerShell: { title: "command.terminalPowerShell" },
+  terminalCmd: { title: "command.terminalCmd" },
   goBack: {
     title: "toolbar.back",
     shortcut: "Alt+←",

@@ -232,6 +232,16 @@ export function Toolbar({
     },
     {
       type: "submenu",
+      label: t("terminal.menu"),
+      items: [
+        item("terminalAuto", t("terminal.auto")),
+        item("terminalWindows", t("terminal.windowsTerminal")),
+        item("terminalPowerShell", t("terminal.powershell")),
+        item("terminalCmd", t("terminal.cmd")),
+      ],
+    },
+    {
+      type: "submenu",
       label: t("language.menu"),
       items: [
         item("languageSystem", t("language.system")),

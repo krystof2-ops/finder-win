@@ -26,6 +26,7 @@ const KEY_SIDEBAR_WIDTH = "sidebarWidth";
 const KEY_MOTION = "motion";
 const KEY_LANGUAGE = "language";
 const KEY_THEME = "theme";
+const KEY_TERMINAL = "terminal";
 const KEY_TABS = "tabs";
 const KEY_UPDATES = "updates";
 const KEY_SPLIT_RATIO = "splitRatio";
@@ -36,6 +37,10 @@ export type MotionPreference = "system" | "on" | "off";
 
 /** Jazyk UI: podle systému, nebo napevno (viz i18n/index.ts). */
 export type LanguagePreference = "system" | "en" | "cs";
+
+/** Terminál pro „Otevřít v Terminálu": auto = Windows Terminal, jinak PowerShell. */
+export type TerminalPreference = "auto" | "windowsTerminal" | "powershell" | "cmd";
+const TERMINALS: TerminalPreference[] = ["auto", "windowsTerminal", "powershell", "cmd"];
 
 /** Jeden panel uložené záložky: složka, zobrazení a řazení. */
 export type SavedPanel = { path: string; view: ViewMode; sortKey: SortKey; sortDirection: SortDirection };
@@ -70,6 +75,8 @@ export type Snapshot = {
   language: LanguagePreference;
   /** Vzhled (menu Více → Vzhled); výchozí podle Windows. */
   theme: ThemePreference;
+  /** Menu Více → Terminál. */
+  terminal: TerminalPreference;
   tabs: SavedTabs;
   updates: UpdateSettings;
   /** Poměr šířky levého panelu v rozděleném okně (0,25–0,75). */
@@ -89,6 +96,7 @@ const EMPTY: Snapshot = {
   // Ze zrcadla v localStorage, ať první render nepřeskočí do jiného tématu,
   // než se načte settings.json.
   theme: readThemeMirror(),
+  terminal: "auto",
   tabs: { items: [], active: 0 },
   updates: { check: true, lastCheck: 0, latest: null },
   splitRatio: 0.5,
@@ -286,7 +294,7 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, theme, tabs, updates, splitRatio, usage] =
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, theme, terminal, tabs, updates, splitRatio, usage] =
       await Promise.all([
         store.get<unknown>(KEY_FAVORITES),
         store.get<unknown>(KEY_RECENTS),
@@ -296,6 +304,7 @@ export function init(): Promise<void> {
         store.get<unknown>(KEY_MOTION),
         store.get<unknown>(KEY_LANGUAGE),
         store.get<unknown>(KEY_THEME),
+        store.get<unknown>(KEY_TERMINAL),
         store.get<unknown>(KEY_TABS),
         store.get<unknown>(KEY_UPDATES),
         store.get<unknown>(KEY_SPLIT_RATIO),
@@ -313,6 +322,7 @@ export function init(): Promise<void> {
       // Bez klíče v souboru (verze do 1.3 ukládaly jen do localStorage)
       // platí zrcadlo — uživatel o zvolený tmavý režim nepřijde.
       theme: theme === "light" || theme === "dark" || theme === "system" ? theme : readThemeMirror(),
+      terminal: TERMINALS.find((option) => option === terminal) ?? "auto",
       tabs: sanitizeTabs(tabs),
       updates: sanitizeUpdates(updates),
       splitRatio: typeof splitRatio === "number" ? clampSplitRatio(splitRatio) : 0.5,
@@ -376,6 +386,13 @@ export async function setTheme(value: ThemePreference): Promise<void> {
   commit({ theme: value });
   writeThemeMirror(value);
   await persist(KEY_THEME, value);
+}
+
+/* -------------------------------- terminál ---------------------------------- */
+
+export async function setTerminal(value: TerminalPreference): Promise<void> {
+  commit({ terminal: value });
+  await persist(KEY_TERMINAL, value);
 }
 
 /* -------------------------------- záložky ----------------------------------- */

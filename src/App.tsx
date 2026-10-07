@@ -206,8 +206,18 @@ export default function App() {
   const commandsRef = useRef<Commands | null>(null);
 
 
-  const { tags, favorites, recents, motion, updates, splitRatio, language, commandUsage, theme: themePreference } =
-    useStorage();
+  const {
+    tags,
+    favorites,
+    recents,
+    motion,
+    updates,
+    splitRatio,
+    language,
+    commandUsage,
+    theme: themePreference,
+    terminal,
+  } = useStorage();
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
@@ -2165,6 +2175,10 @@ export default function App() {
       motionSystem: { run: () => void storage.setMotion("system"), checked: motion === "system" },
       motionOn: { run: () => void storage.setMotion("on"), checked: motion === "on" },
       motionOff: { run: () => void storage.setMotion("off"), checked: motion === "off" },
+      terminalAuto: { run: () => void storage.setTerminal("auto"), checked: terminal === "auto" },
+      terminalWindows: { run: () => void storage.setTerminal("windowsTerminal"), checked: terminal === "windowsTerminal" },
+      terminalPowerShell: { run: () => void storage.setTerminal("powershell"), checked: terminal === "powershell" },
+      terminalCmd: { run: () => void storage.setTerminal("cmd"), checked: terminal === "cmd" },
       goBack: { run: goBack, enabled: nav.back.length > 0 },
       goForward: { run: goForward, enabled: nav.forward.length > 0 },
       goParent: { run: goToParent, enabled: currentDir !== null && parentPath(currentDir) !== null },

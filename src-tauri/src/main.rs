@@ -1695,17 +1695,16 @@ fn open_in_explorer(path: String) -> CmdResult<()> {
     Ok(())
 }
 
-/// Dialog „Otevřít v aplikaci" — systémový verb "openas".
-///
-/// Nejde přes `rundll32 shell32.dll,OpenAs_RunDLL`: ten na Windows 11 tichá
-/// skončí bez dialogu (ověřeno s cestou s mezerami i bez). Volá se proto přímo
-/// ShellExecuteW.
+/// ShellExecuteW: `verb` nad `file` s parametry a pracovní složkou. Chybu
+/// hlásí návratovou hodnotou <= 32 (ta se vrací v Err).
 ///
 /// Shell chce apartment-threaded COM. Init běží na vlastním vlákně, aby se
 /// neměnil stav vláken async runtime — na nich COM inicializuje `trash` a
-/// předvybraný model se mu nesmí přepsat pod rukama.
+/// předvybraný model se mu nesmí přepsat pod rukama. Když si vlákno podrží
+/// dialog (verb "openas"), ShellExecuteW se nevrátí — po 1,5 s se to bere
+/// jako úspěch, dialog je zjevně na obrazovce.
 #[cfg(windows)]
-fn shell_open_as(path: &Path) -> CmdResult<()> {
+fn shell_execute(verb: &str, file: &std::ffi::OsStr, parameters: Option<&str>, directory: Option<&Path>) -> Result<(), isize> {
     use std::os::windows::ffi::OsStrExt;
     use std::sync::mpsc;
     use windows::core::PCWSTR;
@@ -1713,40 +1712,59 @@ fn shell_open_as(path: &Path) -> CmdResult<()> {
     use windows::Win32::UI::Shell::ShellExecuteW;
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
+    fn wide(text: &std::ffi::OsStr) -> Vec<u16> {
+        text.encode_wide().chain(Some(0)).collect()
+    }
+    fn pointer(buffer: &Option<Vec<u16>>) -> PCWSTR {
+        buffer.as_ref().map_or(PCWSTR::null(), |buffer| PCWSTR(buffer.as_ptr()))
+    }
+
     // Buffery se stěhují do vlákna, aby přežily celý hovor.
-    let file: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let verb = wide(std::ffi::OsStr::new(verb));
+    let file = wide(file);
+    let parameters = parameters.map(|text| wide(std::ffi::OsStr::new(text)));
+    let directory = directory.map(|path| wide(path.as_os_str()));
     let (sender, receiver) = mpsc::channel();
 
-    std::thread::spawn(move || {
-        let verb: Vec<u16> = "openas".encode_utf16().chain(Some(0)).collect();
+    std::thread::spawn(move || unsafe {
+        // S_FALSE znamená „vlákno už inicializované" — to není chyba.
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
 
-        unsafe {
-            // S_FALSE znamená „vlákno už inicializované" — to není chyba.
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let instance = ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(file.as_ptr()),
+            pointer(&parameters),
+            pointer(&directory),
+            SW_SHOWNORMAL,
+        );
 
-            let instance = ShellExecuteW(
-                None,
-                PCWSTR(verb.as_ptr()),
-                PCWSTR(file.as_ptr()),
-                PCWSTR::null(),
-                PCWSTR::null(),
-                SW_SHOWNORMAL,
-            );
+        let code = instance.0 as isize;
+        let _ = sender.send(if code > 32 { Ok(()) } else { Err(code) });
 
-            // ShellExecuteW hlásí chybu návratovou hodnotou <= 32.
-            let code = instance.0 as isize;
-            let _ = sender.send(if code > 32 { Ok(()) } else { Err(code) });
-
-            CoUninitialize();
-        }
+        CoUninitialize();
     });
 
-    // Když si dialog vlákno podrží, ShellExecuteW se nevrátí — čekat dál nemá
-    // smysl, dialog je zjevně na obrazovce.
     match receiver.recv_timeout(std::time::Duration::from_millis(1500)) {
-        Ok(Err(code)) => Err(AppError::new("error.openWithDialog").arg("code", code.to_string())),
+        Ok(Err(code)) => Err(code),
         _ => Ok(()),
     }
+}
+
+#[cfg(not(windows))]
+fn shell_execute(_verb: &str, _file: &std::ffi::OsStr, _parameters: Option<&str>, _directory: Option<&Path>) -> Result<(), isize> {
+    Err(0)
+}
+
+/// Dialog „Otevřít v aplikaci" — systémový verb "openas".
+///
+/// Nejde přes `rundll32 shell32.dll,OpenAs_RunDLL`: ten na Windows 11 tichá
+/// skončí bez dialogu (ověřeno s cestou s mezerami i bez). Volá se proto přímo
+/// ShellExecuteW.
+#[cfg(windows)]
+fn shell_open_as(path: &Path) -> CmdResult<()> {
+    shell_execute("openas", path.as_os_str(), None, None)
+        .map_err(|code| AppError::new("error.openWithDialog").arg("code", code.to_string()))
 }
 
 #[tauri::command(async)]
@@ -1768,10 +1786,17 @@ fn open_with(path: String) -> CmdResult<()> {
 
 /// Otevře terminál ve složce. U souboru v jeho složce — „v souboru" se být nedá.
 ///
-/// Nejdřív Windows Terminal, pak PowerShell. `wt.exe` je alias ze Storu,
-/// který na čisté instalaci být nemusí — spawn pak selže a padne se na zálohu.
+/// `terminal` je volba z menu Více → Terminál: `windowsTerminal`, `powershell`,
+/// `cmd`, nebo `auto` — nejdřív Windows Terminal, pak PowerShell. `wt.exe` je
+/// alias ze Storu, který na čisté instalaci být nemusí — spawn pak selže
+/// a u `auto` se padne na zálohu, u výslovné volby je to chyba.
+///
+/// PowerShell a cmd jdou přes ShellExecuteW: aplikace nemá konzoli, takže by
+/// jim `Command::spawn` předal prázdný stdin a oba by hned skončily. Shell
+/// jim dá vlastní konzolové okno jako Průzkumník.
 #[tauri::command(async)]
-fn open_terminal(path: String) -> CmdResult<()> {
+fn open_terminal(path: String, terminal: String) -> CmdResult<()> {
+    use std::ffi::OsStr;
     use std::process::Command;
 
     let target = PathBuf::from(&path);
@@ -1785,21 +1810,25 @@ fn open_terminal(path: String) -> CmdResult<()> {
         return Err(AppError::at(directory.to_string_lossy(), AppError::new("error.folderNotFound")));
     }
 
-    if Command::new("wt.exe")
-        .arg("-d")
-        .arg(&directory)
-        .spawn()
-        .is_ok()
-    {
-        return Ok(());
-    }
+    let failed = |code: isize| AppError::new("error.launchFailed").arg("code", code.to_string());
+    let windows_terminal = || {
+        Command::new("wt.exe")
+            .arg("-d")
+            .arg(&directory)
+            .spawn()
+            .map(|_| ())
+            .map_err(|err| describe_io(&err))
+    };
+    let powershell = || shell_execute("open", OsStr::new("powershell.exe"), Some("-NoExit"), Some(&directory)).map_err(failed);
+    let cmd = || shell_execute("open", OsStr::new("cmd.exe"), Some("/K"), Some(&directory)).map_err(failed);
 
-    Command::new("powershell.exe")
-        .arg("-NoExit")
-        .current_dir(&directory)
-        .spawn()
-        .map(|_| ())
-        .map_err(|err| AppError::at(directory.to_string_lossy(), describe_io(&err)))
+    let result = match terminal.as_str() {
+        "windowsTerminal" => windows_terminal(),
+        "powershell" => powershell(),
+        "cmd" => cmd(),
+        _ => windows_terminal().or_else(|_| powershell()),
+    };
+    result.map_err(|reason| AppError::at(directory.to_string_lossy(), reason))
 }
 
 /// Volný název pro novou položku: „Nová složka", „Nová složka 2", …

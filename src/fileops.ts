@@ -2,6 +2,7 @@ import { Channel, invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api
 
 import { joinPath, splitPath } from "./format";
 import { errorText, isMessageKey, t, type Params } from "./i18n";
+import { getSnapshot } from "./lib/storage";
 import type { FileEntry, FileProperties, FolderStats, OpResult, StatResult } from "./types";
 
 /* ------------------------------ chyby backendu ------------------------------ */
@@ -99,8 +100,9 @@ export function openWith(path: string): Promise<void> {
 }
 
 /** Terminál ve složce — u souboru v té jeho. */
+/** Terminál podle volby v menu Více → Terminál (storage); u souboru v jeho složce. */
 export function openTerminal(path: string): Promise<void> {
-  return invoke<void>("open_terminal", { path });
+  return invoke<void>("open_terminal", { path, terminal: getSnapshot().terminal });
 }
 
 /** Vytvoří složku a vrátí její cestu (název se při kolizi očísluje). */
