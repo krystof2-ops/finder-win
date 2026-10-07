@@ -777,6 +777,12 @@ body {
   box-shadow: none;
 }
 
+/* Soubory z Průzkumníku nad volnou plochou — padnou do aktuální složky. */
+.fw-drop-zone {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 6px;
+}
+
 .fw-list-row.fw-drop-target::after,
 .fw-col-row.fw-drop-target::after {
   content: "";

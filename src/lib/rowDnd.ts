@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { canDropInto, endDrag, getDrag, useDrag } from "./dnd";
+import { canDropInto, droppedPaths, endDrag, getDrag, isExternalFileDrag, useDrag } from "./dnd";
 import type { FileEntry, SelectMods } from "../types";
 
 /** Ctrl+klik přepíná položku, Shift+klik vybírá rozsah od kotvy. */
@@ -39,7 +39,8 @@ export function useFolderDrop(onDropInto: DropInto) {
     () => ({
       over: (entry, event) => {
         if (!entry.is_dir) return;
-        if (!canDropInto(entry.path, getDrag())) {
+        // Soubory z Průzkumníku smí do kterékoli složky.
+        if (!isExternalFileDrag(event) && !canDropInto(entry.path, getDrag())) {
           // Složka sama do sebe nebo do svého potomka: výslovně "nelze" (kurzor
           // not-allowed), ať se to nepřebije cílem někde nad řádkem.
           event.preventDefault();
@@ -61,7 +62,19 @@ export function useFolderDrop(onDropInto: DropInto) {
       drop: (entry, event) => {
         const payload = getDrag();
         setDropTarget(null);
-        if (!entry.is_dir || payload === null || payload.kind !== "entry") return;
+        if (!entry.is_dir) return;
+
+        if (isExternalFileDrag(event)) {
+          event.preventDefault();
+          event.stopPropagation();
+          const copy = event.ctrlKey;
+          void droppedPaths(event.dataTransfer).then((paths) => {
+            if (paths.length > 0) onDropRef.current(entry.path, paths, copy);
+          });
+          return;
+        }
+
+        if (payload === null || payload.kind !== "entry") return;
         if (!canDropInto(entry.path, payload)) return;
 
         event.preventDefault();

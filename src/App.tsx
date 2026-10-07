@@ -58,6 +58,7 @@ import {
   type SortKey,
 } from "./format";
 import { errorText, failure, t, useLocale, type MessageKey } from "./i18n";
+import { droppedPaths, isExternalFileDrag } from "./lib/dnd";
 import { isTypingTarget } from "./lib/dom";
 import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/motion";
 import * as storage from "./lib/storage";
@@ -1438,6 +1439,15 @@ export default function App() {
     [transfer],
   );
 
+  /** Soubory z Průzkumníku nad volnou plochou — padnou do aktuální složky
+   *  (v column view do sloupce pod myší). Řádky složek si je chytí samy. */
+  const [backgroundDrop, setBackgroundDrop] = useState(false);
+  const backgroundDropDir = (event: React.DragEvent): string | null => {
+    if (tagFilter !== null || search !== null || !isExternalFileDrag(event)) return null;
+    const column = (event.target as Element).closest<HTMLElement>("[data-column-path]");
+    return column?.dataset.columnPath ?? currentDir;
+  };
+
   /** Nahoru o úroveň — a v rodiči se označí složka, ze které se přišlo. */
   const goToParent = useCallback(() => {
     if (currentDir === null) return;
@@ -2591,6 +2601,7 @@ export default function App() {
           onReveal={reveal}
           activeTag={tagFilter}
           onSelectTag={selectTag}
+          onDropInto={dropInto}
           onError={setNotice}
           onConfirm={setConfirm}
         />
@@ -2660,7 +2671,28 @@ export default function App() {
                 // sloupcích, výsledky hledání a tag view výběr nemají.
                 if (!isColumnView && tagFilter === null && search === null) band.onMouseDown(event);
               }}
-              className="fw-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
+              onDragOver={(event) => {
+                if (backgroundDropDir(event) === null) return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
+                setBackgroundDrop(true);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBackgroundDrop(false);
+              }}
+              onDrop={(event) => {
+                setBackgroundDrop(false);
+                const dir = backgroundDropDir(event);
+                if (dir === null) return;
+                event.preventDefault();
+                const copy = event.ctrlKey;
+                void droppedPaths(event.dataTransfer).then((paths) => {
+                  if (paths.length > 0) dropInto(dir, paths, copy);
+                });
+              }}
+              className={`fw-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto ${
+                backgroundDrop ? "fw-drop-zone" : ""
+              }`}
             >
               {renderContent()}
               {band.overlay}

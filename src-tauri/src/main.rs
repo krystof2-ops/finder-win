@@ -10,6 +10,7 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 mod clipboard;
+mod external_drop;
 
 /* --------------------------------- chyby ----------------------------------- */
 
@@ -2433,6 +2434,7 @@ fn main() {
             use tauri::Manager;
             if let Some(window) = app.get_webview_window("main") {
                 apply_rounded_corners(&window);
+                external_drop::install(&window);
                 std::thread::spawn(move || {
                     std::thread::sleep(SHOW_FALLBACK);
                     show_main_window(&window);

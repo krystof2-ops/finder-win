@@ -10,7 +10,16 @@ import { formatRelative } from "../format";
 import { failure, useT, type MessageKey } from "../i18n";
 import type { ConfirmRequest } from "./ConfirmDialog";
 import { isTypingTarget } from "../lib/dom";
-import { endDrag, getDrag, startDrag, useDrag } from "../lib/dnd";
+import {
+  canDropInto,
+  droppedPaths,
+  endDrag,
+  getDrag,
+  isExternalFileDrag,
+  startDrag,
+  useDrag,
+} from "../lib/dnd";
+import type { DropInto } from "../lib/rowDnd";
 import * as storage from "../lib/storage";
 import { TAG_COLORS, TAG_HEX, tagLabel } from "../lib/tags";
 import { useStorage } from "../lib/useStorage";
@@ -43,6 +52,8 @@ type SidebarProps = {
   onReveal: (path: string) => void;
   activeTag: TagColor | null;
   onSelectTag: (color: TagColor) => void;
+  /** Položky (nebo soubory z Průzkumníku) puštěné na složku v sidebaru. */
+  onDropInto: DropInto;
   /** Chyby (Průzkumník, Terminál, schránka) — do stejné hlášky jako v App. */
   onError: (message: string) => void;
   /** Potvrzení nevratné akce — dialog drží App, ať je jediný v aplikaci. */
@@ -648,10 +659,51 @@ export function Sidebar({
   onReveal,
   activeTag,
   onSelectTag,
+  onDropInto,
   onError,
   onConfirm,
 }: SidebarProps) {
   const t = useT();
+  const drag = useDrag();
+
+  /** Složka v sidebaru, nad kterou visí tažení (rámeček jako ve výpisu). */
+  const [dropPath, setDropPath] = useState<string | null>(null);
+  useEffect(() => {
+    if (drag === null) setDropPath(null);
+  }, [drag]);
+
+  /** Řádek složky jako cíl: položky z výpisu i soubory z Průzkumníku —
+   *  přesun, s Ctrl kopie. */
+  function folderDropProps(path: string) {
+    return {
+      onDragOver: (event: React.DragEvent) => {
+        if (!isExternalFileDrag(event) && !canDropInto(path, getDrag())) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = event.ctrlKey ? "copy" : "move";
+        setDropPath(path);
+      },
+      onDragLeave: (event: React.DragEvent) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDropPath((current) => (current === path ? null : current));
+      },
+      onDrop: (event: React.DragEvent) => {
+        setDropPath(null);
+        const copy = event.ctrlKey;
+        if (isExternalFileDrag(event)) {
+          event.preventDefault();
+          void droppedPaths(event.dataTransfer).then((paths) => {
+            if (paths.length > 0) onDropInto(path, paths, copy);
+          });
+          return;
+        }
+        const payload = getDrag();
+        if (payload?.kind !== "entry" || !canDropInto(path, payload)) return;
+        event.preventDefault();
+        endDrag();
+        onDropInto(path, payload.items.map((item) => item.path), copy);
+      },
+    };
+  }
   const { favorites, recents, tags, sidebarWidth } = useStorage();
   const panelRef = useRef<HTMLDivElement>(null);
   const asideRef = useRef<HTMLElement>(null);
@@ -986,12 +1038,15 @@ export function Sidebar({
                     if (item.external) openDeviceOrReport(item.path);
                     else onNavigate(item.path);
                   }}
+                  {...(item.external ? {} : folderDropProps(item.path))}
                   onContextMenu={(event) => {
                     event.preventDefault();
                     event.stopPropagation();
                     setMenu({ kind: "section", item, x: event.clientX, y: event.clientY });
                   }}
-                  className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)}`}
+                  className={`${ROW_CLASS} ${rowStateClass(isActive, windowFocused)} ${
+                    dropPath === item.path ? "fw-drop-target" : ""
+                  }`}
                 >
                   <Icon
                     size={16}

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { listen } from "@tauri-apps/api/event";
 
 import { pathKey } from "./storage";
 
@@ -95,5 +96,62 @@ export function canDropInto(folder: string, payload: DragPayload | null): boolea
   return payload.items.every((item) => {
     const source = pathKey(item.path);
     return target !== source && !target.startsWith(`${source}\\`);
+  });
+}
+
+/* ------------------------- soubory zvenku (Průzkumník) ------------------------ */
+
+/**
+ * Táhnou se soubory odjinud (Průzkumník, plocha)? Interní tažení má payload
+ * v modulu, zvenku přijde jen typ "Files".
+ */
+export function isExternalFileDrag(event: { dataTransfer: DataTransfer | null }): boolean {
+  if (current !== null || event.dataTransfer === null) return false;
+  if (!Array.from(event.dataTransfer.types).includes("Files")) return false;
+  // Posluchač musí stát dřív, než přijde drop.
+  void ensureDropListener();
+  return true;
+}
+
+type WebView2 = {
+  postMessageWithAdditionalObjects?: (message: unknown, objects: ArrayLike<unknown>) => void;
+};
+
+/** Čekající dropy: id zprávy → kdo čeká na cesty. */
+const pendingDrops = new Map<number, (paths: string[]) => void>();
+let nextDropId = 0;
+let dropListener: Promise<unknown> | null = null;
+
+function ensureDropListener(): Promise<unknown> {
+  dropListener ??= listen<{ id: number; paths: string[] }>("external-drop", ({ payload }) => {
+    const resolve = pendingDrops.get(payload.id);
+    pendingDrops.delete(payload.id);
+    resolve?.(payload.paths);
+  });
+  return dropListener;
+}
+
+/** Když WebView2 neodpoví (starý runtime), drop se tiše zahodí. */
+const DROP_TIMEOUT_MS = 5000;
+
+/**
+ * Cesty k souborům puštěným zvenku. File v HTML5 cestu nemá — WebView2 ale
+ * soubory předá hostiteli (postMessageWithAdditionalObjects) a Rust vrátí
+ * cesty událostí external-drop. Volat přímo v obsluze dropu: po jejím konci
+ * prohlížeč DataTransfer vyprázdní.
+ */
+export async function droppedPaths(dataTransfer: DataTransfer): Promise<string[]> {
+  const files = dataTransfer.files;
+  const webview = (window as unknown as { chrome?: { webview?: WebView2 } }).chrome?.webview;
+  if (files.length === 0 || !webview?.postMessageWithAdditionalObjects) return [];
+
+  await ensureDropListener();
+  const id = (nextDropId += 1);
+  return new Promise<string[]>((resolve) => {
+    pendingDrops.set(id, resolve);
+    window.setTimeout(() => {
+      if (pendingDrops.delete(id)) resolve([]);
+    }, DROP_TIMEOUT_MS);
+    webview.postMessageWithAdditionalObjects?.({ finderWinDrop: id }, files);
   });
 }
