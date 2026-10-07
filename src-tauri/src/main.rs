@@ -930,6 +930,18 @@ fn open_file(path: String) -> CmdResult<()> {
     opener::open(&path).map_err(|err| AppError::at(&path, describe_open(&err)))
 }
 
+/// Stránka release v prohlížeči (proužek „Je k dispozici nová verze").
+/// Jen stránky tohohle repozitáře — command nesmí otevírat cokoli.
+const RELEASES_URL: &str = "https://github.com/krystof2-ops/finder-win/releases/";
+
+#[tauri::command(async)]
+fn open_release_page(url: String) -> CmdResult<()> {
+    if !url.starts_with(RELEASES_URL) {
+        return Err(AppError::new("error.notReleaseUrl"));
+    }
+    opener::open_browser(&url).map_err(|err| describe_open(&err))
+}
+
 /* --------------------------- souborové operace ---------------------------- */
 
 /// Znaky, které Windows v názvu souboru nepovoluje.
@@ -2498,6 +2510,7 @@ fn main() {
             can_list_dir,
             get_favorites,
             open_file,
+            open_release_page,
             get_disk_free_space,
             read_text_file,
             rename_path,

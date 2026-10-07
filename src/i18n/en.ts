@@ -47,6 +47,10 @@ export const en = {
   "toolbar.parentFolder": "Parent Folder",
   "toolbar.showHidden": "Show Hidden Files",
   "toolbar.animations": "Animations",
+  "toolbar.checkUpdates": "Check for Updates",
+  "update.available": "Version {version} is available",
+  "update.download": "Download",
+  "update.dismiss": "Dismiss",
   "toolbar.about": "About Finder-Win",
 
   "motion.system": "Match System",
@@ -220,6 +224,7 @@ export const en = {
   "op.clipboard": "Clipboard operation failed",
   "op.undo": "Undo failed",
   "op.redo": "Redo failed",
+  "op.openRelease": "Couldn't open the release page",
   "op.copyPath": "Couldn't copy the path",
   "op.copyPaths": "Couldn't copy the paths",
   "op.copyName": "Couldn't copy the name",
@@ -391,5 +396,6 @@ export const en = {
   "error.undoConflict": "another item is already in the original location",
   "error.undoNoTrash": "this drive has no Recycle Bin, the item would be deleted permanently",
   "error.notInTrash": "the item is no longer in the Recycle Bin",
+  "error.notReleaseUrl": "the link doesn't point to a Finder-Win release page",
   "error.notText": "the file isn't text",
 } satisfies Dictionary;

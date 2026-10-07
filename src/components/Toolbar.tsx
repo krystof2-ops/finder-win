@@ -155,6 +155,9 @@ type ToolbarProps = {
   /** Animace: systém / zapnuto / vypnuto (uloženo v settings.json). */
   motion: MotionPreference;
   onMotionChange: (value: MotionPreference) => void;
+  /** Kontrola nové verze na GitHubu (výchozí zapnuto). */
+  checkUpdates: boolean;
+  onCheckUpdatesChange: (value: boolean) => void;
   /** Položky menu Seřadit / Sdílet / Štítky — sestavuje je App, zná výběr. */
   sortItems: MenuItem[];
   shareItems: MenuItem[];
@@ -193,6 +196,8 @@ export function Toolbar({
   onToggleHidden,
   motion,
   onMotionChange,
+  checkUpdates,
+  onCheckUpdatesChange,
   sortItems,
   shareItems,
   tagItems,
@@ -273,6 +278,12 @@ export function Toolbar({
       })),
     },
     { type: "separator" },
+    {
+      type: "item",
+      label: t("toolbar.checkUpdates"),
+      checked: checkUpdates,
+      onSelect: () => onCheckUpdatesChange(!checkUpdates),
+    },
     { type: "item", label: t("toolbar.about"), onSelect: onShowAbout },
   ];
 

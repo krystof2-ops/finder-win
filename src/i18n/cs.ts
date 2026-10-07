@@ -44,6 +44,10 @@ export const cs = {
   "toolbar.parentFolder": "Nadřazená složka",
   "toolbar.showHidden": "Zobrazit skryté soubory",
   "toolbar.animations": "Animace",
+  "toolbar.checkUpdates": "Kontrolovat aktualizace",
+  "update.available": "Verze {version} je k dispozici",
+  "update.download": "Stáhnout",
+  "update.dismiss": "Skrýt",
   "toolbar.about": "O aplikaci Finder-Win",
 
   "motion.system": "Podle systému",
@@ -239,6 +243,7 @@ export const cs = {
   "op.clipboard": "Schránku se nepodařilo použít",
   "op.undo": "Zpět se nepodařilo",
   "op.redo": "Znovu se nepodařilo",
+  "op.openRelease": "Stránku vydání se nepodařilo otevřít",
   "op.copyPath": "Cestu se nepodařilo zkopírovat",
   "op.copyPaths": "Cesty se nepodařilo zkopírovat",
   "op.copyName": "Název se nepodařilo zkopírovat",
@@ -413,5 +418,6 @@ export const cs = {
   "error.undoConflict": "na původním místě už je jiná položka",
   "error.undoNoTrash": "tenhle disk nemá Koš, položka by se smazala natrvalo",
   "error.notInTrash": "položka už v Koši není",
+  "error.notReleaseUrl": "odkaz nevede na stránku vydání Finder-Win",
   "error.notText": "soubor není textový",
 } as const;

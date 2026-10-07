@@ -75,6 +75,24 @@ Stáhni nejnovější `Finder-Win_…_x64-setup.exe` ze stránky [Releases](http
 
 Instalátor není digitálně podepsaný, takže Windows SmartScreen zobrazí „Systém Windows ochránil váš počítač“. Pro instalaci klikni na **Další informace** a pak **Přesto spustit**.
 
+### winget
+
+```powershell
+winget install krystof2-ops.FinderWin
+```
+
+Manifest je ve složce [`winget/`](winget) (formát 1.6). Po publikování release stáhne workflow *Update winget manifest* instalátor, přepočítá SHA256 a otevře pull request do tohoto repozitáře (je k tomu potřeba povolit *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*). Odeslání do [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) se dělá ručně, buď přes [wingetcreate](https://github.com/microsoft/winget-create):
+
+```powershell
+wingetcreate submit --token <GITHUB_PAT> winget
+```
+
+nebo pull requestem, který zkopíruje tři soubory do `manifests/k/krystof2-ops/FinderWin/<verze>/` ve winget-pkgs (nejdřív ověř přes `winget validate winget`).
+
+### Kontrola aktualizací
+
+Nejvýš jednou denně se aplikace zeptá `https://api.github.com/repos/krystof2-ops/finder-win/releases/latest`, jestli existuje novější verze, a pokud ano, ukáže dole nenápadný proužek s odkazem na stránku vydání. Ten jeden GET je jediný síťový požadavek aplikace — žádná telemetrie, nic se neodesílá. Vypnout jde v menu Více → Kontrolovat aktualizace.
+
 ## Sestavení ze zdrojáků
 
 Potřebuješ:

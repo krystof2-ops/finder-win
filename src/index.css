@@ -1111,6 +1111,30 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Nenápadný proužek nad status barem: je k dispozici nová verze. */
+.fw-update-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background-color: var(--accent-bg);
+  border-top: 1px solid var(--border);
+}
+
+.fw-update-link {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--link);
+}
+
+.fw-update-link:hover {
+  text-decoration: underline;
+}
+
 /* Lišta záložek pod toolbarem — jen při dvou a více záložkách, jako ve Finderu. */
 .fw-tabbar {
   display: flex;

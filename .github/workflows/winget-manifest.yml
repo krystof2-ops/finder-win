@@ -1,0 +1,64 @@
+name: Update winget manifest
+
+# Po publikování release (tauri-action ho zakládá jako draft) stáhne
+# instalátor, spočítá SHA256 a otevře PR s aktualizovaným manifestem ve
+# složce winget/. Do microsoft/winget-pkgs nic neposílá — to dělá autor ručně.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag release (např. v1.3.0)"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Version and installer URL
+        id: release
+        run: |
+          TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          VERSION="${TAG#v}"
+          URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/Finder-Win_${VERSION}_x64-setup.exe"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: SHA256 of the installer
+        id: sha
+        run: |
+          curl -fsSL --retry 5 -o setup.exe "${{ steps.release.outputs.url }}"
+          echo "sha=$(sha256sum setup.exe | cut -d' ' -f1 | tr 'a-f' 'A-F')" >> "$GITHUB_OUTPUT"
+          rm setup.exe
+
+      - name: Update manifest
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          TAG="${{ steps.release.outputs.tag }}"
+          sed -i -E "s|^PackageVersion: .*|PackageVersion: ${VERSION}|" winget/*.yaml
+          sed -i -E "s|^(\s*InstallerUrl: ).*|\1${{ steps.release.outputs.url }}|" winget/krystof2-ops.FinderWin.installer.yaml
+          sed -i -E "s|^(\s*InstallerSha256: ).*|\1${{ steps.sha.outputs.sha }}|" winget/krystof2-ops.FinderWin.installer.yaml
+          sed -i -E "s|^ReleaseNotesUrl: .*|ReleaseNotesUrl: https://github.com/${{ github.repository }}/releases/tag/${TAG}|" winget/krystof2-ops.FinderWin.locale.en-US.yaml
+
+      - name: Pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: winget/${{ steps.release.outputs.tag }}
+          commit-message: "winget: manifest ${{ steps.release.outputs.version }}"
+          title: "winget: manifest ${{ steps.release.outputs.version }}"
+          body: |
+            Manifest v `winget/` aktualizovaný pro ${{ steps.release.outputs.tag }}
+            (InstallerSha256 `${{ steps.sha.outputs.sha }}`).
+
+            Odeslání do microsoft/winget-pkgs: viz README → winget.

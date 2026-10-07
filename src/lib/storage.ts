@@ -24,6 +24,7 @@ const KEY_SIDEBAR_WIDTH = "sidebarWidth";
 const KEY_MOTION = "motion";
 const KEY_LANGUAGE = "language";
 const KEY_TABS = "tabs";
+const KEY_UPDATES = "updates";
 
 /** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
 export type MotionPreference = "system" | "on" | "off";
@@ -34,6 +35,13 @@ export type LanguagePreference = "system" | "en" | "cs";
 /** Záložky z minulého spuštění: složka a zobrazení každé, a která byla aktivní. */
 export type SavedTab = { path: string; view: ViewMode };
 export type SavedTabs = { items: SavedTab[]; active: number };
+
+/** Kontrola aktualizací: zapnutá?, kdy naposled (ms) a co našla. */
+export type UpdateSettings = {
+  check: boolean;
+  lastCheck: number;
+  latest: { version: string; url: string } | null;
+};
 
 /** Rozsah šířky sidebaru při tažení za hranu; dvojklik vrací výchozí. */
 export const SIDEBAR_MIN = 180;
@@ -53,6 +61,7 @@ export type Snapshot = {
   motion: MotionPreference;
   language: LanguagePreference;
   tabs: SavedTabs;
+  updates: UpdateSettings;
 };
 
 const EMPTY: Snapshot = {
@@ -64,6 +73,7 @@ const EMPTY: Snapshot = {
   motion: "system",
   language: "system",
   tabs: { items: [], active: 0 },
+  updates: { check: true, lastCheck: 0, latest: null },
 };
 
 function clampSidebar(width: number): number {
@@ -200,6 +210,20 @@ function sanitizeTabs(value: unknown): SavedTabs {
   return { items: valid, active: Math.min(Math.max(index, 0), Math.max(valid.length - 1, 0)) };
 }
 
+function sanitizeUpdates(value: unknown): UpdateSettings {
+  if (typeof value !== "object" || value === null) return EMPTY.updates;
+  const { check, lastCheck, latest } = value as Record<string, unknown>;
+  const found = latest as Record<string, unknown> | null | undefined;
+  return {
+    check: typeof check === "boolean" ? check : true,
+    lastCheck: typeof lastCheck === "number" ? lastCheck : 0,
+    latest:
+      found && typeof found.version === "string" && typeof found.url === "string"
+        ? { version: found.version, url: found.url }
+        : null,
+  };
+}
+
 /**
  * Otevře store a naplní cache. Opakovaná volání sdílí jeden běh, takže je
  * jedno, kolik komponent si o init řekne.
@@ -210,7 +234,7 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs] = await Promise.all([
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
@@ -219,6 +243,7 @@ export function init(): Promise<void> {
       store.get<unknown>(KEY_MOTION),
       store.get<unknown>(KEY_LANGUAGE),
       store.get<unknown>(KEY_TABS),
+      store.get<unknown>(KEY_UPDATES),
     ]);
 
     commit({
@@ -230,6 +255,7 @@ export function init(): Promise<void> {
       motion: motion === "on" || motion === "off" ? motion : "system",
       language: language === "en" || language === "cs" ? language : "system",
       tabs: sanitizeTabs(tabs),
+      updates: sanitizeUpdates(updates),
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -286,6 +312,13 @@ export async function setLanguage(value: LanguagePreference): Promise<void> {
 export async function setSavedTabs(value: SavedTabs): Promise<void> {
   commit({ tabs: value });
   await persist(KEY_TABS, value);
+}
+
+/* ----------------------------- aktualizace ---------------------------------- */
+
+export async function setUpdates(value: Partial<UpdateSettings>): Promise<void> {
+  commit({ updates: { ...cache.updates, ...value } });
+  await persist(KEY_UPDATES, cache.updates);
 }
 
 /* ------------------------------- oblíbené ---------------------------------- */

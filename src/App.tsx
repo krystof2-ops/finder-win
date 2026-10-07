@@ -66,6 +66,7 @@ import { TAG_COLORS, TAG_HEX, tagLabel } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
 import { useStableCallback } from "./lib/rowDnd";
 import { setSpecialFolders } from "./lib/specialFolders";
+import { checkForUpdate, type AvailableUpdate } from "./lib/updates";
 import { useStorage } from "./lib/useStorage";
 import type { ViewHandle } from "./lib/viewHandle";
 import { newTab, useBrowserState, type Tab, type TabSnapshot } from "./browser";
@@ -311,7 +312,7 @@ export default function App() {
   }>({ path: null, seq: 0, direction: null });
   const loadedPath = loaded.path;
 
-  const { tags, favorites, motion } = useStorage();
+  const { tags, favorites, motion, updates } = useStorage();
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
@@ -470,6 +471,19 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  // Nová verze na GitHubu: nejvýš jednou denně, až když okno stojí.
+  const [update, setUpdate] = useState<AvailableUpdate | null>(null);
+  useEffect(() => {
+    if (!ready) return;
+    let alive = true;
+    void checkForUpdate().then((found) => {
+      if (alive) setUpdate(found);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [ready, updates.check]);
 
   // Informace se sama sveze dolů po dvou sekundách, chyba zůstává. Časovač
   // visí na `notice`, takže nová hláška ten starý zruší a odpočet začne znovu.
@@ -3026,6 +3040,8 @@ export default function App() {
             onToggleHidden={toggleHidden}
             motion={motion}
             onMotionChange={(value) => void storage.setMotion(value)}
+            checkUpdates={updates.check}
+            onCheckUpdatesChange={(value) => void storage.setUpdates({ check: value })}
             sortItems={toolbarSortItems}
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
@@ -3112,6 +3128,32 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {update && updates.check && (
+        <div className="fw-update-bar" role="status">
+          <span className="min-w-0 truncate">{t("update.available", { version: update.version })}</span>
+          <button
+            type="button"
+            className="fw-update-link"
+            onClick={() =>
+              invoke("open_release_page", { url: update.url }).catch((err: unknown) =>
+                setNotice(failure("op.openRelease", err)),
+              )
+            }
+          >
+            {t("update.download")}
+          </button>
+          <button
+            type="button"
+            aria-label={t("update.dismiss")}
+            data-tooltip={t("update.dismiss")}
+            onClick={() => setUpdate(null)}
+            className="ml-auto shrink-0 text-secondary hover:text-primary"
+          >
+            <X size={12} strokeWidth={2.5} />
+          </button>
+        </div>
+      )}
 
       <StatusBar
         path={currentDir}
