@@ -173,7 +173,7 @@ export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReo
                 onClose(tab.id);
               }}
             >
-              <X size={11} strokeWidth={2.5} />
+              <X size={12} strokeWidth={2.5} />
             </button>
           </div>
         );
@@ -189,7 +189,7 @@ export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReo
         onMouseDown={(event) => event.preventDefault()}
         onClick={newTab.run}
       >
-        <Plus size={15} strokeWidth={1.5} />
+        <Plus size={12} strokeWidth={2} />
       </button>
     </div>
   );

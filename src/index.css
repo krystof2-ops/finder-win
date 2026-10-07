@@ -1181,31 +1181,34 @@ body {
 
 /* Lišta záložek pod toolbarem, vždy vidět — ouška zarovnaná doleva jako
    v Průzkumníku: aktivní má zaoblené horní rohy a splývá s obsahem pod ní
-   (překrývá spodní linku lišty), neaktivní jsou průhledná. */
+   (překrývá spodní linku lišty), neaktivní jsou průhledná.
+   Výška 36 px = 5 px nahoře + 30 px řádek + 1 px linka. Ouško se natáhne na
+   výšku řádku a + je vycentrované na stejnou osu. Bez overflow: hidden —
+   ořízl by přesah ouška přes linku. */
 .fw-tabbar {
   display: flex;
   flex-shrink: 0;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
   height: 36px;
-  padding: 0 8px;
-  /* Bez overflow: hidden — ořízl by přesah aktivního ouška přes linku. */
+  padding: 5px 8px 0;
   background-color: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
 }
 
-/* Rozměry (min. šířka 120, mezera 2, + 28 + okraj 2) zná i TabBar.tsx —
+/* Rozměry (min. šířka 120, mezera 2, + 28 + okraj 2, padding lišty 16) zná i TabBar.tsx —
    podle nich pozná, kdy se ouška nevejdou a přidá is-crowded. */
 .fw-tab {
   position: relative;
   display: flex;
   flex: 0 1 auto;
+  align-self: stretch;
   align-items: center;
   gap: 6px;
   min-width: 120px;
   max-width: 240px;
-  height: 30px;
-  /* Přesah přes linku lišty: aktivní ji překryje svým podkladem. */
+  /* Přesah přes linku lišty: aktivní ji překryje svým podkladem; spodní
+     padding (1 px = přesah) to vrací, ať je obsah na ose viditelných 30 px. */
   margin-bottom: -1px;
   padding: 0 6px 1px 10px;
   border-radius: 8px 8px 0 0;
@@ -1271,7 +1274,8 @@ body {
   justify-content: center;
   width: 28px;
   height: 28px;
-  margin: 0 0 3px 2px;
+  /* 2 px mezera flexu + 2 px = 4 px od ouška; svisle nic, osa je z řádku. */
+  margin: 0 0 0 2px;
   border-radius: 6px;
   color: var(--text-secondary);
   transition: background-color var(--dur-quick) var(--ease-out);
