@@ -1,7 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { applyTheme, readStoredTheme } from "./theme";
+import { applyTheme, readThemeMirror, resolveTheme } from "./theme";
 // Inter přibalený v aplikaci místo Google Fonts: funguje offline a CSP
 // nemusí povolovat cizí domény.
 import "@fontsource/inter/400.css";
@@ -10,7 +10,7 @@ import "@fontsource/inter/600.css";
 import "./index.css";
 
 // Nastavit třídu ještě před prvním renderem, ať dark uživatel nevidí bílý záblesk.
-applyTheme(readStoredTheme());
+applyTheme(resolveTheme(readThemeMirror()));
 
 // Jezdec scrollbaru je vidět při najetí na kontejner — a taky chvíli po
 // posunu kolečkem nebo klávesnicí, i když kurzor stojí jinde (jako macOS).

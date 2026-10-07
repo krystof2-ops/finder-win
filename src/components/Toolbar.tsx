@@ -6,13 +6,10 @@ import {
   Columns3,
   LayoutGrid,
   List,
-  Moon,
   MoreHorizontal,
-  Plus,
   Search,
   Share,
   SlidersHorizontal,
-  Sun,
   Tag,
   XCircle,
   type LucideIcon,
@@ -21,7 +18,7 @@ import {
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import type { CommandId, Command, Commands } from "../commands";
 import { useT, type MessageKey } from "../i18n";
-import type { Theme, ViewMode } from "../types";
+import type { ViewMode } from "../types";
 
 type IconButtonProps = {
   Icon: LucideIcon;
@@ -132,8 +129,6 @@ type ToolbarProps = {
   folderIcon: React.ReactNode;
   viewMode: ViewMode;
   onViewModeChange: (mode: ViewMode) => void;
-  /** Jen kvůli ikoně tlačítka (slunce / měsíc) — přepnutí je příkaz. */
-  theme: Theme;
   query: string;
   onQueryChange: (query: string) => void;
   /** Enter v poli — filtr aktuální složky se povýší na rekurzivní hledání. */
@@ -173,7 +168,6 @@ export function Toolbar({
   folderIcon,
   viewMode,
   onViewModeChange,
-  theme,
   query,
   onQueryChange,
   onSearchSubmit,
@@ -220,6 +214,15 @@ export function Toolbar({
     item("toggleHidden"),
     {
       type: "submenu",
+      label: t("appearance.menu"),
+      items: [
+        item("themeLight", t("appearance.light")),
+        item("themeDark", t("appearance.dark")),
+        item("themeSystem", t("appearance.system")),
+      ],
+    },
+    {
+      type: "submenu",
       label: t("toolbar.animations"),
       items: [
         item("motionSystem", t("motion.system")),
@@ -243,7 +246,8 @@ export function Toolbar({
 
   return (
     // Skupiny s mezerou 12 px: [zpět/vpřed] [název] … [zobrazení] [seřadit]
-    // [sdílet, štítky] [více] [téma] [hledání].
+    // [sdílet, štítky] [rozdělit] [více] [hledání]. Nová záložka je + v liště
+    // záložek, vzhled v menu Více.
     <header className="fw-toolbar flex h-10 shrink-0 items-center gap-3 px-3">
       <div className="flex shrink-0 items-center gap-0.5">
         <IconButton
@@ -314,28 +318,12 @@ export function Toolbar({
       />
 
       <IconButton
-        Icon={Plus}
-        label={t("tabs.newWithShortcut")}
-        secondary
-        disabled={!commands.newTab.enabled}
-        onClick={commands.newTab.run}
-      />
-
-      <IconButton
         Icon={MoreHorizontal}
         label={t("toolbar.more")}
         secondary
         active={menu?.kind === "more"}
         menuTrigger
         onMouseDown={toggleMenu("more")}
-      />
-
-      <IconButton
-        Icon={theme === "dark" ? Sun : Moon}
-        label={theme === "dark" ? t("toolbar.lightMode") : t("toolbar.darkMode")}
-        secondary
-        onClick={commands.toggleTheme.run}
-        iconClassName="fw-theme-spin"
       />
 
       <div className="fw-search shrink-0">

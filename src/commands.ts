@@ -27,6 +27,9 @@ export type CommandId =
   | "viewColumns"
   | "toggleHidden"
   | "toggleTheme"
+  | "themeLight"
+  | "themeDark"
+  | "themeSystem"
   | "languageSystem"
   | "languageEnglish"
   | "languageCzech"
@@ -119,6 +122,9 @@ const DEFINITIONS: Record<CommandId, CommandDefinition> = {
     scope: "overlay",
   },
   toggleTheme: { title: "toolbar.darkMode" },
+  themeLight: { title: "command.themeLight" },
+  themeDark: { title: "command.themeDark" },
+  themeSystem: { title: "command.themeSystem" },
   languageSystem: { title: "command.languageSystem" },
   languageEnglish: { title: "command.languageEnglish" },
   languageCzech: { title: "command.languageCzech" },

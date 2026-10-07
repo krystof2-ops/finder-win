@@ -75,7 +75,7 @@ import { setSpecialFolders } from "./lib/specialFolders";
 import { checkForUpdate, type AvailableUpdate } from "./lib/updates";
 import { useStorage } from "./lib/useStorage";
 import { blankSnapshot, newTab, tabFace, type Tab, type TabSnapshot } from "./browser";
-import { applyTheme, readStoredTheme } from "./theme";
+import { applyTheme, resolveTheme, systemTheme, watchSystemTheme, type ThemePreference } from "./theme";
 import { redoOp, trashTimestamp, undoLabel, undoOp, UNDO_LIMIT, type UndoOp } from "./undo";
 import type {
   Clipboard,
@@ -145,7 +145,6 @@ function Placeholder({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const [theme, setTheme] = useState<Theme>(readStoredTheme);
   const [windowFocused, setWindowFocused] = useState(true);
   /** Fokus okna — panely si z něj odvodí vlastní (neaktivní panel je „bez fokusu"). */
   const windowFocusedAll = windowFocused;
@@ -207,10 +206,17 @@ export default function App() {
   const commandsRef = useRef<Commands | null>(null);
 
 
-  const { tags, favorites, recents, motion, updates, splitRatio, language, commandUsage } = useStorage();
+  const { tags, favorites, recents, motion, updates, splitRatio, language, commandUsage, theme: themePreference } =
+    useStorage();
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
+
+  // Režim Windows se sleduje za běhu — při volbě „Podle systému" se okno
+  // přebarví hned, jak ho uživatel přepne v Nastavení.
+  const [osTheme, setOsTheme] = useState<Theme>(systemTheme);
+  useEffect(() => watchSystemTheme(() => setOsTheme(systemTheme())), []);
+  const theme: Theme = themePreference === "system" ? osTheme : themePreference;
 
   const [quickLookOpen, setQuickLookOpen] = useState(false);
   /** Přepínač skrytých souborů. null = ještě se neví (čeká se na settings.json
@@ -442,31 +448,45 @@ export default function App() {
   useEffect(() => applyTheme(theme), [theme]);
 
   /**
-   * Světlý <-> tmavý. Celé okno se prolne naráz přes View Transition: snímek
-   * starého vzhledu zhasne nad novým, takže žádná plocha nedobíhá svým tempem.
-   * Nový stav musí být v DOM hotový uvnitř callbacku — proto flushSync.
+   * Volba vzhledu (menu Více → Vzhled, paleta). Celé okno se prolne naráz
+   * přes View Transition: snímek starého vzhledu zhasne nad novým, takže
+   * žádná plocha nedobíhá svým tempem. Nový stav musí být v DOM hotový
+   * uvnitř callbacku — proto flushSync (zápis do storage je synchronní,
+   * na disk se dopisuje až potom).
    */
-  const toggleTheme = useCallback(() => {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    const root = document.documentElement;
-    const apply = () => {
-      flushSync(() => setTheme(next));
-      applyTheme(next);
-    };
-    const done = () => root.classList.remove("is-theming");
+  const changeTheme = useCallback(
+    (preference: ThemePreference) => {
+      if (preference === themePreference) return;
+      const next = resolveTheme(preference);
+      const root = document.documentElement;
+      const apply = () => {
+        flushSync(() => void storage.setTheme(preference));
+        applyTheme(next);
+      };
+      if (next === theme) {
+        // Jen jiná volba se stejným výsledkem (tmavý → podle systému v noci).
+        apply();
+        return;
+      }
+      const done = () => root.classList.remove("is-theming");
 
-    root.classList.add("is-theming");
-    const withTransition = document as Document & {
-      startViewTransition?: (update: () => void) => { finished: Promise<void> };
-    };
-    if (withTransition.startViewTransition && motionEnabled()) {
-      withTransition.startViewTransition(apply).finished.finally(done);
-    } else {
-      apply();
-      // Až po vykreslení nového stavu, ať se nic nerozjede dodatečně.
-      requestAnimationFrame(() => requestAnimationFrame(done));
-    }
-  }, [theme]);
+      root.classList.add("is-theming");
+      const withTransition = document as Document & {
+        startViewTransition?: (update: () => void) => { finished: Promise<void> };
+      };
+      if (withTransition.startViewTransition && motionEnabled()) {
+        withTransition.startViewTransition(apply).finished.finally(done);
+      } else {
+        apply();
+        // Až po vykreslení nového stavu, ať se nic nerozjede dodatečně.
+        requestAnimationFrame(() => requestAnimationFrame(done));
+      }
+    },
+    [theme, themePreference],
+  );
+
+  /** Světlý <-> tmavý (paleta) — nastaví vzhled napevno. */
+  const toggleTheme = useCallback(() => changeTheme(theme === "dark" ? "light" : "dark"), [changeTheme, theme]);
 
   // Okno startuje skryté (tauri.conf.json). Ukáže se, až je hotový první
   // render, nastavení (téma je už z localStorage, main.tsx) a písmo — bez
@@ -2136,6 +2156,9 @@ export default function App() {
       viewColumns: { run: () => changeViewMode("column"), checked: viewMode === "column" },
       toggleHidden: { run: toggleHidden, checked: showHidden === true },
       toggleTheme: { run: toggleTheme, title: theme === "dark" ? t("toolbar.lightMode") : t("toolbar.darkMode") },
+      themeLight: { run: () => changeTheme("light"), checked: themePreference === "light" },
+      themeDark: { run: () => changeTheme("dark"), checked: themePreference === "dark" },
+      themeSystem: { run: () => changeTheme("system"), checked: themePreference === "system" },
       languageSystem: { run: () => void languageSetting.set("system"), checked: language === "system" },
       languageEnglish: { run: () => void languageSetting.set("en"), checked: language === "en" },
       languageCzech: { run: () => void languageSetting.set("cs"), checked: language === "cs" },
@@ -2666,7 +2689,6 @@ export default function App() {
             folderIcon={folderIcon}
             viewMode={viewMode}
             onViewModeChange={changeViewMode}
-            theme={theme}
             query={query}
             onQueryChange={setQuery}
             onSearchSubmit={submitSearch}
@@ -2682,23 +2704,21 @@ export default function App() {
             onMenuOpenChange={setToolbarMenuOpen}
           />
 
-          {tabs.length > 1 && (
-            <TabBar
-              tabs={tabs.map((tab) => ({
-                id: tab.id,
-                path: tab.id === activeTabId ? nav.current : tabFace(tab).nav.current,
-                closing: tab.closing === true,
-                fresh: tab.fresh === true,
-              }))}
-              activeId={activeTabId}
-              windowFocused={windowFocused}
-              onSelect={switchTab}
-              onClose={closeTab}
-              onReorder={reorderTab}
-              onDropInto={dropInto}
-              onNew={commands.newTab.run}
-            />
-          )}
+          <TabBar
+            tabs={tabs.map((tab) => ({
+              id: tab.id,
+              path: tab.id === activeTabId ? nav.current : tabFace(tab).nav.current,
+              closing: tab.closing === true,
+              fresh: tab.fresh === true,
+            }))}
+            activeId={activeTabId}
+            windowFocused={windowFocused}
+            onSelect={switchTab}
+            onClose={closeTab}
+            onReorder={reorderTab}
+            onDropInto={dropInto}
+            newTab={commands.newTab}
+          />
 
           <div ref={panelsBoxRef} className="flex min-h-0 flex-1">
             {visiblePanels.map((index) => (

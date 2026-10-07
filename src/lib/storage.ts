@@ -1,6 +1,7 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
 import type { SortDirection, SortKey } from "../format";
+import { readThemeMirror, writeThemeMirror, type ThemePreference } from "../theme";
 import type { CustomFavorite, RecentEntry, RecentKind, TagColor, TagMap, ViewMode } from "../types";
 
 /**
@@ -24,6 +25,7 @@ const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_SIDEBAR_WIDTH = "sidebarWidth";
 const KEY_MOTION = "motion";
 const KEY_LANGUAGE = "language";
+const KEY_THEME = "theme";
 const KEY_TABS = "tabs";
 const KEY_UPDATES = "updates";
 const KEY_SPLIT_RATIO = "splitRatio";
@@ -66,6 +68,8 @@ export type Snapshot = {
   sidebarWidth: number;
   motion: MotionPreference;
   language: LanguagePreference;
+  /** Vzhled (menu Více → Vzhled); výchozí podle Windows. */
+  theme: ThemePreference;
   tabs: SavedTabs;
   updates: UpdateSettings;
   /** Poměr šířky levého panelu v rozděleném okně (0,25–0,75). */
@@ -82,6 +86,9 @@ const EMPTY: Snapshot = {
   sidebarWidth: SIDEBAR_DEFAULT,
   motion: "system",
   language: "system",
+  // Ze zrcadla v localStorage, ať první render nepřeskočí do jiného tématu,
+  // než se načte settings.json.
+  theme: readThemeMirror(),
   tabs: { items: [], active: 0 },
   updates: { check: true, lastCheck: 0, latest: null },
   splitRatio: 0.5,
@@ -279,7 +286,7 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs, updates, splitRatio, usage] =
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, theme, tabs, updates, splitRatio, usage] =
       await Promise.all([
         store.get<unknown>(KEY_FAVORITES),
         store.get<unknown>(KEY_RECENTS),
@@ -288,6 +295,7 @@ export function init(): Promise<void> {
         store.get<unknown>(KEY_SIDEBAR_WIDTH),
         store.get<unknown>(KEY_MOTION),
         store.get<unknown>(KEY_LANGUAGE),
+        store.get<unknown>(KEY_THEME),
         store.get<unknown>(KEY_TABS),
         store.get<unknown>(KEY_UPDATES),
         store.get<unknown>(KEY_SPLIT_RATIO),
@@ -302,11 +310,16 @@ export function init(): Promise<void> {
       sidebarWidth: typeof sidebarWidth === "number" ? clampSidebar(sidebarWidth) : SIDEBAR_DEFAULT,
       motion: motion === "on" || motion === "off" ? motion : "system",
       language: language === "en" || language === "cs" ? language : "system",
+      // Bez klíče v souboru (verze do 1.3 ukládaly jen do localStorage)
+      // platí zrcadlo — uživatel o zvolený tmavý režim nepřijde.
+      theme: theme === "light" || theme === "dark" || theme === "system" ? theme : readThemeMirror(),
       tabs: sanitizeTabs(tabs),
       updates: sanitizeUpdates(updates),
       splitRatio: typeof splitRatio === "number" ? clampSplitRatio(splitRatio) : 0.5,
       commandUsage: sanitizeUsage(usage),
     });
+    // Zrcadlo pro první render drží krok se souborem (i po smazání dat WebView2).
+    writeThemeMirror(cache.theme);
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
     reportError("load", err);
@@ -355,6 +368,14 @@ export async function setMotion(value: MotionPreference): Promise<void> {
 export async function setLanguage(value: LanguagePreference): Promise<void> {
   commit({ language: value });
   await persist(KEY_LANGUAGE, value);
+}
+
+/* --------------------------------- vzhled ----------------------------------- */
+
+export async function setTheme(value: ThemePreference): Promise<void> {
+  commit({ theme: value });
+  writeThemeMirror(value);
+  await persist(KEY_THEME, value);
 }
 
 /* -------------------------------- záložky ----------------------------------- */

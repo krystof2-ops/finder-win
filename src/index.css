@@ -688,21 +688,6 @@ body {
   transform: scale(0.96);
 }
 
-/* Sun/Moon se při přepnutí protočí. Ikona mění typ komponenty, takže se
-   remountne sama a animace se přehraje bez pomocného key. */
-@keyframes fw-theme-spin {
-  from {
-    transform: rotate(-180deg);
-  }
-  to {
-    transform: rotate(0deg);
-  }
-}
-
-.fw-theme-spin {
-  animation: fw-theme-spin var(--dur-slow) var(--ease-out);
-}
-
 @keyframes fw-column-in {
   from {
     opacity: 0;
@@ -1194,27 +1179,36 @@ body {
   text-decoration: underline;
 }
 
-/* Lišta záložek pod toolbarem — jen při dvou a více záložkách, jako ve Finderu. */
+/* Lišta záložek pod toolbarem, vždy vidět — ouška zarovnaná doleva jako
+   v Průzkumníku: aktivní má zaoblené horní rohy a splývá s obsahem pod ní
+   (překrývá spodní linku lišty), neaktivní jsou průhledná. */
 .fw-tabbar {
   display: flex;
   flex-shrink: 0;
-  gap: 4px;
-  height: 30px;
-  padding: 3px 8px;
+  align-items: flex-end;
+  gap: 2px;
+  height: 36px;
+  padding: 0 8px;
+  /* Bez overflow: hidden — ořízl by přesah aktivního ouška přes linku. */
   background-color: var(--bg-toolbar);
   border-bottom: 1px solid var(--border);
 }
 
+/* Rozměry (min. šířka 120, mezera 2, + 28 + okraj 2) zná i TabBar.tsx —
+   podle nich pozná, kdy se ouška nevejdou a přidá is-crowded. */
 .fw-tab {
   position: relative;
   display: flex;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 260px;
-  padding: 0 4px 0 10px;
-  border-radius: 6px;
+  min-width: 120px;
+  max-width: 240px;
+  height: 30px;
+  /* Přesah přes linku lišty: aktivní ji překryje svým podkladem. */
+  margin-bottom: -1px;
+  padding: 0 6px 1px 10px;
+  border-radius: 8px 8px 0 0;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: default;
@@ -1222,12 +1216,18 @@ body {
   transition: background-color var(--dur-quick) var(--ease-out);
 }
 
-.fw-tab:hover {
+/* Víc oušek, než se vejde — zúží se rovnoměrně (jako v prohlížeči). */
+.fw-tabbar.is-crowded .fw-tab {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.fw-tab:hover:not(.is-active) {
   background-color: var(--hover);
 }
 
 .fw-tab.is-active {
-  background-color: var(--row-selected-inactive);
+  background-color: var(--bg-main);
   color: var(--text-primary);
 }
 
@@ -1235,7 +1235,7 @@ body {
   color: var(--text-secondary);
 }
 
-/* × jen při najetí — klidná lišta, dokud s ní uživatel nepracuje. */
+/* × u aktivní vždy, u ostatních při najetí; u jediné záložky vůbec. */
 .fw-tab-close {
   display: flex;
   flex-shrink: 0;
@@ -1249,8 +1249,13 @@ body {
   transition: opacity var(--dur-quick) var(--ease-out);
 }
 
-.fw-tab:hover .fw-tab-close {
+.fw-tab:hover .fw-tab-close,
+.fw-tab.is-active .fw-tab-close {
   opacity: 1;
+}
+
+.fw-tabbar.is-single .fw-tab-close {
+  display: none;
 }
 
 .fw-tab-close:hover {
@@ -1258,13 +1263,15 @@ body {
   color: var(--text-primary);
 }
 
-/* + na konci lišty — stejně tlumené jako vedlejší ikony toolbaru. */
+/* + hned za posledním ouškem — stejně tlumené jako vedlejší ikony toolbaru. */
 .fw-tab-new {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  width: 28px;
+  height: 28px;
+  margin: 0 0 3px 2px;
   border-radius: 6px;
   color: var(--text-secondary);
   transition: background-color var(--dur-quick) var(--ease-out);
@@ -1273,6 +1280,11 @@ body {
 .fw-tab-new:hover {
   background-color: var(--hover);
   color: var(--text-primary);
+}
+
+.fw-tab-new:disabled {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 /* Nová záložka vjede zprava, zavřená se zúží a zhasne. */
@@ -1296,6 +1308,7 @@ body {
 @keyframes fw-tab-out {
   to {
     flex-grow: 0;
+    min-width: 0;
     max-width: 0;
     padding-inline: 0;
     opacity: 0;

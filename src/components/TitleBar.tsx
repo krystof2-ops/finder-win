@@ -30,6 +30,11 @@ function TrafficLight({ color, label, Icon, onClick }: TrafficLightProps) {
   );
 }
 
+/**
+ * Titulkový pruh 32 px se „semaforem" vlevo (odsazení 12 px). Celý je táhlo
+ * okna (data-tauri-drag-region); dvojklik maximalizuje / obnoví — to obstará
+ * Tauri samo.
+ */
 export function TitleBar() {
   const t = useT();
   const appWindow = getCurrentWindow();
@@ -37,7 +42,7 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="flex h-[38px] shrink-0 items-center gap-2 bg-window pl-[13px]"
+      className="flex h-[32px] shrink-0 items-center gap-2 bg-window pl-[12px]"
     >
       <div className="group flex items-center gap-2">
         <TrafficLight
