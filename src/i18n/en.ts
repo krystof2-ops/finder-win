@@ -58,6 +58,10 @@ export const en = {
   "motion.on": "On",
   "motion.off": "Off",
 
+  /* ----------------------------------- tabs ----------------------------------- */
+  "tabs.label": "Tabs",
+  "tabs.close": "Close Tab",
+
   /* ------------------------------- undo / redo -------------------------------- */
   "undo.undo": "Undo",
   "undo.redo": "Redo",
@@ -95,6 +99,7 @@ export const en = {
   "menu.copyCurrentPath": "Copy Path of Current Folder",
   "menu.copyName": "Copy Name",
   "menu.copyNames": "Copy Names",
+  "menu.openInNewTab": "Open in New Tab",
   "menu.copyFiles": "Copy Files to Clipboard",
   "menu.editPath": "Edit Path",
   "menu.delete": "Delete",

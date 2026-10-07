@@ -1,6 +1,6 @@
 import { load, type Store } from "@tauri-apps/plugin-store";
 
-import type { CustomFavorite, RecentEntry, RecentKind, TagColor, TagMap } from "../types";
+import type { CustomFavorite, RecentEntry, RecentKind, TagColor, TagMap, ViewMode } from "../types";
 
 /**
  * Persistentní nastavení v `settings.json` v app config adresáři.
@@ -23,12 +23,17 @@ const KEY_SHOW_HIDDEN = "showHidden";
 const KEY_SIDEBAR_WIDTH = "sidebarWidth";
 const KEY_MOTION = "motion";
 const KEY_LANGUAGE = "language";
+const KEY_TABS = "tabs";
 
 /** Animace: podle systému (omezit animace ve Windows), vždy, nebo nikdy. */
 export type MotionPreference = "system" | "on" | "off";
 
 /** Jazyk UI: podle systému, nebo napevno (viz i18n/index.ts). */
 export type LanguagePreference = "system" | "en" | "cs";
+
+/** Záložky z minulého spuštění: složka a zobrazení každé, a která byla aktivní. */
+export type SavedTab = { path: string; view: ViewMode };
+export type SavedTabs = { items: SavedTab[]; active: number };
 
 /** Rozsah šířky sidebaru při tažení za hranu; dvojklik vrací výchozí. */
 export const SIDEBAR_MIN = 180;
@@ -47,6 +52,7 @@ export type Snapshot = {
   sidebarWidth: number;
   motion: MotionPreference;
   language: LanguagePreference;
+  tabs: SavedTabs;
 };
 
 const EMPTY: Snapshot = {
@@ -57,6 +63,7 @@ const EMPTY: Snapshot = {
   sidebarWidth: SIDEBAR_DEFAULT,
   motion: "system",
   language: "system",
+  tabs: { items: [], active: 0 },
 };
 
 function clampSidebar(width: number): number {
@@ -178,6 +185,21 @@ function sanitizeTags(value: unknown): TagMap {
   return result;
 }
 
+function sanitizeTabs(value: unknown): SavedTabs {
+  if (typeof value !== "object" || value === null) return EMPTY.tabs;
+  const { items, active } = value as Record<string, unknown>;
+  if (!Array.isArray(items)) return EMPTY.tabs;
+
+  const valid = items.flatMap((item): SavedTab[] => {
+    if (typeof item !== "object" || item === null) return [];
+    const { path, view } = item as Record<string, unknown>;
+    if (typeof path !== "string" || path === "") return [];
+    return [{ path, view: view === "list" || view === "column" ? view : "icon" }];
+  });
+  const index = typeof active === "number" && Number.isInteger(active) ? active : 0;
+  return { items: valid, active: Math.min(Math.max(index, 0), Math.max(valid.length - 1, 0)) };
+}
+
 /**
  * Otevře store a naplní cache. Opakovaná volání sdílí jeden běh, takže je
  * jedno, kolik komponent si o init řekne.
@@ -188,7 +210,7 @@ export function init(): Promise<void> {
   loading = (async () => {
     store = await load(STORE_FILE, { autoSave: 200 });
 
-    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language] = await Promise.all([
+    const [favorites, recents, tags, showHidden, sidebarWidth, motion, language, tabs] = await Promise.all([
       store.get<unknown>(KEY_FAVORITES),
       store.get<unknown>(KEY_RECENTS),
       store.get<unknown>(KEY_TAGS),
@@ -196,6 +218,7 @@ export function init(): Promise<void> {
       store.get<unknown>(KEY_SIDEBAR_WIDTH),
       store.get<unknown>(KEY_MOTION),
       store.get<unknown>(KEY_LANGUAGE),
+      store.get<unknown>(KEY_TABS),
     ]);
 
     commit({
@@ -206,6 +229,7 @@ export function init(): Promise<void> {
       sidebarWidth: typeof sidebarWidth === "number" ? clampSidebar(sidebarWidth) : SIDEBAR_DEFAULT,
       motion: motion === "on" || motion === "off" ? motion : "system",
       language: language === "en" || language === "cs" ? language : "system",
+      tabs: sanitizeTabs(tabs),
     });
   })().catch((err: unknown) => {
     // Rozbité nastavení nesmí shodit aplikaci — pojede se s prázdným.
@@ -255,6 +279,13 @@ export async function setMotion(value: MotionPreference): Promise<void> {
 export async function setLanguage(value: LanguagePreference): Promise<void> {
   commit({ language: value });
   await persist(KEY_LANGUAGE, value);
+}
+
+/* -------------------------------- záložky ----------------------------------- */
+
+export async function setSavedTabs(value: SavedTabs): Promise<void> {
+  commit({ tabs: value });
+  await persist(KEY_TABS, value);
 }
 
 /* ------------------------------- oblíbené ---------------------------------- */

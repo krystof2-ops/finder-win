@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "./fileops";
 import { sortEntries, type SortDirection, type SortKey } from "./format";
 import { failure } from "./i18n";
+import { samePath } from "./lib/storage";
 import type { FileEntry, SelectMods } from "./types";
 
 export type Column = {
@@ -23,6 +24,9 @@ export type Column = {
    *  čerstvá data a může v něm označit nově vytvořenou položku. */
   version: number;
 };
+
+/** Sloupec uložený v neaktivní záložce — jen cesta a výběr, data se načtou znovu. */
+export type ColumnSnapshot = { path: string; selectedPath: string | null; selectedPaths: string[] };
 
 /** Posun o počet řádků (šipky ±1, PgUp/PgDn o stránku) nebo na kraj. */
 export type MoveTarget = number | "first" | "last";
@@ -54,6 +58,8 @@ export type ColumnsApi = {
   /** Položky sloupce tak, jak je uživatel vidí — seřazené a v zaměřeném
    *  sloupci i vyfiltrované. Šipky i akce pracují jen nad nimi. */
   visibleEntries: (columnIndex: number) => FileEntry[];
+  /** Přepnutí záložky: otevře celou hierarchii sloupců i s výběry naráz. */
+  restore: (chain: ColumnSnapshot[], focusedIndex: number) => void;
 };
 
 /** Každý load dostane nový token — čísla se nikdy neopakují. */
@@ -134,6 +140,9 @@ export function useColumns(
   const [rootLoading, setRootLoading] = useState(false);
   /** Token posledního požadavku na kořen — starší odpověď se zahodí. */
   const rootToken = useRef(0);
+  /** Kořen, který právě obnovuje restore() — efekt kořene ho nesmí přebít
+   *  jedním prázdným sloupcem. */
+  const restoringRoot = useRef<string | null>(null);
 
   // Refresh a gumička potřebují aktuální sloupce, ale nesmí se kvůli nim
   // překreslovat — jinak by se identita callbacků měnila při každém výběru.
@@ -233,6 +242,10 @@ export function useColumns(
   // začínají vždy jedním sloupcem. Dosavadní sloupce ale zůstanou vidět, dokud
   // nový kořen nedorazí — panel se při navigaci nevyprazdňuje.
   useEffect(() => {
+    if (enabled && rootPath !== null && restoringRoot.current !== null && samePath(restoringRoot.current, rootPath)) {
+      return;
+    }
+
     const token = nextToken++;
     rootToken.current = token;
 
@@ -267,6 +280,53 @@ export function useColumns(
       .then((entries) => finish(entries, null))
       .catch((err: unknown) => finish([], String(err)));
   }, [enabled, rootPath]);
+
+  const restore = useCallback((chain: ColumnSnapshot[], focus: number) => {
+    if (chain.length === 0) return;
+    const token = nextToken++;
+    rootToken.current = token;
+    restoringRoot.current = chain[0].path;
+    setRootLoading(true);
+
+    void Promise.all(
+      chain.map((column) =>
+        invoke<FileEntry[]>("list_dir", { path: column.path, showHidden: showHiddenRef.current }).then(
+          (entries) => ({ entries, error: null as string | null }),
+          (err: unknown) => ({ entries: [] as FileEntry[], error: String(err) as string | null }),
+        ),
+      ),
+    ).then((results) => {
+      restoringRoot.current = null;
+      if (rootToken.current !== token) return;
+
+      // Složka, která mezitím zmizela, a všechno napravo od ní se neotevírá.
+      const failedAt = results.findIndex((result, index) => index > 0 && result.error !== null);
+      const kept = failedAt > 0 ? chain.slice(0, failedAt) : chain;
+
+      setRootLoading(false);
+      setColumns(
+        kept.map((column, index) => {
+          const { entries, error } = results[index];
+          const alive = new Set(entries.map((entry) => entry.path));
+          const cut = failedAt > 0 && index === kept.length - 1;
+          const selectedPath =
+            !cut && column.selectedPath !== null && alive.has(column.selectedPath) ? column.selectedPath : null;
+          return {
+            path: column.path,
+            entries,
+            loading: false,
+            error,
+            selectedPath,
+            selectedPaths: cut ? [] : column.selectedPaths.filter((path) => alive.has(path)),
+            anchorPath: selectedPath,
+            token,
+            version: 1,
+          };
+        }),
+      );
+      setFocusedIndex(Math.min(Math.max(focus, 0), kept.length - 1));
+    });
+  }, []);
 
   const select = useCallback(
     (columnIndex: number, entry: FileEntry, mods?: SelectMods) => {
@@ -480,6 +540,7 @@ export function useColumns(
       clearSelection,
       refresh,
       visibleEntries,
+      restore,
     }),
     [
       columns,
@@ -496,6 +557,7 @@ export function useColumns(
       clearSelection,
       refresh,
       visibleEntries,
+      restore,
     ],
   );
 }

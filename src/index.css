@@ -1111,6 +1111,97 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+/* Lišta záložek pod toolbarem — jen při dvou a více záložkách, jako ve Finderu. */
+.fw-tabbar {
+  display: flex;
+  flex-shrink: 0;
+  gap: 4px;
+  height: 30px;
+  padding: 3px 8px;
+  background-color: var(--bg-toolbar);
+  border-bottom: 1px solid var(--border);
+}
+
+.fw-tab {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 260px;
+  padding: 0 4px 0 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: default;
+  user-select: none;
+  transition: background-color var(--dur-quick) var(--ease-out);
+}
+
+.fw-tab:hover {
+  background-color: var(--hover);
+}
+
+.fw-tab.is-active {
+  background-color: var(--row-selected-inactive);
+  color: var(--text-primary);
+}
+
+.fw-tab.is-active.is-blurred {
+  color: var(--text-secondary);
+}
+
+/* × jen při najetí — klidná lišta, dokud s ní uživatel nepracuje. */
+.fw-tab-close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity var(--dur-quick) var(--ease-out);
+}
+
+.fw-tab:hover .fw-tab-close {
+  opacity: 1;
+}
+
+.fw-tab-close:hover {
+  background-color: var(--hover);
+  color: var(--text-primary);
+}
+
+/* Nová záložka vjede zprava, zavřená se zúží a zhasne. */
+.fw-tab-in {
+  animation: fw-tab-in var(--dur-nav) var(--ease-out) both;
+}
+
+@keyframes fw-tab-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+.fw-tab-out {
+  overflow: hidden;
+  pointer-events: none;
+  animation: fw-tab-out var(--dur-nav) var(--ease-out) forwards;
+}
+
+@keyframes fw-tab-out {
+  to {
+    flex-grow: 0;
+    max-width: 0;
+    padding-inline: 0;
+    opacity: 0;
+  }
+}
+
 /* Přepínač zobrazení — jeden segmented control. Vyzdvižený segment je
    samostatný prvek, který se posouvá transformací (160 ms). */
 .fw-segmented {

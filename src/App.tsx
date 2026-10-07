@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
 import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
@@ -22,6 +22,7 @@ import { QuickLook } from "./components/QuickLook";
 import { SearchView } from "./components/SearchView";
 import { Sidebar } from "./components/Sidebar";
 import { StatusBar } from "./components/StatusBar";
+import { TabBar } from "./components/TabBar";
 import { TagView } from "./components/TagView";
 import { FolderIcon, folderDisplayName, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
@@ -54,7 +55,6 @@ import {
   breadcrumbs,
   formatItemCount,
   sortEntries,
-  type SortDirection,
   type SortKey,
 } from "./format";
 import { errorText, failure, t, useLocale, type MessageKey } from "./i18n";
@@ -64,10 +64,12 @@ import { applyMotion, motionEnabled, motionMs, smoothIfAllowed } from "./lib/mot
 import * as storage from "./lib/storage";
 import { TAG_COLORS, TAG_HEX, tagLabel } from "./lib/tags";
 import { useRubberBand } from "./lib/rubberBand";
+import { useStableCallback } from "./lib/rowDnd";
 import { setSpecialFolders } from "./lib/specialFolders";
 import { useStorage } from "./lib/useStorage";
 import type { ViewHandle } from "./lib/viewHandle";
-import { INITIAL_NAV, navReducer, type NavDirection } from "./navigation";
+import { newTab, useBrowserState, type Tab, type TabSnapshot } from "./browser";
+import type { NavDirection } from "./navigation";
 import { applyTheme, readStoredTheme } from "./theme";
 import { redoOp, trashTimestamp, undoLabel, undoOp, UNDO_LIMIT, type UndoOp } from "./undo";
 import type {
@@ -196,7 +198,45 @@ export default function App() {
     setSpecialFolders(next);
     setSectionsState(next);
   }, []);
-  const [nav, dispatch] = useReducer(navReducer, INITIAL_NAV);
+  const browser = useBrowserState();
+  const {
+    nav,
+    dispatch,
+    viewMode,
+    setViewMode,
+    sortKey,
+    setSortKey,
+    sortDirection,
+    setSortDirection,
+    query,
+    setQuery,
+    tagFilter,
+    setTagFilter,
+    search,
+    setSearch,
+    active,
+    setActive,
+    selection,
+    setSelection,
+  } = browser;
+
+  /** Záložky. Živý stav (browser výš) má jen aktivní, ostatní leží jako snímky. */
+  const [initialTab] = useState(() => newTab(null));
+  const [tabs, setTabs] = useState<Tab[]>(() => [initialTab]);
+  const [activeTabId, setActiveTabId] = useState(initialTab.id);
+  /** Výběr a posun záložky, na kterou se přepnulo — nastaví se, až dorazí
+   *  výpis její složky (dřív by ho srovnání s výpisem zahodilo). */
+  const tabRestore = useRef<{
+    path: string | null;
+    selection: string[];
+    active: string | null;
+    scrollTop: number;
+    seq: number;
+  } | null>(null);
+  /** Přepnutí záložky mění nav.current, její dotaz v poli hledání ale zůstává. */
+  const keepQueryOnNav = useRef(false);
+  /** Záložky se do nastavení zapisují až po jejich obnovení při startu. */
+  const tabsLoaded = useRef(false);
 
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -232,11 +272,6 @@ export default function App() {
   const [freeSpace, setFreeSpace] = useState<number | null>(null);
   const [refreshToken, setRefreshToken] = useState(0);
 
-  // Aktivní položka řídí operace pro jednu položku (přejmenování, Quick Look,
-  // vlastnosti); selection drží celý výběr pro hromadné operace.
-  const [active, setActive] = useState<FileEntry | null>(null);
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-
   /** Kopie systémové schránky — jen pro průhlednost vyjmutých položek.
    *  Vkládá se vždy z té skutečné (Ctrl+V čte schránku Windows). */
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
@@ -248,15 +283,8 @@ export default function App() {
   const [propertiesFor, setPropertiesFor] = useState<FileEntry | null>(null);
   const [aboutOpen, setAboutOpen] = useState(false);
 
-  // Tag view je samostatný režim hlavního panelu — nesouvisí s nav.current,
-  // proto vlastní stav a ne další ViewMode.
-  const [tagFilter, setTagFilter] = useState<TagColor | null>(null);
   const [tagCount, setTagCount] = useState(0);
 
-  // Rekurzivní hledání je stejně jako tag view samostatný režim panelu. Kořen
-  // se drží spolu s dotazem, aby výsledky nezůstaly viset na jiné složce, než
-  // ve které se opravdu hledalo.
-  const [search, setSearch] = useState<{ root: string; query: string } | null>(null);
   const [searchCount, setSearchCount] = useState(0);
   /** Co se má označit, až dorazí výpis složky `dir`. `seq` je stav načítacího
    *  čítače v okamžiku požadavku — čeká se, až se posune. Bez toho by se
@@ -288,10 +316,6 @@ export default function App() {
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("icon");
-  const [sortKey, setSortKey] = useState<SortKey>("name");
-  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
-  const [query, setQuery] = useState("");
   // Filtr výpisu jede se zpožděním 100 ms — v tisícové složce by každý úhoz
   // přefiltroval a překreslil všechno. Smazání pole platí hned.
   const [filterQuery, setFilterQuery] = useState("");
@@ -538,15 +562,50 @@ export default function App() {
   navDirectionRef.current = nav.direction;
 
   useEffect(() => {
-    invoke<FavoriteSection[]>("get_favorites")
-      .then((result) => {
-        setSections(result);
+    const favorites = invoke<FavoriteSection[]>("get_favorites");
+    favorites.then(setSections).catch((err: unknown) => setError(failure("op.sidebar", err)));
+
+    // Záložky z minulého spuštění — jen ty, jejichž složka pořád jde otevřít.
+    // Pomalý síťový disk se nečeká: co neodpoví do chvilky, zůstane taky.
+    const savedTabs = storage.init().then(async () => {
+      const { items, active } = storage.getSnapshot().tabs;
+      const checked = await Promise.all(
+        items.map((item) =>
+          Promise.race([
+            invoke("can_list_dir", { path: item.path }).then(
+              () => true,
+              () => false,
+            ),
+            new Promise<boolean>((resolve) => window.setTimeout(() => resolve(true), 1500)),
+          ]).then((ok) => (ok ? item : null)),
+        ),
+      );
+      return { items: checked.filter((item) => item !== null), active: checked[active] ?? null };
+    });
+
+    void Promise.all([favorites.catch(() => [] as FavoriteSection[]), savedTabs.catch(() => null)]).then(
+      ([result, saved]) => {
+        tabsLoaded.current = true;
         // Výčet disků umí trvat sekundy (odpojený síťový disk). Kdo mezitím
         // sám někam došel (Ctrl+L, klik), toho to nesmí hodit zpátky.
+        if (navCurrentRef.current !== null) return;
+
+        if (saved && saved.items.length > 0) {
+          const restored = saved.items.map((item) =>
+            newTab(item.path, { viewMode: item.view, sortKey: "name", sortDirection: "asc" }),
+          );
+          const index = saved.active === null ? 0 : Math.max(0, saved.items.indexOf(saved.active));
+          setTabs(restored);
+          setActiveTabId(restored[index].id);
+          setViewMode(saved.items[index].view);
+          dispatch({ type: "go", path: saved.items[index].path });
+          return;
+        }
+
         const first = result[0]?.items[0];
-        if (first && navCurrentRef.current === null) dispatch({ type: "go", path: first.path });
-      })
-      .catch((err: unknown) => setError(failure("op.sidebar", err)));
+        if (first) dispatch({ type: "go", path: first.path });
+      },
+    );
   }, []);
 
   // Připojený nebo odpojený disk (USB, síťový) se v sidebaru ukáže hned.
@@ -565,7 +624,8 @@ export default function App() {
   useEffect(() => {
     setSelection(new Set());
     setActive(null);
-    setQuery("");
+    if (keepQueryOnNav.current) keepQueryOnNav.current = false;
+    else setQuery("");
     setRenamingPath(null);
     setPathEditing(false);
   }, [nav.current]);
@@ -1552,6 +1612,202 @@ export default function App() {
     },
   });
 
+  /* -------------------------------- záložky -------------------------------- */
+
+  /** Stav aktivní záložky jako snímek — při přepnutí na jinou. */
+  const captureSnapshot = (): TabSnapshot => ({
+    nav,
+    viewMode,
+    sortKey,
+    sortDirection,
+    query,
+    search,
+    tagFilter,
+    selection: [...selection],
+    active: active?.path ?? null,
+    scrollTop: scrollRef.current?.scrollTop ?? 0,
+    columns: columnsApi.columns.map((column) => ({
+      path: column.path,
+      selectedPath: column.selectedPath,
+      selectedPaths: column.selectedPaths,
+    })),
+    columnFocus: columnsApi.focusedIndex,
+  });
+
+  /** Nahraje snímek záložky do živého stavu. Složka se vždy načte znovu —
+   *  neaktivní záložka nic nehlídala, mezitím se v ní mohlo cokoli změnit. */
+  const applySnapshot = (snapshot: TabSnapshot) => {
+    keepQueryOnNav.current = snapshot.nav.current !== nav.current;
+    tabRestore.current =
+      snapshot.viewMode === "column"
+        ? null
+        : {
+            path: snapshot.nav.current,
+            selection: snapshot.selection,
+            active: snapshot.active,
+            scrollTop: snapshot.scrollTop,
+            seq: loadSeq.current,
+          };
+
+    dispatch({ type: "restore", state: { ...snapshot.nav, direction: "jump" } });
+    setViewMode(snapshot.viewMode);
+    setSortKey(snapshot.sortKey);
+    setSortDirection(snapshot.sortDirection);
+    setQuery(snapshot.query);
+    setSearch(snapshot.search);
+    setTagFilter(snapshot.tagFilter);
+    setSelection(new Set());
+    setActive(null);
+    setOverlaySelected(null);
+    setOverlayPreview(null);
+    setPendingSelect(null);
+    setRenamingPath(null);
+    setPathEditing(false);
+    setQuickLookOpen(false);
+
+    if (snapshot.viewMode === "column" && snapshot.nav.current !== null) {
+      columnsApi.restore(
+        snapshot.columns.length > 0
+          ? snapshot.columns
+          : [{ path: snapshot.nav.current, selectedPath: null, selectedPaths: [] }],
+        snapshot.columnFocus,
+      );
+    }
+    setRefreshToken((token) => token + 1);
+  };
+
+  /** Otevřené záložky v pořadí lišty (bez těch, co právě odjíždějí). */
+  const openTabs = tabs.filter((tab) => !tab.closing);
+
+  const switchTab = useStableCallback((id: number) => {
+    if (id === activeTabId) return;
+    const target = openTabs.find((tab) => tab.id === id);
+    if (!target) return;
+
+    const snapshot = captureSnapshot();
+    setTabs((current) => current.map((tab) => (tab.id === activeTabId ? { ...tab, snapshot } : tab)));
+    setActiveTabId(id);
+    applySnapshot(target.snapshot);
+  });
+
+  /** Nová záložka na konci lišty (jako ve Finderu), hned aktivní. */
+  const openTab = useStableCallback((path: string | null) => {
+    if (path === null) return;
+    const tab = { ...newTab(path, { viewMode, sortKey, sortDirection }), fresh: true };
+    const snapshot = captureSnapshot();
+    setTabs((current) => [
+      ...current.map((item) => (item.id === activeTabId ? { ...item, snapshot } : item)),
+      tab,
+    ]);
+    setActiveTabId(tab.id);
+    applySnapshot(tab.snapshot);
+    // Příznak jen na dobu animace — jinak by ouško vjelo znovu při každém
+    // dalším připojení lišty.
+    window.setTimeout(
+      () => setTabs((current) => current.map((item) => (item.id === tab.id ? { ...item, fresh: false } : item))),
+      motionMs("--dur-nav") + 50,
+    );
+  });
+
+  /** Poslední záložka se nezavírá — okno s jedinou záložkou zůstává. */
+  const closeTab = useStableCallback((id: number) => {
+    if (openTabs.length <= 1) return;
+    const index = openTabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+
+    if (id === activeTabId) {
+      const neighbor = openTabs[index + 1] ?? openTabs[index - 1];
+      setActiveTabId(neighbor.id);
+      applySnapshot(neighbor.snapshot);
+    }
+    setTabs((current) => current.map((tab) => (tab.id === id ? { ...tab, closing: true } : tab)));
+    // Ouško se zúží a zhasne, pak teprve zmizí z pole.
+    window.setTimeout(
+      () => setTabs((current) => current.filter((tab) => tab.id !== id)),
+      motionMs("--dur-nav"),
+    );
+  });
+
+  const reorderTab = useCallback((id: number, index: number) => {
+    setTabs((current) => {
+      const from = current.findIndex((tab) => tab.id === id);
+      if (from < 0 || from === index) return current;
+      const next = [...current];
+      const [moved] = next.splice(from, 1);
+      next.splice(index, 0, moved);
+      return next;
+    });
+  }, []);
+
+  /** Ctrl+Tab / Ctrl+Shift+Tab — dokola. */
+  const cycleTab = useStableCallback((delta: number) => {
+    const index = openTabs.findIndex((tab) => tab.id === activeTabId);
+    if (index < 0 || openTabs.length < 2) return;
+    switchTab(openTabs[(index + delta + openTabs.length) % openTabs.length].id);
+  });
+
+  /** Ctrl+1…8 přímo, Ctrl+9 poslední — jako v prohlížeči. */
+  const switchToTabNumber = useStableCallback((number: number) => {
+    const tab = number === 9 ? openTabs[openTabs.length - 1] : openTabs[number - 1];
+    if (tab) switchTab(tab.id);
+  });
+
+  // Výběr a posun obnovené záložky, jakmile dorazí čerstvý výpis její složky.
+  useEffect(() => {
+    const restore = tabRestore.current;
+    if (restore === null || isColumnView) return;
+    if (restore.path === null) {
+      tabRestore.current = null;
+      return;
+    }
+    if (loaded.path === null || !storage.samePath(loaded.path, restore.path) || loaded.seq <= restore.seq) return;
+
+    tabRestore.current = null;
+    const chosen = new Set(restore.selection);
+    setSelection(new Set(entries.filter((entry) => chosen.has(entry.path)).map((entry) => entry.path)));
+    setActive(entries.find((entry) => entry.path === restore.active) ?? null);
+    const top = restore.scrollTop;
+    requestAnimationFrame(() => {
+      if (scrollRef.current) scrollRef.current.scrollTop = top;
+    });
+  }, [entries, loaded, isColumnView]);
+
+  // Otevřené záložky do settings.json — při startu se obnoví. S jedinou
+  // záložkou se nic neukládá: start zůstává jako dřív, v první oblíbené.
+  useEffect(() => {
+    if (!tabsLoaded.current) return;
+    const items = openTabs.length < 2 ? [] : openTabs.flatMap((tab) => {
+      const live = tab.id === activeTabId;
+      const path = live ? nav.current : tab.snapshot.nav.current;
+      return path === null ? [] : [{ path, view: live ? viewMode : tab.snapshot.viewMode }];
+    });
+    const value = { items, active: Math.max(0, openTabs.findIndex((tab) => tab.id === activeTabId)) };
+    if (JSON.stringify(storage.getSnapshot().tabs) !== JSON.stringify(value)) void storage.setSavedTabs(value);
+  }, [tabs, activeTabId, nav.current, viewMode]);
+
+  // Prostřední tlačítko na složce ve výpisu = otevřít v nové záložce.
+  const folderAt = useStableCallback((path: string): boolean => {
+    const lists = [visibleEntries, ...columnsApi.columns.map((column) => column.entries)];
+    return lists.some((list) => list.some((entry) => entry.path === path && entry.is_dir));
+  });
+  useEffect(() => {
+    function onMiddle(event: MouseEvent) {
+      if (event.button !== 1) return;
+      const row = (event.target as Element | null)?.closest<HTMLElement>("[data-path]");
+      const path = row?.dataset.path;
+      if (!path || !folderAt(path)) return;
+      // Bez tohohle by webview spustilo automatické posouvání kolečkem.
+      event.preventDefault();
+      if (event.type === "auxclick") openTab(path);
+    }
+    window.addEventListener("mousedown", onMiddle, true);
+    window.addEventListener("auxclick", onMiddle, true);
+    return () => {
+      window.removeEventListener("mousedown", onMiddle, true);
+      window.removeEventListener("auxclick", onMiddle, true);
+    };
+  }, [folderAt, openTab]);
+
   /* --------------------------- klávesové zkratky -------------------------- */
 
   /** Cokoliv, co překrývá hlavní panel a obsluhuje si klávesy samo. */
@@ -1574,6 +1830,26 @@ export default function App() {
       // Menu, která drží vlastní stav mimo App (Více v toolbaru, sidebar) —
       // pod nimi nesmí projít Delete, F2 ani Ctrl+V. Menu se pozná podle DOM.
       if (document.querySelector("[data-fw-menu]")) return;
+
+      // Záložky jako v prohlížeči — fungují i s fokusem v poli hledání.
+      const tabCtrl = (event.ctrlKey || event.metaKey) && !event.altKey;
+      if (tabCtrl && event.key === "Tab") {
+        event.preventDefault();
+        cycleTab(event.shiftKey ? -1 : 1);
+        return;
+      }
+      if (tabCtrl && !event.shiftKey && /^Digit[1-9]$/.test(event.code)) {
+        event.preventDefault();
+        switchToTabNumber(Number(event.code.slice(5)));
+        return;
+      }
+      if (tabCtrl && !event.shiftKey && (event.key.toLowerCase() === "t" || event.key.toLowerCase() === "w")) {
+        event.preventDefault();
+        if (event.key.toLowerCase() === "t") openTab(currentDir);
+        else closeTab(activeTabId);
+        return;
+      }
+
       if (isTypingTarget(event.target)) return;
 
       // Escape ve výsledcích hledání je zavře (a tím zastaví běžící průchod
@@ -1808,6 +2084,12 @@ export default function App() {
     toggleHidden,
     putOnClipboard,
     stepHistory,
+    cycleTab,
+    switchToTabNumber,
+    openTab,
+    closeTab,
+    currentDir,
+    activeTabId,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -2181,6 +2463,9 @@ export default function App() {
         // open() by soubor označil v podkladové složce, kde vůbec není.
         onSelect: () => (overlay ? openFromResults(entry) : open(entry)),
       },
+      entry.is_dir
+        ? { type: "item", label: t("menu.openInNewTab"), onSelect: () => openTab(entry.path) }
+        : null,
       // Výsledky hledání a tag view jsou rozcestník — odtud se položka odkrývá
       // v její složce (dřív to dělal jeden klik).
       overlay && parentPath(entry.path) !== null
@@ -2369,6 +2654,7 @@ export default function App() {
     selectAll,
     changeViewMode,
     changeTags,
+    openTab,
     locale,
   ]);
 
@@ -2746,6 +3032,23 @@ export default function App() {
             historyItems={historyItems}
             onMenuOpenChange={setToolbarMenuOpen}
           />
+
+          {tabs.length > 1 && (
+            <TabBar
+              tabs={tabs.map((tab) => ({
+                id: tab.id,
+                path: tab.id === activeTabId ? nav.current : tab.snapshot.nav.current,
+                closing: tab.closing === true,
+                fresh: tab.fresh === true,
+              }))}
+              activeId={activeTabId}
+              windowFocused={windowFocused}
+              onSelect={switchTab}
+              onClose={closeTab}
+              onReorder={reorderTab}
+              onDropInto={dropInto}
+            />
+          )}
 
           <div className="relative flex min-h-0 flex-1 flex-col">
             {/* Navigace i přenačtení nechávají obsah na místě, takže by jinak

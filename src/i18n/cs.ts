@@ -57,6 +57,10 @@ export const cs = {
   "motion.on": "Zapnuto",
   "motion.off": "Vypnuto",
 
+  /* --------------------------------- záložky ---------------------------------- */
+  "tabs.label": "Záložky",
+  "tabs.close": "Zavřít záložku",
+
   /* ------------------------------- zpět / znovu ------------------------------- */
   "undo.undo": "Zpět",
   "undo.redo": "Znovu",
@@ -102,6 +106,7 @@ export const cs = {
   "menu.copyCurrentPath": "Kopírovat cestu aktuální složky",
   "menu.copyName": "Kopírovat název",
   "menu.copyNames": "Kopírovat názvy",
+  "menu.openInNewTab": "Otevřít v nové záložce",
   "menu.copyFiles": "Kopírovat soubory do schránky",
   "menu.editPath": "Upravit cestu",
   "menu.delete": "Smazat",

@@ -15,7 +15,12 @@ export type NavState = {
   direction: NavDirection;
 };
 
-export type NavAction = { type: "go"; path: string } | { type: "back" } | { type: "forward" };
+export type NavAction =
+  | { type: "go"; path: string }
+  | { type: "back" }
+  | { type: "forward" }
+  /** Přepnutí záložky: celá historie té záložky naráz. */
+  | { type: "restore"; state: NavState };
 
 export const INITIAL_NAV: NavState = { current: null, back: [], forward: [], direction: "jump" };
 
@@ -54,6 +59,8 @@ export function navReducer(state: NavState, action: NavAction): NavState {
         direction: "back",
       };
     }
+    case "restore":
+      return action.state;
     case "forward": {
       const [next, ...rest] = state.forward;
       if (next === undefined || state.current === null) return state;
