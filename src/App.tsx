@@ -30,6 +30,10 @@ import { TooltipLayer } from "./components/Tooltip";
 import { Skeleton, ViewTransition } from "./components/ViewTransition";
 import { useColumns } from "./columns";
 import {
+  clipboardClear,
+  clipboardHasFiles,
+  clipboardReadFiles,
+  clipboardWriteFiles,
   copyPath,
   createFile,
   createFolder,
@@ -231,7 +235,11 @@ export default function App() {
   const [active, setActive] = useState<FileEntry | null>(null);
   const [selection, setSelection] = useState<Set<string>>(new Set());
 
+  /** Kopie systémové schránky — jen pro průhlednost vyjmutých položek.
+   *  Vkládá se vždy z té skutečné (Ctrl+V čte schránku Windows). */
   const [clipboard, setClipboard] = useState<Clipboard | null>(null);
+  /** Má systémová schránka soubory? Zjišťuje se při otevření menu (Vložit). */
+  const [clipboardHasItems, setClipboardHasItems] = useState(false);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [pathEditing, setPathEditing] = useState(false);
   const [menu, setMenu] = useState<MainMenu | null>(null);
@@ -1246,13 +1254,56 @@ export default function App() {
     writeText(text).catch((err: unknown) => setNotice(failure(failed, err)));
   }, []);
 
+  /** Cesty jako soubory do schránky Windows — vloží je Průzkumník, Outlook
+   *  i prohlížeč. Interní kopie se drží jen kvůli vzhledu vyjmutých. */
+  const putOnClipboard = useCallback(
+    (paths: string[], mode: "copy" | "cut") => {
+      if (paths.length === 0) return;
+      setClipboard({ paths, mode });
+      clipboardWriteFiles(paths, mode === "cut").catch((err: unknown) => {
+        setClipboard(null);
+        setNotice(failure("op.clipboard", err));
+      });
+    },
+    [setNotice],
+  );
+
   const copyToClipboard = useCallback(
     (mode: "copy" | "cut", items: FileEntry[] = targetEntries) => {
-      if (items.length === 0) return;
-      setClipboard({ paths: items.map((entry) => entry.path), mode });
+      putOnClipboard(items.map((entry) => entry.path), mode);
     },
-    [targetEntries],
+    [targetEntries, putOnClipboard],
   );
+
+  /** Stav schránky pro „Vložit" v menu — čte se při otevření, ne v intervalu. */
+  const checkClipboard = useCallback(() => {
+    clipboardHasFiles()
+      .then(setClipboardHasItems)
+      .catch(() => setClipboardHasItems(false));
+  }, []);
+
+  // Návrat do okna: schránku mohl mezitím přepsat kdokoli jiný (Ctrl+X
+  // v Průzkumníku, zkopírovaný text). Průhlednost vyjmutých jde za ní.
+  useEffect(() => {
+    function sync() {
+      clipboardReadFiles()
+        .then((files) => {
+          setClipboard((current) => {
+            if (files === null) return null;
+            const mode = files.cut ? "cut" : "copy";
+            const same =
+              current !== null &&
+              current.mode === mode &&
+              current.paths.length === files.paths.length &&
+              current.paths.every((path, index) => storage.samePath(path, files.paths[index]));
+            return same ? current : { paths: files.paths, mode };
+          });
+        })
+        .catch(() => undefined);
+    }
+    window.addEventListener("focus", sync);
+    return () => window.removeEventListener("focus", sync);
+  }, []);
 
   /**
    * Kopie nebo přesun cest do složky `target` — společné pro Vložit
@@ -1344,21 +1395,37 @@ export default function App() {
   const paste = useCallback(
     (into?: string) => {
       const target = into ?? currentDir;
-      if (!clipboard || target === null) return;
-      const { paths, mode } = clipboard;
+      if (target === null) return;
 
-      // Vyjmuto a vloženo tam, kde už to leží — není co přesouvat, schránka pryč.
-      const alreadyThere = paths.every((path) => {
-        const parent = parentPath(path);
-        return parent !== null && storage.samePath(parent, target);
-      });
+      void clipboardReadFiles()
+        // Schránku drží jiná aplikace — poslouží interní kopie, když nějaká je.
+        .catch(() => (clipboard ? { paths: clipboard.paths, cut: clipboard.mode === "cut" } : null))
+        .then((files) => {
+          // Text nebo obrázek: Vložit tu nemá co dělat, chyba to ale není.
+          if (files === null || files.paths.length === 0) {
+            setClipboard(null);
+            return;
+          }
+          const { paths } = files;
+          const mode = files.cut ? "cut" : "copy";
 
-      void transfer(paths, target, mode).then((ok) => {
-        // Vyjmuté položky se dají vložit jen jednou. Schránka se ale čistí jen
-        // když se aspoň něco přesunulo — po úplném selhání by uživatel jinak
-        // přišel i o to, co měl vyjmuté.
-        if (mode === "cut" && (ok > 0 || alreadyThere)) setClipboard(null);
-      });
+          // Vyjmuto a vloženo tam, kde už to leží — není co přesouvat, schránka pryč.
+          const alreadyThere = paths.every((path) => {
+            const parent = parentPath(path);
+            return parent !== null && storage.samePath(parent, target);
+          });
+
+          return transfer(paths, target, mode).then((ok) => {
+            // Vyjmuté položky se dají vložit jen jednou (jako v Průzkumníku).
+            // Schránka se ale čistí jen když se aspoň něco přesunulo — po
+            // úplném selhání by uživatel jinak přišel i o to, co měl vyjmuté.
+            if (mode === "cut" && (ok > 0 || alreadyThere)) {
+              setClipboard(null);
+              setClipboardHasItems(false);
+              clipboardClear().catch(() => undefined);
+            }
+          });
+        });
     },
     [clipboard, currentDir, transfer],
   );
@@ -1481,7 +1548,7 @@ export default function App() {
           refresh();
         } else if (ctrl && key === "c" && overlaySelected) {
           event.preventDefault();
-          setClipboard({ paths: [overlaySelected.path], mode: "copy" });
+          putOnClipboard([overlaySelected.path], "copy");
         }
         return;
       }
@@ -1650,6 +1717,7 @@ export default function App() {
     goForward,
     overlaySelected,
     toggleHidden,
+    putOnClipboard,
   ]);
 
   /* -------------------------- boční tlačítka myši ------------------------- */
@@ -1746,14 +1814,16 @@ export default function App() {
     // otevřené, aby operace pro jednu položku mířily tam, kam uživatel klikl.
     setSelection((current) => (current.has(entry.path) ? current : new Set([entry.path])));
     setActive(entry);
+    checkClipboard();
     setMenu({ kind: "entry", x, y, entry, overlay: false });
-  }, []);
+  }, [checkClipboard]);
 
   /** Položka z výsledků hledání nebo z tag view. Výběr podkladové složky se
    *  nechává být — ta položka v něm vůbec není. */
   const openOverlayMenu = useCallback((entry: FileEntry, x: number, y: number) => {
+    checkClipboard();
     setMenu({ kind: "entry", x, y, entry, overlay: true });
-  }, []);
+  }, [checkClipboard]);
 
   /** Pravý klik do volné plochy panelu — menu složky, ve které uživatel stojí. */
   const openBackgroundMenu = useCallback(
@@ -1772,9 +1842,10 @@ export default function App() {
       const dir = column?.dataset.columnPath ?? currentDir;
 
       event.preventDefault();
+      checkClipboard();
       setMenu({ kind: "background", x: event.clientX, y: event.clientY, dir });
     },
-    [tagFilter, search, currentDir],
+    [tagFilter, search, currentDir, checkClipboard],
   );
 
   /** Klik do prázdné plochy Icon / List View zruší výběr. Column view to řeší
@@ -1892,7 +1963,7 @@ export default function App() {
           type: "item",
           label: t("menu.paste"),
           shortcut: "Ctrl+V",
-          disabled: clipboard === null,
+          disabled: !clipboardHasItems,
           onSelect: () => paste(dir),
         },
         { type: "separator" },
@@ -2114,7 +2185,7 @@ export default function App() {
         type: "item",
         label: t("menu.paste"),
         shortcut: "Ctrl+V",
-        disabled: clipboard === null || pasteTarget === null,
+        disabled: !clipboardHasItems || pasteTarget === null,
         onSelect: () => paste(pasteTarget ?? undefined),
       },
       { type: "separator" },
@@ -2180,7 +2251,7 @@ export default function App() {
     tags,
     favorites,
     targetEntries,
-    clipboard,
+    clipboardHasItems,
     isColumnView,
     visibleEntries.length,
     viewMode,
@@ -2264,12 +2335,8 @@ export default function App() {
         type: "item",
         label: t("menu.copyFiles"),
         disabled: sharePaths.length === 0,
-        // Soubory jako soubory (CF_HDROP pro vložení v Průzkumníku) zatím ne —
-        // do schránky jdou cesty jako text a uživatel se to dozví.
-        onSelect: () => {
-          copyText(text, single ? "op.copyPath" : "op.copyPaths");
-          showInfo(t("toast.copiedAsPaths"));
-        },
+        // Jako soubory (CF_HDROP) — vloží je Průzkumník i příloha v mailu.
+        onSelect: () => putOnClipboard(sharePaths, "copy"),
       },
       { type: "separator" },
       {
@@ -2279,7 +2346,7 @@ export default function App() {
         onSelect: () => revealInExplorer(sharePaths[0]),
       },
     ];
-  }, [sharePaths, copyText, showInfo, revealInExplorer, locale]);
+  }, [sharePaths, copyText, putOnClipboard, revealInExplorer, locale]);
 
   // Štítky výběru: barva je zaškrtnutá, když ji mají všechny vybrané položky.
   // Klik ji pak všem odebere, jinak ji přidá všem — jako ve Finderu.

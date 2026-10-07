@@ -195,8 +195,6 @@ export const cs = {
     few: "Přeskočeny {count} odkazy (symlinky a junctions).",
     other: "Přeskočeno {count} odkazů (symlinky a junctions).",
   },
-  "toast.copiedAsPaths":
-    "Zkopírováno jako cesty (text) — vkládání souborů do Průzkumníku zatím neumím.",
 
   /* Operace: „{action} — {detail}", u hromadných i počet. */
   "error.operation": "{action} — {detail}",
@@ -217,6 +215,7 @@ export const cs = {
   "op.sidebar": "Postranní panel se nepodařilo načíst",
   "op.watch": "Složku nejde hlídat, změny se neukážou samy",
   "op.checkTarget": "Cíl se nepodařilo zkontrolovat",
+  "op.clipboard": "Schránku se nepodařilo použít",
   "op.copyPath": "Cestu se nepodařilo zkopírovat",
   "op.copyPaths": "Cesty se nepodařilo zkopírovat",
   "op.copyName": "Název se nepodařilo zkopírovat",
@@ -386,5 +385,7 @@ export const cs = {
   "error.iconRead": "ikonu se nepodařilo přečíst",
   "error.iconSize": "velikost ikony musí být 32, 64 nebo 128",
   "error.iconTimeout": "ikona nestihla doběhnout",
+  "error.clipboardBusy": "schránku právě drží jiná aplikace",
+  "error.clipboardWrite": "do schránky se nepodařilo zapsat",
   "error.notText": "soubor není textový",
 } as const;

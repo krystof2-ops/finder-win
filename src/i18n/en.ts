@@ -177,8 +177,6 @@ export const en = {
     one: "Skipped {count} link (symlinks and junctions).",
     other: "Skipped {count} links (symlinks and junctions).",
   },
-  "toast.copiedAsPaths":
-    "Copied as paths (text) — pasting files into File Explorer isn't supported yet.",
 
   "error.operation": "{action} — {detail}",
   "error.batch": "{action} for {failed} of {count} items — {detail}",
@@ -198,6 +196,7 @@ export const en = {
   "op.sidebar": "Couldn't load the sidebar",
   "op.watch": "Can't watch this folder; changes won't show up automatically",
   "op.checkTarget": "Couldn't check the destination",
+  "op.clipboard": "Clipboard operation failed",
   "op.copyPath": "Couldn't copy the path",
   "op.copyPaths": "Couldn't copy the paths",
   "op.copyName": "Couldn't copy the name",
@@ -364,5 +363,7 @@ export const en = {
   "error.iconRead": "couldn't read the icon",
   "error.iconSize": "the icon size must be 32, 64 or 128",
   "error.iconTimeout": "the icon took too long",
+  "error.clipboardBusy": "the clipboard is in use by another app",
+  "error.clipboardWrite": "couldn't write to the clipboard",
   "error.notText": "the file isn't text",
 } satisfies Dictionary;

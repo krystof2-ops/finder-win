@@ -189,3 +189,25 @@ export function stemLength(name: string): number {
   const dot = name.lastIndexOf(".");
   return dot > 0 ? dot : name.length;
 }
+
+/* ---------------------------- systémová schránka ---------------------------- */
+
+/** Soubory ve schránce Windows (CF_HDROP); `cut` = vyjmuté přes Ctrl+X. */
+export type ClipboardFiles = { paths: string[]; cut: boolean };
+
+export function clipboardWriteFiles(paths: string[], cut: boolean): Promise<void> {
+  return invoke<void>("clipboard_write_files", { paths, cut });
+}
+
+/** null = ve schránce nejsou soubory (text, obrázek, nic). */
+export function clipboardReadFiles(): Promise<ClipboardFiles | null> {
+  return invoke<ClipboardFiles | null>("clipboard_read_files");
+}
+
+export function clipboardHasFiles(): Promise<boolean> {
+  return invoke<boolean>("clipboard_has_files");
+}
+
+export function clipboardClear(): Promise<void> {
+  return invoke<void>("clipboard_clear");
+}

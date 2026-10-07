@@ -9,6 +9,8 @@ use std::time::UNIX_EPOCH;
 use serde::Serialize;
 use walkdir::WalkDir;
 
+mod clipboard;
+
 /* --------------------------------- chyby ----------------------------------- */
 
 /// Chyba pro frontend: klíč do slovníku překladů a parametry. Backend žádnou
@@ -2477,7 +2479,11 @@ fn main() {
             cancel_search,
             folder_stats,
             cancel_folder_stats,
-            get_file_icon
+            get_file_icon,
+            clipboard::clipboard_write_files,
+            clipboard::clipboard_read_files,
+            clipboard::clipboard_has_files,
+            clipboard::clipboard_clear
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
