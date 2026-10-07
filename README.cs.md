@@ -17,7 +17,7 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 ## Funkce
 
 - **Tři režimy zobrazení** – Ikony, Seznam (řaditelné sloupce, pruhované řádky) a Sloupce (Miller columns s info panelem vybraného souboru).
-- **Záložky** – Ctrl+T otevře aktuální složku v nové záložce, prostřední klik nebo *Otevřít v nové záložce* otevře složku; každá záložka má vlastní historii, zobrazení, řazení, výběr i hledání. Přetažením se přerovnávají, soubor puštěný na záložku se přesune do její složky; při dalším spuštění se obnoví.
+- **Záložky** – Ctrl+T, tlačítko **+** v toolbaru (a na konci lišty záložek) nebo Více → Nová záložka otevře aktuální složku v nové záložce, prostřední klik nebo *Otevřít v nové záložce* otevře složku; každá záložka má vlastní historii, zobrazení, řazení, výběr i hledání. Přetažením se přerovnávají, soubor puštěný na záložku se přesune do její složky; při dalším spuštění se obnoví.
 - **Okno ve stylu macOS** – vlastní titulkový pruh se „semaforem“, zaoblené rohy, tenké scrollbary.
 - **Postranní panel**
   - standardní složky (Plocha, Stažené, Dokumenty, Obrázky, Hudba, Videa, Domů), OneDrive / iCloud Drive, pokud existují,

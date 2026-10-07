@@ -7,6 +7,7 @@ import {
   List,
   Moon,
   MoreHorizontal,
+  Plus,
   Search,
   Share,
   SlidersHorizontal,
@@ -165,6 +166,10 @@ type ToolbarProps = {
   tagItems: MenuItem[] | null;
   /** Zpět / Znovu na začátku menu Více — popisky skládá App podle zásobníku. */
   historyItems: MenuItem[];
+  /** Nová záložka s aktuální složkou — totéž co Ctrl+T. */
+  onNewTab: () => void;
+  /** Ještě není otevřená žádná složka (start) — nová záložka nemá co ukázat. */
+  canNewTab: boolean;
   /** Otevřené menu musí App znát kvůli globálním zkratkám (modalOpen). */
   onMenuOpenChange: (open: boolean) => void;
 };
@@ -202,6 +207,8 @@ export function Toolbar({
   shareItems,
   tagItems,
   historyItems,
+  onNewTab,
+  canNewTab,
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
@@ -229,6 +236,7 @@ export function Toolbar({
   const moreItems: MenuItem[] = [
     ...historyItems,
     { type: "separator" },
+    { type: "item", label: t("tabs.new"), shortcut: "Ctrl+T", disabled: !canNewTab, onSelect: onNewTab },
     { type: "item", label: t("menu.refresh"), shortcut: "F5", onSelect: onRefresh },
     {
       type: "item",
@@ -345,6 +353,14 @@ export function Toolbar({
           onMouseDown={toggleMenu("tags")}
         />
       </div>
+
+      <IconButton
+        Icon={Plus}
+        label={t("tabs.newWithShortcut")}
+        secondary
+        disabled={!canNewTab}
+        onClick={onNewTab}
+      />
 
       <IconButton
         Icon={MoreHorizontal}

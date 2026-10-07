@@ -64,6 +64,8 @@ export const en = {
 
   /* ----------------------------------- tabs ----------------------------------- */
   "tabs.label": "Tabs",
+  "tabs.new": "New Tab",
+  "tabs.newWithShortcut": "New Tab (Ctrl+T)",
   "tabs.close": "Close Tab",
 
   /* ------------------------------- undo / redo -------------------------------- */

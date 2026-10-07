@@ -63,6 +63,8 @@ export const cs = {
 
   /* --------------------------------- záložky ---------------------------------- */
   "tabs.label": "Záložky",
+  "tabs.new": "Nová záložka",
+  "tabs.newWithShortcut": "Nová záložka (Ctrl+T)",
   "tabs.close": "Zavřít záložku",
 
   /* ------------------------------- zpět / znovu ------------------------------- */

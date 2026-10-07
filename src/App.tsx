@@ -3073,6 +3073,8 @@ export default function App() {
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
             historyItems={historyItems}
+            onNewTab={() => openTab(currentDir)}
+            canNewTab={currentDir !== null}
             onMenuOpenChange={setToolbarMenuOpen}
           />
 
@@ -3090,6 +3092,7 @@ export default function App() {
               onClose={closeTab}
               onReorder={reorderTab}
               onDropInto={dropInto}
+              onNew={() => openTab(currentDir)}
             />
           )}
 

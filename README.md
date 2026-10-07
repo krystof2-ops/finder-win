@@ -17,7 +17,7 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 ## Features
 
 - **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
-- **Tabs** – Ctrl+T opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
+- **Tabs** – Ctrl+T, the **+** button in the toolbar (and at the end of the tab bar) or More → New Tab opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
 - **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
 - **Sidebar**
   - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos, Home), OneDrive / iCloud Drive when present,

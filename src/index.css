@@ -1199,6 +1199,23 @@ body {
   color: var(--text-primary);
 }
 
+/* + na konci lišty — stejně tlumené jako vedlejší ikony toolbaru. */
+.fw-tab-new {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  transition: background-color var(--dur-quick) var(--ease-out);
+}
+
+.fw-tab-new:hover {
+  background-color: var(--hover);
+  color: var(--text-primary);
+}
+
 /* Nová záložka vjede zprava, zavřená se zúží a zhasne. */
 .fw-tab-in {
   animation: fw-tab-in var(--dur-nav) var(--ease-out) both;

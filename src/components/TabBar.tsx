@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 
 import { FolderIcon, folderDisplayName } from "./icons";
 import { useT } from "../i18n";
@@ -25,6 +25,8 @@ type TabBarProps = {
   onReorder: (id: number, index: number) => void;
   /** Položky (i soubory z Průzkumníku) puštěné na záložku — přesun do její složky. */
   onDropInto: DropInto;
+  /** + na konci lišty, jako v prohlížeči — totéž co Ctrl+T. */
+  onNew: () => void;
 };
 
 /** Typ dat taženého ouška — odliší ho od tažení souborů. */
@@ -43,7 +45,7 @@ function tabTitle(path: string | null): string {
  * a více záložkách. Ouška jdou přerovnat tažením a dá se na ně pustit soubor
  * (přesun do složky záložky, s Ctrl kopie).
  */
-export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReorder, onDropInto }: TabBarProps) {
+export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReorder, onDropInto, onNew }: TabBarProps) {
   const t = useT();
   /** Ouško, které se právě táhne (přerovnání). */
   const dragging = useRef<number | null>(null);
@@ -144,6 +146,18 @@ export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReo
           </div>
         );
       })}
+
+      <button
+        type="button"
+        className="fw-tab-new"
+        aria-label={t("tabs.newWithShortcut")}
+        data-tooltip={t("tabs.newWithShortcut")}
+        // Fokus zůstává ve výpisu (šipky), jako u tlačítek toolbaru.
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onNew}
+      >
+        <Plus size={15} strokeWidth={1.5} />
+      </button>
     </div>
   );
 }
