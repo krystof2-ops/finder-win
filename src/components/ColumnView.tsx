@@ -2,7 +2,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "rea
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { ChevronRight } from "lucide-react";
 
-import { EntryIcon, SmallEntryIcon } from "./icons";
+import { canThumbnail, EntryIcon, SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
@@ -18,9 +18,10 @@ import { sameEntry } from "../lib/rows";
 import { useRubberBand } from "../lib/rubberBand";
 import { tagsOf } from "../lib/storage";
 import { isTypingTarget } from "../lib/dom";
+import { canShellThumbnail } from "../lib/fileIcons";
 import { motionMs, smoothIfAllowed } from "../lib/motion";
 import { TAG_HEX, tagLabel } from "../lib/tags";
-import { getFileProperties } from "../fileops";
+import { getFileProperties, getMediaInfo, type MediaInfo } from "../fileops";
 import { entryOpacity, formatModified, formatSize, kindLabel } from "../format";
 import { failure, useT } from "../i18n";
 import type { Column, ColumnsApi } from "../columns";
@@ -334,14 +335,56 @@ type InfoPanelProps = {
   tags: TagMap;
 };
 
+/** Typy, u kterých má smysl ptát se Windows na délku, rozměry nebo strany. */
+const MEDIA_EXTENSIONS = new Set([
+  "mp4", "mov", "mkv", "webm", "avi", "m4v", "wmv", "mp3", "m4a", "flac", "wav", "ogg",
+  "jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "tif", "tiff", "pdf",
+]);
+
+/** Obrázky: rozměry se píšou v px, u videa je to „rozlišení“. */
+const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "gif", "webp", "heic", "bmp", "tif", "tiff"]);
+
+/** 75 000 ms → 1:15, 3 725 000 ms → 1:02:05 */
+function formatDuration(milliseconds: number): string {
+  const total = Math.round(milliseconds / 1000);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}` : `${minutes}:${seconds}`;
+}
+
 /**
  * Poslední sloupec u vybraného souboru — náhled jako ve Finderu: velká ikona
  * nebo obrázek, pod ní název a údaje. Časy se berou z get_file_properties
- * (výpis nese jen změnu a vytvoření, ne přesné atributy).
+ * (výpis nese jen změnu a vytvoření, ne přesné atributy). Volající ji
+ * klíčuje cestou, takže se stav mezi soubory nepřenáší.
  */
 function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
   const t = useT();
   const [properties, setProperties] = useState<FileProperties | null>(null);
+  // Údaje nesou cestu — po změně výběru se ani na jeden snímek neukáží cizí.
+  const [media, setMedia] = useState<{ path: string; info: MediaInfo } | null>(null);
+
+  // Délka videa, rozlišení, rozměry fotky, počet stran PDF — z property
+  // systemu Windows. Co chybí, řádek se nezobrazí.
+  useEffect(() => {
+    if (!MEDIA_EXTENSIONS.has(entry.extension ?? "")) return;
+    let active = true;
+    getMediaInfo(entry.path)
+      .then((info) => {
+        if (active) setMedia({ path: entry.path, info });
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [entry.path, entry.extension]);
+  const info = media?.path === entry.path ? media.info : null;
+  const isImage = IMAGE_EXTENSIONS.has(entry.extension ?? "");
+  const size = info?.width && info?.height ? { width: info.width, height: info.height } : null;
+  // Velký box jen pro obsah (fotka, snímek videa, strana PDF) — ikona ze
+  // shellu má nejvýš 128 px a roztažená by byla rozmazaná.
+  const previewSize = canThumbnail(entry) || canShellThumbnail(entry) ? 240 : 128;
 
   useEffect(() => {
     let active = true;
@@ -359,9 +402,10 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
   const colors = tagsOf(tags, entry.path);
 
   return (
-    <div className="fw-info-panel fw-scroll flex w-[240px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
+    <div className="fw-info-panel fw-scroll flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto border-l border-line bg-main p-4 text-[12px]">
+      {/* Velký náhled — celý obrázek / snímek / strana, ne ořez na čtverec. */}
       <div className="flex justify-center pt-2">
-        <EntryIcon entry={entry} size={128} thumbnail />
+        <EntryIcon entry={entry} size={previewSize} thumbnail contain />
       </div>
 
       <p className="text-center text-[13px] font-semibold break-words text-primary">{entry.name}</p>
@@ -373,6 +417,12 @@ function InfoPanel({ entry, onOpen, tags }: InfoPanelProps) {
         </InfoRow>
         <InfoRow label={t("info.created")}>{formatModified(properties?.created ?? entry.created)}</InfoRow>
         <InfoRow label={t("info.modified")}>{formatModified(properties?.modified ?? entry.modified)}</InfoRow>
+        {info?.duration_ms ? <InfoRow label={t("info.duration")}>{formatDuration(info.duration_ms)}</InfoRow> : null}
+        {size && !isImage ? (
+          <InfoRow label={t("info.resolution")}>{t("info.resolutionValue", size)}</InfoRow>
+        ) : null}
+        {size && isImage ? <InfoRow label={t("info.dimensions")}>{t("info.dimensionsValue", size)}</InfoRow> : null}
+        {info?.pages ? <InfoRow label={t("info.pages")}>{info.pages}</InfoRow> : null}
         <InfoRow label={t("info.tags")}>
           {colors.length > 0 && (
             <span className="inline-flex flex-wrap justify-end gap-x-2">
@@ -693,7 +743,7 @@ export function ColumnView({
           ))}
 
           {infoEntry && lastColumn && (
-            <InfoPanel entry={infoEntry} onOpen={onOpenFile} tags={tags} />
+            <InfoPanel key={infoEntry.path} entry={infoEntry} onOpen={onOpenFile} tags={tags} />
           )}
         </div>
       </div>

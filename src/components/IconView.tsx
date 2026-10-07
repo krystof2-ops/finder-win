@@ -2,6 +2,7 @@ import { memo, useEffect, useImperativeHandle, useMemo, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { LargeEntryIcon } from "./icons";
+import { canShellThumbnail, SHELL_THUMBNAIL_LIMIT } from "../lib/fileIcons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { entryOpacity } from "../format";
@@ -46,6 +47,8 @@ type CellHandlers = {
 
 type CellProps = {
   entry: FileEntry;
+  /** Smí se ptát shellu na náhled videa / PDF (prvních 200 ve složce). */
+  shellPreview: boolean;
   selected: boolean;
   cut: boolean;
   renaming: boolean;
@@ -59,6 +62,7 @@ type CellProps = {
 const IconCell = memo(
   function IconCell({
     entry,
+    shellPreview,
     selected,
     cut,
     renaming,
@@ -111,7 +115,7 @@ const IconCell = memo(
         <div className="fw-icon-tile p-1" style={{ backgroundColor: tileBg }}>
           {/* Náhled obrázku — vykreslují se jen viditelné buňky, takže
               se nedekódují tisíce fotek naráz a strop není potřeba. */}
-          <LargeEntryIcon entry={entry} thumbnail />
+          <LargeEntryIcon entry={entry} thumbnail shellPreview={shellPreview} />
         </div>
 
         {renaming ? (
@@ -138,6 +142,7 @@ const IconCell = memo(
   },
   (a, b) =>
     sameEntry(a.entry, b.entry) &&
+    a.shellPreview === b.shellPreview &&
     a.selected === b.selected &&
     a.cut === b.cut &&
     a.renaming === b.renaming &&
@@ -189,6 +194,17 @@ export function IconView({
   initialOffset = 0,
 }: IconViewProps) {
   const { dropTarget, handlers: drop } = useFolderDrop(onDropInto);
+
+  // Náhledy videí a PDF táhne shell (pomaleji než obrázky) — dostane je
+  // nejvýš prvních 200 ve složce, zbytek ikonu.
+  const shellPreviewPaths = useMemo(() => {
+    const allowed = new Set<string>();
+    for (const entry of entries) {
+      if (allowed.size >= SHELL_THUMBNAIL_LIMIT) break;
+      if (canShellThumbnail(entry)) allowed.add(entry.path);
+    }
+    return allowed;
+  }, [entries]);
 
   // Počet sloupců ze skutečné šířky kontejneru. ResizeObserver hlásí při
   // tažení okna desítky změn — přepočet se slije do jednoho snímku.
@@ -305,6 +321,7 @@ export function IconView({
               <IconCell
                 key={entry.path}
                 entry={entry}
+                shellPreview={shellPreviewPaths.has(entry.path)}
                 selected={selectedPaths.has(entry.path)}
                 cut={cutPaths.has(entry.path)}
                 renaming={entry.path === renamingPath}

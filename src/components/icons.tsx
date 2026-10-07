@@ -20,12 +20,21 @@ import {
   Music,
   Network,
   Smartphone,
+  Play,
   Usb,
   Video,
   type LucideIcon,
 } from "lucide-react";
 
-import { iconRequestSize, useFileIcon, useVisible } from "../lib/fileIcons";
+import {
+  canShellThumbnail,
+  iconRequestSize,
+  isVideo,
+  thumbnailRequestSize,
+  useFileIcon,
+  useFileThumbnail,
+  useVisible,
+} from "../lib/fileIcons";
 import { fileType, type FileGroup } from "../lib/filetypes";
 import { namedFolder, specialFolderGlyph } from "../lib/specialFolders";
 import { t, useT } from "../i18n";
@@ -161,7 +170,7 @@ export function canThumbnail(entry: FileEntry): boolean {
 
 /** Náhled obrázku — líně, až když je vidět, jinak by složka s tisíci fotek
  *  dekódovala všechny naráz. Když se nenačte, zůstane ikona. */
-function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
+function Thumbnail({ entry, size, contain = false }: { entry: FileEntry; size: number; contain?: boolean }) {
   const [ref, visible] = useVisible();
   const [failed, setFailed] = useState(false);
   // Náhled se ukáže, až je dekódovaný — do té doby průhledný, žádný poloviční
@@ -188,8 +197,10 @@ function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
           decoding="async"
           onLoad={() => setShown((current) => (current === "no" ? "fade" : current))}
           onError={() => setFailed(true)}
-          className={`h-full w-full rounded-[4px] object-cover ${shown === "fade" ? "fw-icon-in" : ""}`}
-          style={{ border: "1px solid var(--thumb-border)", opacity: shown === "no" ? 0 : undefined }}
+          className={`h-full w-full rounded-[4px] ${contain ? "object-contain" : "object-cover"} ${
+            shown === "fade" ? "fw-icon-in" : ""
+          }`}
+          style={{ border: contain ? undefined : "1px solid var(--thumb-border)", opacity: shown === "no" ? 0 : undefined }}
         />
       ) : (
         <ShellIcon entry={entry} size={size} />
@@ -199,24 +210,77 @@ function Thumbnail({ entry, size }: { entry: FileEntry; size: number }) {
 }
 
 /**
+ * Náhled videa nebo PDF od Windows (snímek, první strana). Dokud nedorazí —
+ * nebo když ho systém pro typ nemá — stojí na jeho místě ikona ze shellu.
+ * Video má v rohu malý odznak ▶. `contain` = celý obrázek (náhledový
+ * sloupec), jinak ořez na čtverec jako u fotek v mřížce.
+ */
+function ShellThumbnail({ entry, size, contain = false }: { entry: FileEntry; size: number; contain?: boolean }) {
+  const { ref, url, failed, arrived } = useFileThumbnail(entry, thumbnailRequestSize(size));
+  const badge = Math.max(14, Math.round(size * 0.22));
+
+  return (
+    <span ref={ref} className="relative inline-flex shrink-0 items-center justify-center" style={{ width: size, height: size }}>
+      {url && !failed ? (
+        <img
+          src={url}
+          alt=""
+          draggable={false}
+          className={`h-full w-full rounded-[4px] ${contain ? "object-contain" : "object-cover"} ${
+            arrived ? "fw-icon-in" : ""
+          }`}
+          style={{ border: contain ? undefined : "1px solid var(--thumb-border)" }}
+        />
+      ) : (
+        <ShellIcon entry={entry} size={size} />
+      )}
+      {url && !failed && isVideo(entry) && (
+        <span
+          aria-hidden
+          className="absolute flex items-center justify-center rounded-full"
+          style={{
+            right: 3,
+            bottom: 3,
+            width: badge,
+            height: badge,
+            background: "var(--overlay-strong)",
+            color: "#fff",
+          }}
+        >
+          <Play size={Math.round(badge * 0.55)} fill="currentColor" strokeWidth={0} style={{ marginLeft: 1 }} />
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
  * Ikona položky v libovolné velikosti: složka (se speciálním glyfem), náhled
- * obrázku (když `thumbnail`), jinak ikona ze shellu. Odkaz dostane šipku.
+ * obrázku, videa nebo PDF (když `thumbnail`), jinak ikona ze shellu. Odkaz
+ * dostane šipku. `shellPreview` = smí se ptát shellu na náhled (strop 200
+ * na složku hlídá Icon view).
  */
 export function EntryIcon({
   entry,
   size,
   thumbnail = false,
+  shellPreview = true,
+  contain = false,
 }: {
   entry: FileEntry;
   size: number;
   thumbnail?: boolean;
+  shellPreview?: boolean;
+  contain?: boolean;
 }) {
   return (
     <WithLinkBadge entry={entry} size={size}>
       {entry.is_dir ? (
         <FolderIcon size={size} glyph={specialFolderGlyph(entry.path)} />
       ) : thumbnail && canThumbnail(entry) ? (
-        <Thumbnail entry={entry} size={size} />
+        <Thumbnail entry={entry} size={size} contain={contain} />
+      ) : thumbnail && shellPreview && canShellThumbnail(entry) ? (
+        <ShellThumbnail entry={entry} size={size} contain={contain} />
       ) : (
         <ShellIcon entry={entry} size={size} />
       )}
@@ -224,9 +288,17 @@ export function EntryIcon({
   );
 }
 
-/** Velká ikona 64px pro icon view. `thumbnail` = u obrázku ukázat náhled. */
-export function LargeEntryIcon({ entry, thumbnail = false }: { entry: FileEntry; thumbnail?: boolean }) {
-  return <EntryIcon entry={entry} size={64} thumbnail={thumbnail} />;
+/** Velká ikona 64px pro icon view. `thumbnail` = u obrázku, videa a PDF náhled. */
+export function LargeEntryIcon({
+  entry,
+  thumbnail = false,
+  shellPreview = true,
+}: {
+  entry: FileEntry;
+  thumbnail?: boolean;
+  shellPreview?: boolean;
+}) {
+  return <EntryIcon entry={entry} size={64} thumbnail={thumbnail} shellPreview={shellPreview} />;
 }
 
 /** Malá ikona 16px pro list view, sloupce a výsledky. */

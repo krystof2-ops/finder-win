@@ -216,3 +216,16 @@ export function clipboardHasFiles(): Promise<boolean> {
 export function clipboardClear(): Promise<void> {
   return invoke<void>("clipboard_clear");
 }
+
+/** Délka, rozlišení / rozměry a počet stran z Windows property systemu.
+ *  Co soubor nemá, je null. */
+export type MediaInfo = {
+  duration_ms: number | null;
+  width: number | null;
+  height: number | null;
+  pages: number | null;
+};
+
+export function getMediaInfo(path: string): Promise<MediaInfo> {
+  return invoke<MediaInfo>("get_media_info", { path });
+}

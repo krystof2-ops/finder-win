@@ -2030,6 +2030,15 @@ const OWN_ICON_EXTENSIONS: [&str; 7] = ["exe", "lnk", "ico", "url", "cpl", "msc"
 /// ikonu vracet sekundy — frontend si mezitím nechá obecnou ikonu podle přípony.
 const ICON_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Náhled obsahu trvá déle než ikona — snímek z velkého videa nebo první
+/// strana PDF běžně i několik sekund. Po limitu frontend nechá ikonu a zkusí
+/// to příště znovu (výsledek po limitu se nikam neukládá).
+const THUMBNAIL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// Jak dlouho se drží náhledy na disku. Soubory se mění a mažou — cache by
+/// jinak jen rostla; ikony podle přípony to nepotřebují.
+const THUMBNAIL_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 24 * 3600);
+
 /// FNV-1a — stabilní napříč spuštěními (DefaultHasher to nezaručuje),
 /// takže název souboru v cache zůstává platný.
 fn fnv1a(text: &str) -> u64 {
@@ -2153,17 +2162,19 @@ unsafe fn bitmap_rgba(
     Ok((width as u32, height as u32, pixels))
 }
 
-/// Ikona souboru tak, jak ji kreslí Průzkumník, jako PNG.
-/// Musí běžet na vlákně s inicializovaným COM (volá se z get_file_icon).
+/// Obrázek souboru ze shellu jako PNG: ikona, jak ji kreslí Průzkumník, nebo
+/// (`thumbnail`) náhled obsahu — snímek videa, první strana PDF. Náhled umí
+/// jen typ s thumbnail handlerem; jinak chyba a volající nechá ikonu.
+/// Musí běžet na vlákně s inicializovaným COM (viz on_com_thread).
 #[cfg(windows)]
-fn render_shell_icon(path: &str, size: u32) -> CmdResult<Vec<u8>> {
+fn render_shell_image(path: &str, size: u32, thumbnail: bool) -> CmdResult<Vec<u8>> {
     use windows::core::HSTRING;
     use windows::Win32::Foundation::SIZE;
     use windows::Win32::Graphics::Gdi::{DeleteObject, HGDIOBJ};
     use windows::Win32::System::Com::IBindCtx;
     use windows::Win32::UI::Shell::{
         IShellItemImageFactory, SHCreateItemFromParsingName, SIIGBF, SIIGBF_BIGGERSIZEOK,
-        SIIGBF_ICONONLY,
+        SIIGBF_ICONONLY, SIIGBF_THUMBNAILONLY,
     };
 
     unsafe {
@@ -2171,11 +2182,17 @@ fn render_shell_icon(path: &str, size: u32) -> CmdResult<Vec<u8>> {
             SHCreateItemFromParsingName(&HSTRING::from(path), None::<&IBindCtx>)
                 .map_err(|err| describe_win(&err))?;
 
-        // Jen ikona (ne náhled obsahu) a klidně větší — zmenší se v UI.
-        let flags = SIIGBF(SIIGBF_ICONONLY.0 | SIIGBF_BIGGERSIZEOK.0);
+        // Ikona klidně větší (zmenší se v UI). Náhled ne: shell by vrátil celý
+        // snímek videa a z 128px náhledu by bylo megabajtové PNG.
+        let flags = if thumbnail {
+            SIIGBF_THUMBNAILONLY
+        } else {
+            SIIGBF(SIIGBF_ICONONLY.0 | SIIGBF_BIGGERSIZEOK.0)
+        };
         let bitmap = factory
             .GetImage(SIZE { cx: size as i32, cy: size as i32 }, flags)
-            .map_err(|err| describe_win(&err))?;
+            // Typ bez thumbnail handleru — volající nechá ikonu.
+            .map_err(|err| if thumbnail { AppError::new("error.noThumbnail") } else { describe_win(&err) })?;
 
         let pixels = bitmap_rgba(bitmap);
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
@@ -2186,8 +2203,107 @@ fn render_shell_icon(path: &str, size: u32) -> CmdResult<Vec<u8>> {
 }
 
 #[cfg(not(windows))]
-fn render_shell_icon(_path: &str, _size: u32) -> CmdResult<Vec<u8>> {
+fn render_shell_image(_path: &str, _size: u32, _thumbnail: bool) -> CmdResult<Vec<u8>> {
     Err(AppError::new("error.windowsOnly"))
+}
+
+/// Úloha pro shell na vlastním vlákně s COM (STA) a s časovým limitem —
+/// síťový disk nebo líné rozšíření shellu nesmí zdržet výpis ani UI.
+fn on_com_thread<T: Send + 'static>(
+    timeout: std::time::Duration,
+    task: impl FnOnce() -> CmdResult<T> + Send + 'static,
+) -> CmdResult<T> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+            let _ = sender.send(task());
+            CoUninitialize();
+        }
+        #[cfg(not(windows))]
+        let _ = sender.send(task());
+    });
+    receiver
+        .recv_timeout(timeout)
+        .map_err(|_| AppError::new("error.iconTimeout"))?
+}
+
+/// Soubor cache obrázků: %LOCALAPPDATA%\finder-win\<kind>\<hash>.png.
+fn image_cache_file(kind: &str, key: &str) -> Option<PathBuf> {
+    dirs::data_local_dir().map(|dir| dir.join("finder-win").join(kind).join(format!("{:016x}.png", fnv1a(key))))
+}
+
+/// PNG z cache na disku (`kind` = podsložka), jinak z `render` — a uložit.
+/// Trvalá chyba `error.noThumbnail` se pamatuje prázdným souborem `.none`,
+/// ať se shell neptá na stejné PDF bez handleru při každém spuštění; chyby
+/// přechodné (timeout) se neukládají.
+fn cached_png(kind: &str, key: &str, render: impl FnOnce() -> CmdResult<Vec<u8>>) -> CmdResult<String> {
+    let cached = image_cache_file(kind, key);
+    let marker = cached.as_ref().map(|file| file.with_extension("none"));
+
+    if let Some(file) = &cached {
+        // Useknutý soubor (pád při zápisu) se nebere — přegeneruje se.
+        if let Ok(bytes) = fs::read(file) {
+            if bytes.starts_with(b"\x89PNG") {
+                return Ok(png_data_url(&bytes));
+            }
+        }
+    }
+    if marker.as_ref().is_some_and(|file| file.exists()) {
+        return Err(AppError::new("error.noThumbnail"));
+    }
+
+    let png = match render() {
+        Ok(png) => png,
+        Err(err) => {
+            if err.key == "error.noThumbnail" {
+                if let Some(file) = &marker {
+                    if let Some(dir) = file.parent() {
+                        let _ = fs::create_dir_all(dir);
+                    }
+                    let _ = fs::write(file, b"");
+                }
+            }
+            return Err(err);
+        }
+    };
+    if let Some(file) = &cached {
+        if let Some(dir) = file.parent() {
+            let _ = fs::create_dir_all(dir);
+        }
+        // Přes dočasný soubor a přejmenování — čtenář nikdy nevidí půlku PNG.
+        let temp = file.with_extension(format!("{}.tmp", std::process::id()));
+        if fs::write(&temp, &png).is_ok() && fs::rename(&temp, file).is_err() {
+            let _ = fs::remove_file(&temp);
+        }
+    }
+    Ok(png_data_url(&png))
+}
+
+/// Úklid cache náhledů: smaže soubory starší než THUMBNAIL_MAX_AGE. Běží
+/// na pozadí při startu; chyby se ignorují, je to jen cache.
+fn prune_thumbnail_cache() {
+    let Some(dir) = dirs::data_local_dir().map(|dir| dir.join("finder-win").join("thumbnails")) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| now.duration_since(time).ok())
+            .is_some_and(|age| age > THUMBNAIL_MAX_AGE);
+        let temp = entry.path().extension().is_some_and(|ext| ext == "tmp");
+        if stale || temp {
+            let _ = fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Ikona souboru jako data URL (PNG). Nejdřív z cache na disku, jinak ze
@@ -2200,40 +2316,91 @@ fn get_file_icon(path: String, size: u32) -> CmdResult<String> {
     }
 
     let key = icon_cache_key(Path::new(&path), size);
-    let cached = dirs::data_local_dir()
-        .map(|dir| dir.join("finder-win").join("icons").join(format!("{:016x}.png", fnv1a(&key))));
+    cached_png("icons", &key, move || on_com_thread(ICON_TIMEOUT, move || render_shell_image(&path, size, false)))
+}
 
-    if let Some(file) = &cached {
-        if let Ok(bytes) = fs::read(file) {
-            return Ok(png_data_url(&bytes));
-        }
+/// Náhled obsahu souboru (snímek videa, první strana PDF) z Windows
+/// thumbnail handleru, cachovaný na disku podle cesty a času změny. Když
+/// systém pro typ náhled neumí, chyba — frontend nechá ikonu.
+#[tauri::command(async)]
+fn get_file_thumbnail(path: String, size: u32) -> CmdResult<String> {
+    if !matches!(size, 64 | 128 | 256) {
+        return Err(AppError::new("error.iconSize"));
     }
+    // I metadata a čtení cache jsou pod limitem — odpojený síťový disk
+    // umí zaseknout i fs::metadata.
+    on_com_thread(THUMBNAIL_TIMEOUT, move || {
+        let modified = fs::metadata(&path)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        let key = format!("thumb:{}:{}:{}", path.to_lowercase(), modified, size);
+        cached_png("thumbnails", &key, || render_shell_image(&path, size, true))
+    })
+}
 
-    let (sender, receiver) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        #[cfg(windows)]
-        unsafe {
-            use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
-            let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-            let _ = sender.send(render_shell_icon(&path, size));
-            CoUninitialize();
-        }
-        #[cfg(not(windows))]
-        let _ = sender.send(render_shell_icon(&path, size));
-    });
+/// Údaje pro náhledový sloupec. Co soubor nemá (nebo systém nezná), je null
+/// a řádek se v UI nezobrazí.
+#[derive(Debug, Default, Serialize)]
+struct MediaInfo {
+    duration_ms: Option<u64>,
+    width: Option<u32>,
+    height: Option<u32>,
+    pages: Option<u32>,
+}
 
-    let png = receiver
-        .recv_timeout(ICON_TIMEOUT)
-        .map_err(|_| AppError::new("error.iconTimeout"))??;
+/// Vlastnosti z Windows property systemu (System.Media.Duration,
+/// System.Video.FrameWidth/Height, System.Image.Horizontal/VerticalSize,
+/// System.Document.PageCount). Musí běžet na vlákně s COM.
+#[cfg(windows)]
+fn read_media_info(path: &str) -> CmdResult<MediaInfo> {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::PROPERTYKEY;
+    use windows::Win32::Storage::EnhancedStorage::{
+        PKEY_Document_PageCount, PKEY_Image_HorizontalSize, PKEY_Image_VerticalSize, PKEY_Media_Duration,
+        PKEY_Video_FrameHeight, PKEY_Video_FrameWidth,
+    };
+    use windows::Win32::System::Com::StructuredStorage::{PropVariantClear, PropVariantToUInt32, PropVariantToUInt64};
+    use windows::Win32::System::Com::IBindCtx;
+    use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, SHGetPropertyStoreFromParsingName, GPS_BESTEFFORT};
 
-    if let Some(file) = &cached {
-        if let Some(dir) = file.parent() {
-            let _ = fs::create_dir_all(dir);
-        }
-        let _ = fs::write(file, &png);
+    unsafe {
+        let store: IPropertyStore = SHGetPropertyStoreFromParsingName(&HSTRING::from(path), None::<&IBindCtx>, GPS_BESTEFFORT)
+            .map_err(|err| describe_win(&err))?;
+
+        // Prázdná vlastnost (VT_EMPTY) převod odmítne — to je „nezobrazovat".
+        let read = |key: &PROPERTYKEY, wide: bool| -> Option<u64> {
+            let mut value = store.GetValue(key).ok()?;
+            let number = if wide {
+                PropVariantToUInt64(&value).ok()
+            } else {
+                PropVariantToUInt32(&value).ok().map(u64::from)
+            };
+            let _ = PropVariantClear(&mut value);
+            number.filter(|&number| number > 0)
+        };
+        let small = |key: &PROPERTYKEY| read(key, false).and_then(|number| u32::try_from(number).ok());
+
+        Ok(MediaInfo {
+            // System.Media.Duration je ve 100ns jednotkách.
+            duration_ms: read(&PKEY_Media_Duration, true).map(|ticks| ticks / 10_000),
+            width: small(&PKEY_Video_FrameWidth).or_else(|| small(&PKEY_Image_HorizontalSize)),
+            height: small(&PKEY_Video_FrameHeight).or_else(|| small(&PKEY_Image_VerticalSize)),
+            pages: small(&PKEY_Document_PageCount),
+        })
     }
+}
 
-    Ok(png_data_url(&png))
+#[cfg(not(windows))]
+fn read_media_info(_path: &str) -> CmdResult<MediaInfo> {
+    Ok(MediaInfo::default())
+}
+
+#[tauri::command(async)]
+fn get_media_info(path: String) -> CmdResult<MediaInfo> {
+    on_com_thread(ICON_TIMEOUT, move || read_media_info(&path))
 }
 
 /// Strop pro výpočet velikosti složky. C:\Windows má stovky tisíc souborů —
@@ -2515,6 +2682,7 @@ fn main() {
             });
             spawn_change_emitter(app.handle().clone(), receiver);
             spawn_drive_watcher(app.handle().clone());
+            std::thread::spawn(prune_thumbnail_cache);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2549,6 +2717,8 @@ fn main() {
             folder_stats,
             cancel_folder_stats,
             get_file_icon,
+            get_file_thumbnail,
+            get_media_info,
             clipboard::clipboard_write_files,
             clipboard::clipboard_read_files,
             clipboard::clipboard_has_files,
