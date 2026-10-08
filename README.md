@@ -13,7 +13,7 @@
 [![License](https://img.shields.io/github/license/krystof2-ops/finder-win)](LICENSE)
 ![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows)
 
-### [⬇ Download for Windows](https://github.com/krystof2-ops/finder-win/releases/latest)
+<p align="center"><a href="https://github.com/krystof2-ops/finder-win/releases/latest"><img src="docs/buttons/download.svg" alt="Download for Windows" height="68"></a></p>
 
 or: `winget install krystof2-ops.FinderWin` *(coming soon)*
 
