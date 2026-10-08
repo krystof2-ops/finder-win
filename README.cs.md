@@ -1,53 +1,90 @@
+<div align="center">
+
+<img src="src-tauri/icons/128x128.png" width="96" height="96" alt="Ikona Finder-Win">
+
 # Finder-Win
 
-[![Download](https://img.shields.io/github/v/release/krystof2-ops/finder-win?label=St%C3%A1hnout%20pro%20Windows&style=for-the-badge)](https://github.com/krystof2-ops/finder-win/releases/latest) ![Downloads](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total?style=for-the-badge) ![License](https://img.shields.io/github/license/krystof2-ops/finder-win?style=for-the-badge)
-
-![Finder-Win demo](docs/demo.gif)
+**Zážitek z macOS Finderu, ve Windows.**
 
 [English](README.md) · **Čeština**
 
-Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Reactu a Rustu.
+[![Poslední verze](https://img.shields.io/github/v/release/krystof2-ops/finder-win)](https://github.com/krystof2-ops/finder-win/releases/latest)
+[![Stažení](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total)](https://github.com/krystof2-ops/finder-win/releases)
+[![Licence](https://img.shields.io/github/license/krystof2-ops/finder-win)](LICENSE)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows)
 
-## Screenshoty
+### [⬇ Stáhnout pro Windows](https://github.com/krystof2-ops/finder-win/releases/latest)
 
-![Sloupcové zobrazení](docs/screenshots/main-column-view.png)
-![Quick Look](docs/screenshots/quick-look.png)
-![Světlý režim](docs/screenshots/light-mode.png)
+nebo: `winget install krystof2-ops.FinderWin` *(brzy)*
+
+<img src="docs/demo.gif" width="960" alt="Ukázka Finder-Win: nová záložka, rozdělené okno, F5 kopie do druhého panelu, paleta příkazů">
+
+</div>
+
+## Proč Finder-Win?
+
+- **Sloupcové zobrazení** – Miller columns s náhledovým panelem, jak Finder prochází hluboké stromy složek. Průzkumník nic takového nemá.
+- **Klávesnice na prvním místě** – Ctrl+K otevře paletu příkazů se složkami, akcemi a štítky; mezerník otevře Quick Look.
+- **Dva panely v jednom okně** – rozdělené okno s kopírováním a přesunem přes F5 / F6, bez druhého okna Průzkumníku.
+- **Malý a lokální** – instalátor pod 3 MB (Tauri: Rust + WebView2), instaluje se pro uživatele bez práv správce, bez účtu a bez telemetrie.
 
 ## Funkce
 
-- **Tři režimy zobrazení** – Ikony, Seznam (řaditelné sloupce, pruhované řádky) a Sloupce (Miller columns s info panelem vybraného souboru).
-- **Záložky** – lišta záložek ve stylu Průzkumníku, vidět vždy. Ctrl+T, tlačítko **+** hned za poslední záložkou nebo Více → Nová záložka otevře aktuální složku v nové záložce, prostřední klik nebo *Otevřít v nové záložce* otevře složku; každá záložka má vlastní historii, zobrazení, řazení, výběr i hledání. Přetažením se přerovnávají, soubor puštěný na záložku se přesune do její složky; při dalším spuštění se obnoví.
-- **Rozdělené okno** – Ctrl+Shift+D (tlačítko v toolbaru nebo menu Více) rozdělí okno na dva nezávislé panely, každý s vlastní složkou, zobrazením, řazením a výběrem. `Tab` přepíná aktivní panel, `F5` kopíruje a `F6` přesouvá výběr do druhého panelu (jako Total Commander). Poměr panelů jde táhnout dělicí čárou (dvojklik = 1:1) a ukládá se.
-- **Paleta příkazů** – Ctrl+K hledá složky (oblíbené, nedávné, záložky, podsložky), akce a štítky; `~` nebo cestu můžeš zadat přímo, Ctrl+Enter hledá soubory, nejpoužívanější příkazy jsou nahoře.
-- **Okno ve stylu macOS** – vlastní titulkový pruh se „semaforem“, zaoblené rohy, tenké scrollbary.
-- **Postranní panel**
-  - standardní složky (Plocha, Stažené, Dokumenty, Obrázky, Hudba, Videa, Domů), OneDrive / iCloud Drive, pokud existují,
-  - **všechny připojené disky** (USB disky s vlastní ikonou) a telefony / fotoaparáty; seznam se aktualizuje hned po připojení nebo odpojení,
-  - **vlastní oblíbené** – přetažením složek nebo souborů do panelu je přidáš, tažením přeuspořádáš, pravým klikem přejmenuješ nebo odebereš; ukládá se mezi spuštěními,
-  - **Nedávné** – naposledy otevřené položky s relativním časem,
-  - **Tagy** – použité barvy s počtem položek,
-  - sekce se dají sbalit.
-- **Výběr** – Ctrl+klik, Shift+klik, Shift+šipky a gumičkový výběr tažením v prázdné ploše (ve všech zobrazeních).
-- **Přetahování** – položky přetažené na složku, místo v panelu nebo záložku se přesunou (s Ctrl zkopírují); do *Moje oblíbené* se přidají do oblíbených. Soubory přetažené z Průzkumníku nebo z plochy padnou do složky pod kurzorem, jinak do aktuální složky.
-- **Schránka Windows** – Ctrl+C / Ctrl+X dávají do schránky skutečné soubory: vložíš je v Průzkumníku, přiložíš v Outlooku nebo ve webovém mailu, a soubory zkopírované v Průzkumníku vložíš do Finder-Winu. Vyjmuté se přesunou a schránka se vyprázdní, jako v Průzkumníku.
-- **Zpět / Znovu** – Ctrl+Z / Ctrl+Shift+Z pro posledních 50 přejmenování, přesunů, kopií, nových položek, smazání (obnoví z Koše) a změn štítků; menu Více ukáže, co se vrátí.
-- **Kolize názvů** – při vložení nebo přetažení nabídne dialog *Nahradit* (složky se sloučí), *Ponechat obě* nebo *Přeskočit*, včetně *Použít pro všechny*.
-- **Quick Look** (mezerník) – náhled obrázků, PDF, videa, zvuku, textu/zdrojáků a vykresleného Markdownu; ←/→ přepíná soubory.
-- **Náhledy videí a PDF** – v zobrazení Ikony a v náhledovém sloupci sloupcového zobrazení se u videí (mp4, mov, mkv, webm, avi, m4v, wmv; s odznakem ▶) a PDF (první strana) ukazuje náhled z Windows; náhledový sloupec má navíc délku, rozlišení / rozměry a počet stran.
-- **Souborové operace** – přejmenování na místě, duplikace, nová složka / nový soubor, přesun do koše (na discích bez koše se nejdřív zeptá), kopírovat / vyjmout / vložit, Otevřít v aplikaci…, otevřít v Průzkumníku, otevřít v terminálu (Více → Terminál: Automaticky, Windows Terminal, PowerShell nebo Příkazový řádek), kopírovat cestu / název, vlastnosti včetně velikosti složky.
-- **Toolbar** – Seřadit (podle názvu, data, velikosti, druhu), Sdílet (kopírovat cestu, kopírovat soubory, otevřít v Průzkumníku), Štítky pro celý výběr.
-- **Kontextová menu** na souborech, volné ploše, v panelu, ve stavovém řádku i v Quick Look, ovladatelná i klávesnicí.
-- **Barevné tagy** – 7 barev jako ve Finderu; při přejmenování nebo přesunu v aplikaci jdou s položkou.
-- **Hledání** – psaní filtruje aktuální složku, Enter spustí rekurzivní hledání podle názvu (Esc ho zruší).
-- **Skryté soubory** – řídí se nastavením Průzkumníku, přepínají se Ctrl+Shift+.
-- **Živá aktualizace** – výpis složky se sám obnoví, když se soubory na disku změní.
-- **Světlý a tmavý režim** – řídí se systémem (změnu ve Windows převezme za běhu), přepnout jde v Více → Vzhled (Světlý · Tmavý · Podle systému). Plynulé animace jako na macOS (vypnou se, když je ve Windows zapnuté omezení animací), funguje offline.
-- **Rozhraní anglicky a česky, řídí se jazykem Windows** – přepnout jde kdykoli v menu Více → Language / Jazyk.
-- **Český instalátor** – výběr jazyka při instalaci.
-- **Instalace přes winget** a volitelná kontrola aktualizací jednou denně (viz níže).
+### Procházení jako ve Finderu
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/hero-light.png">
+  <img src="docs/screenshots/hero-dark.png" alt="Zobrazení Ikony s náhledy obrázků a videí a třemi záložkami">
+</picture>
+
+- Zobrazení **Ikony, Seznam a Sloupce**; náhledy obrázků, videí (s odznakem ▶) a PDF.
+- **Záložky** – každá s vlastní historií, zobrazením, řazením a výběrem; přerovnání tažením, soubor puštěný na záložku se přesune do její složky.
+- **Světlý a tmavý režim** podle Windows, nebo nastavený v Více → Vzhled. Rozhraní česky a anglicky.
+
+### Rozdělené okno
+
+![Rozdělené okno: vlevo Sloupce, vpravo Seznam](docs/screenshots/split-view.png)
+
+- **Ctrl+Shift+D** rozdělí okno na dva nezávislé panely; `Tab` mezi nimi přepíná.
+- **F5 / F6** zkopíruje nebo přesune výběr do druhého panelu, jako v Total Commanderu.
+- Poměr panelů jde táhnout dělicí čárou (dvojklik = 1:1) a ukládá se.
+
+### Paleta příkazů
+
+![Paleta příkazů s napsaným „dow“](docs/screenshots/command-palette.png)
+
+- **Ctrl+K** hledá složky (oblíbené, nedávné, záložky, podsložky), akce a štítky.
+- `~` nebo cestu můžeš zadat přímo; **Ctrl+Enter** hledá soubory v aktuální složce.
+- U akcí je vidět klávesová zkratka a nejpoužívanější příkazy jsou nahoře.
+
+### Náhledy a Quick Look
+
+![Sloupcové zobrazení s náhledem videa, délkou a rozlišením](docs/screenshots/previews.png)
+
+- Náhledový sloupec ukáže náhled a u videí **délku a rozlišení**, u obrázků rozměry, u PDF počet stran.
+- **Mezerník** otevře Quick Look pro obrázky, PDF, video, zvuk, text a zdrojáky i vykreslený Markdown; ←/→ přepíná soubory.
+- Náhledy a ikony se cachují lokálně v `%LOCALAPPDATA%\finder-win`.
+
+### Běžná práce se soubory
+
+- **Skutečná schránka Windows** – Ctrl+C / Ctrl+X / Ctrl+V fungují s Průzkumníkem, Outlookem i prohlížeči; soubory jde přetáhnout dovnitř z Průzkumníku nebo z plochy.
+- **Zpět / Znovu** (Ctrl+Z / Ctrl+Y) pro posledních 50 přejmenování, přesunů, kopií, nových položek, smazání a změn štítků.
+- **Postranní panel** se standardními složkami, všemi disky (aktualizuje se po připojení USB), vlastními oblíbenými, nedávnými a barevnými štítky jako ve Finderu.
 
 ## Klávesové zkratky
+
+| Zkratka | Akce |
+|---|---|
+| `Ctrl+T` | Nová záložka |
+| `Ctrl+W` | Zavřít záložku |
+| `Ctrl+K` | Paleta příkazů (`Ctrl+Enter` = hledat soubory) |
+| `Ctrl+Shift+D` | Rozdělit okno na dva panely |
+| `F5` / `F6` | Kopírovat / přesunout výběr do druhého panelu (rozdělené okno) |
+| `Mezerník` | Quick Look |
+| `Ctrl+Z` / `Ctrl+Y` | Zpět / znovu |
+
+<details>
+<summary>Všechny zkratky</summary>
 
 | Zkratka | Akce |
 |---|---|
@@ -57,20 +94,14 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 | `Home` / `End`, `PgUp` / `PgDn` | První / poslední položka, o stránku nahoru / dolů |
 | Psaní písmen | Skok na položku, jejíž název jimi začíná |
 | `Enter` / `Ctrl+↓` | Otevřít vybranou položku |
-| `Mezerník` | Quick Look |
 | `Backspace` / `Alt+←` | Zpět |
 | `Alt+→` | Vpřed |
 | `Alt+↑` / `Ctrl+↑` | Nadřazená složka |
-| `Ctrl+K` | Paleta příkazů (`Ctrl+Enter` = hledat soubory) |
 | `Ctrl+L` | Editace cesty |
 | `Ctrl+F` | Pole hledání (`Enter` = rekurzivní hledání, `↓` = do výsledků, `Esc` = vymazat) |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Kopírovat / vyjmout / vložit (schránka Windows) |
-| `Ctrl+Z` | Zpět |
-| `Ctrl+Shift+Z` / `Ctrl+Y` | Znovu |
-| `Ctrl+Shift+D` | Rozdělit okno na dva panely |
+| `Ctrl+Shift+Z` | Znovu |
 | `Tab` | Přepnout aktivní panel (rozdělené okno) |
-| `F5` / `F6` | Kopírovat / přesunout výběr do druhého panelu (rozdělené okno) |
-| `Ctrl+T` / `Ctrl+W` | Nová záložka / zavřít záložku |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Další / předchozí záložka |
 | `Ctrl+1` … `Ctrl+9` | Záložka 1–8 / poslední záložka |
 | `Ctrl+D` | Duplikovat |
@@ -85,91 +116,46 @@ Správce souborů pro Windows ve stylu macOS Finderu, postavený na Tauri 2, Rea
 | Tlačítko myši 4 / 5 | Zpět / vpřed |
 | Prostřední klik na složku / záložku | Otevřít v nové záložce / zavřít záložku |
 
+</details>
+
 ## Instalace
 
-Stáhni nejnovější `Finder-Win_…_x64-setup.exe` ze stránky [Releases](https://github.com/krystof2-ops/finder-win/releases/latest) a spusť ho. Instaluje se jen pro aktuálního uživatele, práva administrátora nejsou potřeba.
+1. Stáhni `Finder-Win_…_x64-setup.exe` z [poslední verze](https://github.com/krystof2-ops/finder-win/releases/latest) a spusť ho. Instaluje se jen pro aktuálního uživatele, práva správce nejsou potřeba.
+2. Instalátor není digitálně podepsaný, takže Windows SmartScreen ukáže „Systém Windows ochránil váš počítač“. Klikni na **Další informace** → **Přesto spustit**.
 
-### Varování Windows SmartScreen
+Připravujeme: **winget** (`winget install krystof2-ops.FinderWin`; manifest je ve složce [`winget/`](winget)) a **Microsoft Store**.
 
-Instalátor není digitálně podepsaný, takže Windows SmartScreen zobrazí „Systém Windows ochránil váš počítač“. Pro instalaci klikni na **Další informace** a pak **Přesto spustit**.
+<details>
+<summary>Známá omezení</summary>
 
-### winget
+- Jen pro Windows.
+- Historie Zpět platí jen za běhu aplikace. Soubor přepsaný volbou *Nahradit* se vrátit nedá.
+- Soubory jde do Finder-Winu přetáhnout, ale ne ven do Průzkumníku nebo jiných aplikací – místo toho Ctrl+C a vložit tam.
+- Telefony a fotoaparáty (MTP) jsou v panelu vidět, ale otevřou se v Průzkumníku Windows.
+- Rekurzivní hledání porovnává jen názvy souborů a končí na 500 výsledcích.
+- Záložky ano, víc oken ne.
 
-```powershell
-winget install krystof2-ops.FinderWin
-```
+</details>
 
-Manifest je ve složce [`winget/`](winget) (formát 1.6). Po publikování release stáhne workflow *Update winget manifest* instalátor, přepočítá SHA256 a otevře pull request do tohoto repozitáře (je k tomu potřeba povolit *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests*). Odeslání do [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) se dělá ručně, buď přes [wingetcreate](https://github.com/microsoft/winget-create):
+## Soukromí
 
-```powershell
-wingetcreate submit --token <GITHUB_PAT> winget
-```
-
-nebo pull requestem, který zkopíruje tři soubory do `manifests/k/krystof2-ops/FinderWin/<verze>/` ve winget-pkgs (nejdřív ověř přes `winget validate winget`).
-
-### Kontrola aktualizací
-
-Nejvýš jednou denně se aplikace zeptá `https://api.github.com/repos/krystof2-ops/finder-win/releases/latest`, jestli existuje novější verze, a pokud ano, ukáže dole nenápadný proužek s odkazem na stránku vydání. Ten jeden GET je jediný síťový požadavek aplikace — žádná telemetrie, nic se neodesílá. Vypnout jde v menu Více → Kontrolovat aktualizace.
+Finder-Win dělá jediný druh síťového požadavku: nejvýš jednou denně se zeptá GitHub API (`api.github.com/repos/krystof2-ops/finder-win/releases/latest`), jestli existuje novější verze, a pokud ano, ukáže proužek s odkazem na stránku vydání. Žádná telemetrie, nic o tobě ani o tvých souborech se neodesílá. Vypnout jde v Více → Kontrolovat aktualizace.
 
 ## Sestavení ze zdrojáků
 
-Potřebuješ:
-
-- [Node.js](https://nodejs.org/) 20+
-- [Rust](https://rustup.rs/) (stable)
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) („Vývoj desktopových aplikací pomocí C++“)
-- WebView2 (ve Windows 10/11 už je)
+Potřebuješ [Node.js](https://nodejs.org/) 20+, [Rust](https://rustup.rs/) (stable), [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) („Vývoj desktopových aplikací pomocí C++“) a WebView2 (ve Windows 10/11 už je).
 
 ```powershell
 npm install
 npm run tauri dev     # vývojový režim
-npm run tauri build   # sestavení instalátoru
+npm run tauri build   # instalátor → src-tauri/target/release/bundle/nsis/
 ```
 
-Instalátor vznikne v `src-tauri/target/release/bundle/nsis/`.
+## Přispívání
 
-## Známá omezení
+Chyby a pull requesty vítány v [Issues](https://github.com/krystof2-ops/finder-win/issues). Před PR spusť `npm run build` a v `src-tauri` `cargo clippy -- -D warnings` a `cargo test`. Texty UI jdou přes překlady v `src/i18n/` (čeština a angličtina). Bezpečnostní problémy: viz [SECURITY.md](SECURITY.md).
 
-- **Jen pro Windows.**
-- **Historie Zpět se neukládá** – platí jen za běhu aplikace (posledních 50 operací). Soubor přepsaný volbou *Nahradit* se vrátit nedá a Zpět u kopie nebo nové položky na disku bez Koše se odmítne, místo aby smazalo natrvalo.
-- **Bez tažení ven z aplikace** – soubory jde do Finder-Winu přetáhnout z Průzkumníku, ale ne z Finder-Winu do Průzkumníku, na plochu ani do jiných aplikací. Místo toho Ctrl+C a vložit tam.
-- **Telefony a fotoaparáty** (iPhone, Android — zařízení MTP) jsou v panelu vidět, ale klik je otevře v Průzkumníku Windows; přímo v aplikaci se procházet nedají.
-- Rekurzivní hledání porovnává **jen názvy souborů**, končí na **500 výsledcích** a přeskakuje složky `.git`, `node_modules` a rustové `target` (jen ty vedle `Cargo.toml`).
-- Záložky ano, víc oken ne. Záložky se při startu obnoví jen tehdy, když jsou otevřené 2 a více, a jen se svou složkou, zobrazením a řazením (historie a výběr začínají znovu).
-- **Lokální cache** – náhledy se cachují na disku v `%LOCALAPPDATA%\finder-win\thumbnails` (mažou se po 30 dnech) a ikony v `%LOCALAPPDATA%\finder-win\icons`; nic neopouští počítač. Ze shellu se vytvoří nejvýš 200 náhledů na složku, zbytek má ikonu.
-- Instalátor **není podepsaný** (viz SmartScreen výše).
-
-## Changelog
-
-### 1.4.0
-
-- **Rozdělené okno** – dva nezávislé panely (Ctrl+Shift+D), Tab přepíná, F5 / F6 kopíruje / přesouvá do druhého panelu, dělicí čára s uloženým poměrem.
-- **Paleta příkazů** – Ctrl+K: složky, akce, štítky, cesty, Ctrl+Enter hledá soubory; jeden registr příkazů pohání zkratky, menu Více, toolbar i paletu.
-- **Náhledy videí a PDF** – v zobrazení Ikony a v náhledovém sloupci, navíc délka, rozlišení a počet stran; cache na disku.
-- **Volba terminálu** – Více → Terminál: Automaticky, Windows Terminal, PowerShell, Příkazový řádek.
-- **Záložky ve stylu Průzkumníku** – lišta vždy vidět, šířka záložek podle obsahu, **+** hned za poslední záložkou, × při najetí.
-- **Menu Vzhled** – Světlý · Tmavý · Podle systému (výchozí, změnu ve Windows převezme za běhu); nižší titulkový pruh (32 px).
-- **Český instalátor** – výběr jazyka při instalaci.
-
-### 1.3.0
-
-- **Záložky** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, prostřední klik a *Otevřít v nové záložce*; každá záložka má vlastní historii, zobrazení, řazení, výběr, sloupce i hledání; přerovnání tažením, drop souboru na záložku, obnovení při startu (složka, zobrazení a řazení).
-- **Schránka Windows** – kopírování / vyjmutí / vložení souborů mezi Finder-Winem, Průzkumníkem, Outlookem a prohlížeči (CF_HDROP).
-- **Drag & drop z Průzkumníku** – soubory z Průzkumníku nebo z plochy jde pustit na složku, položku panelu, záložku i do prázdné plochy.
-- **Zpět / Znovu** – přejmenování, přesun, kopie, nová položka, smazání (z Koše) a štítky, posledních 50 operací.
-- **Manifest pro winget** a vypínatelná kontrola aktualizací (jeden GET na GitHub API denně, žádná telemetrie).
-
-### 1.2.0
-
-- **Anglické rozhraní, přepínač jazyka, data, velikosti a plurály podle jazyka** – aplikace se řídí jazykem Windows (angličtina nebo čeština) a přepnout ji jde v menu Více → Language / Jazyk bez restartu.
-
-### 1.1.0
-
-- **Opravy z auditu** – logika výběru a navigace, bezpečnější souborové operace, zpřísnění bezpečnosti a konfigurace.
-- **Vícenásobný výběr a klávesová navigace** – výběr s Ctrl/Shift, šipky ve všech zobrazeních, tlačítka Seřadit, Sdílet a Štítky v toolbaru.
-- **Dialog kolizí** – vložení a přesun se zeptají, co dělat, když soubor se stejným názvem už existuje (nahradit, ponechat oba, přeskočit).
-- **Nový design s ikonami ze shellu** – skutečné ikony souborů z Windows, složky ve stylu Sonoma, náhledy obrázků, přepracovaný toolbar, sidebar, zobrazení a dialogy, kontrast WCAG AA v obou tématech.
-- **Animace a virtualizace** – virtualizované výpisy se streamovaným načítáním složek, navigace bez skoků, mikrointerakce, plynulejší scroll a podpora `prefers-reduced-motion`.
+Seznam změn je v [CHANGELOG.md](CHANGELOG.md) (anglicky).
 
 ## Licence
 

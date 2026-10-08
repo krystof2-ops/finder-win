@@ -1,53 +1,90 @@
+<div align="center">
+
+<img src="src-tauri/icons/128x128.png" width="96" height="96" alt="Finder-Win icon">
+
 # Finder-Win
 
-[![Download](https://img.shields.io/github/v/release/krystof2-ops/finder-win?label=Download%20for%20Windows&style=for-the-badge)](https://github.com/krystof2-ops/finder-win/releases/latest) ![Downloads](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total?style=for-the-badge) ![License](https://img.shields.io/github/license/krystof2-ops/finder-win?style=for-the-badge)
-
-![Finder-Win demo](docs/demo.gif)
+**The macOS Finder experience, on Windows.**
 
 **English** · [Čeština](README.cs.md)
 
-A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rust.
+[![Latest release](https://img.shields.io/github/v/release/krystof2-ops/finder-win)](https://github.com/krystof2-ops/finder-win/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/krystof2-ops/finder-win/total)](https://github.com/krystof2-ops/finder-win/releases)
+[![License](https://img.shields.io/github/license/krystof2-ops/finder-win)](LICENSE)
+![Windows 10/11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows)
 
-## Screenshots
+### [⬇ Download for Windows](https://github.com/krystof2-ops/finder-win/releases/latest)
 
-![Column view](docs/screenshots/main-column-view.png)
-![Quick Look](docs/screenshots/quick-look.png)
-![Light mode](docs/screenshots/light-mode.png)
+or: `winget install krystof2-ops.FinderWin` *(coming soon)*
+
+<img src="docs/demo.gif" width="960" alt="Finder-Win demo: new tab, split view, F5 copy to the other panel, command palette">
+
+</div>
+
+## Why Finder-Win?
+
+- **Column view** – Miller columns with a preview pane, the way Finder browses deep folder trees. File Explorer has nothing like it.
+- **Keyboard first** – Ctrl+K opens a command palette for folders, actions and tags; Space opens Quick Look.
+- **Two panels in one window** – split view with F5 / F6 copy and move, without a second Explorer window.
+- **Small and local** – an installer under 3 MB (Tauri: Rust + WebView2), installs per user without admin rights, no account and no telemetry.
 
 ## Features
 
-- **Three view modes** – Icons, List (sortable columns, striped rows) and Columns (Miller columns with an info panel for the selected file).
-- **Tabs** – Explorer-style tab bar, always visible. Ctrl+T, the **+** button right after the last tab or More → New Tab opens the current folder in a new tab, middle-click or *Open in New Tab* opens a folder; each tab keeps its own history, view, sorting, selection and search. Drag tabs to reorder, drop files on a tab to move them there; tabs are restored on the next start.
-- **Split window** – Ctrl+Shift+D (toolbar button or More) splits the window into two independent panels, each with its own folder, view, sorting and selection. `Tab` switches the active panel, `F5` copies and `F6` moves the selection to the other panel (like Total Commander). Drag the divider to resize (double-click = 1:1); the ratio is remembered.
-- **Command palette** – Ctrl+K searches folders (favorites, recents, tabs, subfolders), actions and tags; type `~` or a path to go there directly, Ctrl+Enter searches files, the most used commands come first.
-- **macOS-style window** – custom title bar with traffic-light buttons, rounded corners, thin scrollbars.
-- **Sidebar**
-  - standard folders (Desktop, Downloads, Documents, Pictures, Music, Videos, Home), OneDrive / iCloud Drive when present,
-  - **all connected drives** (USB drives get their own icon) and phones / cameras; the list updates as soon as a device is plugged in or removed,
-  - **custom favorites** – drag folders or files onto the sidebar to add them, drag to reorder, right-click to rename or remove; saved between sessions,
-  - **Recents** – recently opened items with relative times,
-  - **Tags** – colors that are in use, with item counts,
-  - collapsible sections.
-- **Selection** – Ctrl+click, Shift+click, Shift+arrow keys and rubber-band selection by dragging in empty space (in every view).
-- **Drag & drop** – drag items onto a folder, a sidebar location or a tab to move them (hold Ctrl to copy); drag onto *My Favorites* to add favorites. Files dragged in from Explorer or the desktop land in the folder under the cursor, or in the current folder.
-- **Windows clipboard** – Ctrl+C / Ctrl+X put real files on the clipboard: paste them in Explorer, attach them in Outlook or a web mail, or paste files copied in Explorer into Finder-Win. Cut files are moved and the clipboard is cleared, like in Explorer.
-- **Undo / Redo** – Ctrl+Z / Ctrl+Shift+Z for the last 50 renames, moves, copies, new items, deletions (restored from the Recycle Bin) and tag changes; More shows what will be undone.
-- **Name conflicts** – when pasting or dropping, a dialog offers *Replace* (folders are merged), *Keep both* or *Skip*, with *Apply to all*.
-- **Quick Look** (Space) – preview images, PDF, video, audio, text/source code and rendered Markdown; ←/→ to step through files.
-- **Video and PDF thumbnails** – Icons view and the preview column of Columns view show a Windows thumbnail for videos (mp4, mov, mkv, webm, avi, m4v, wmv; with a ▶ badge) and PDFs (first page); the preview column also shows duration, resolution / dimensions and page count.
-- **File operations** – rename inline, duplicate, new folder / new file, move to Recycle Bin (asks first on drives without one), copy / cut / paste, Open with…, open in Explorer, open in a terminal (More → Terminal: Automatic, Windows Terminal, PowerShell or Command Prompt), copy path / name, properties with folder size.
-- **Toolbar** – Sort (by name, date, size, kind), Share (copy path, copy files, open in Explorer), Tags for the whole selection.
-- **Context menus** on files, empty space, sidebar items, status bar and Quick Look, also keyboard-navigable.
-- **Color tags** – 7 Finder colors; tags follow files when they are renamed or moved inside the app.
-- **Search** – typing filters the current folder; Enter runs a recursive search by file name (cancelled by Esc).
-- **Hidden files** – follows the Explorer setting, toggle with Ctrl+Shift+.
-- **Live updates** – the folder listing refreshes by itself when files change on disk.
-- **Light and dark mode** – follows Windows (and switches live when it changes); override in More → Appearance (Light · Dark · Match System). Smooth macOS-like animations (disabled when Windows "reduce motion" is on), works offline.
-- **English and Czech UI, follows your Windows language** – switch any time in More → Language / Jazyk.
-- **Czech installer** – language choice during setup.
-- **Install with winget** and an optional once-a-day update check (see below).
+### Browse like in Finder
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/hero-light.png">
+  <img src="docs/screenshots/hero-dark.png" alt="Icons view with image and video thumbnails and three tabs">
+</picture>
+
+- **Icons, List and Columns** views; thumbnails for images, videos (with a ▶ badge) and PDFs.
+- **Tabs** – each with its own history, view, sorting and selection; drag to reorder, drop files on a tab to move them there.
+- **Light and dark mode** following Windows, or set it in More → Appearance. English and Czech UI.
+
+### Split view
+
+![Split view: Column view on the left, List view on the right](docs/screenshots/split-view.png)
+
+- **Ctrl+Shift+D** splits the window into two independent panels; `Tab` switches between them.
+- **F5 / F6** copy or move the selection to the other panel, like in Total Commander.
+- Drag the divider to resize (double-click = 1:1); the ratio is remembered.
+
+### Command palette
+
+![Command palette with "dow" typed](docs/screenshots/command-palette.png)
+
+- **Ctrl+K** searches folders (favorites, recents, tabs, subfolders), actions and tags.
+- Type `~` or a path to go there directly; **Ctrl+Enter** searches files in the current folder.
+- Actions show their keyboard shortcut, and the commands you use most come first.
+
+### Previews and Quick Look
+
+![Column view with a video preview, duration and resolution](docs/screenshots/previews.png)
+
+- The preview column shows a thumbnail plus **duration and resolution** for videos, dimensions for images and page count for PDFs.
+- **Space** opens Quick Look for images, PDF, video, audio, text and source code, and rendered Markdown; ←/→ steps through files.
+- Thumbnails and icons are cached locally in `%LOCALAPPDATA%\finder-win`.
+
+### Everyday file work
+
+- **Real Windows clipboard** – Ctrl+C / Ctrl+X / Ctrl+V work with Explorer, Outlook and browsers; drag files in from Explorer or the desktop.
+- **Undo / Redo** (Ctrl+Z / Ctrl+Y) for the last 50 renames, moves, copies, new items, deletions and tag changes.
+- **Sidebar** with standard folders, all drives (updates when a USB drive is plugged in), custom favorites, recents and Finder-style color tags.
 
 ## Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab |
+| `Ctrl+K` | Command palette (`Ctrl+Enter` = search files) |
+| `Ctrl+Shift+D` | Split window into two panels |
+| `F5` / `F6` | Copy / move selection to the other panel (split view) |
+| `Space` | Quick Look |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+
+<details>
+<summary>All shortcuts</summary>
 
 | Shortcut | Action |
 |---|---|
@@ -57,20 +94,14 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Home` / `End`, `PgUp` / `PgDn` | First / last item, page up / down |
 | Typing letters | Jump to the item whose name starts with them |
 | `Enter` / `Ctrl+↓` | Open selected item |
-| `Space` | Quick Look |
 | `Backspace` / `Alt+←` | Back |
 | `Alt+→` | Forward |
 | `Alt+↑` / `Ctrl+↑` | Go to parent folder |
-| `Ctrl+K` | Command palette (`Ctrl+Enter` = search files) |
 | `Ctrl+L` | Edit path |
 | `Ctrl+F` | Focus search field (`Enter` = recursive search, `↓` = into results, `Esc` = clear) |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste (Windows clipboard) |
-| `Ctrl+Z` | Undo |
-| `Ctrl+Shift+Z` / `Ctrl+Y` | Redo |
-| `Ctrl+Shift+D` | Split window into two panels |
-| `Tab` | Switch active panel (split window) |
-| `F5` / `F6` | Copy / move selection to the other panel (split window) |
-| `Ctrl+T` / `Ctrl+W` | New tab / close tab |
+| `Ctrl+Shift+Z` | Redo |
+| `Tab` | Switch active panel (split view) |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
 | `Ctrl+1` … `Ctrl+9` | Go to tab 1–8 / the last tab |
 | `Ctrl+D` | Duplicate |
@@ -78,98 +109,53 @@ A macOS Finder-like file explorer for Windows, built with Tauri 2, React and Rus
 | `Ctrl+Shift+N` | New folder |
 | `F2` | Rename |
 | `Delete` | Move to Recycle Bin |
-| `Ctrl+R` / `F5` | Refresh (`F5` outside the split window) |
+| `Ctrl+R` / `F5` | Refresh (`F5` outside split view) |
 | `Ctrl+Shift+.` | Show / hide hidden files |
 | `Esc` | Clear selection; close search results; close menus and dialogs |
 | `←` / `→`, `Esc` | Previous / next file, close (in Quick Look) |
 | Mouse button 4 / 5 | Back / forward |
 | Middle click on a folder / tab | Open in a new tab / close the tab |
 
+</details>
+
 ## Install
 
-Download the latest `Finder-Win_…_x64-setup.exe` from the [Releases](https://github.com/krystof2-ops/finder-win/releases/latest) page and run it. It installs for the current user only, no administrator rights needed.
+1. Download `Finder-Win_…_x64-setup.exe` from the [latest release](https://github.com/krystof2-ops/finder-win/releases/latest) and run it. It installs for the current user only; no administrator rights needed.
+2. The installer is not code-signed, so Windows SmartScreen shows *"Windows protected your PC"*. Click **More info** → **Run anyway**.
 
-### Windows SmartScreen warning
+Also coming: **winget** (`winget install krystof2-ops.FinderWin`; the manifest is in [`winget/`](winget)) and **Microsoft Store**.
 
-The installer is not code-signed, so Windows SmartScreen will show *"Windows protected your PC"*. To install anyway, click **More info** and then **Run anyway**.
+<details>
+<summary>Known limitations</summary>
 
-### winget
+- Windows only.
+- Undo history lives only while the app runs. A file overwritten by *Replace* can't be brought back.
+- Files can be dragged *into* Finder-Win, but not out of it to Explorer or other apps – use Ctrl+C and paste there.
+- Phones and cameras (MTP) are listed, but open in Windows Explorer.
+- Recursive search matches file names only and stops at 500 results.
+- Tabs, but no multiple windows.
 
-```powershell
-winget install krystof2-ops.FinderWin
-```
+</details>
 
-The manifest lives in [`winget/`](winget) (format 1.6). After a release is published, the *Update winget manifest* workflow downloads the installer, recomputes its SHA256 and opens a pull request in this repository (allow *Settings → Actions → General → Allow GitHub Actions to create and approve pull requests* for that). Submitting to [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) is a manual step, either with [wingetcreate](https://github.com/microsoft/winget-create):
+## Privacy
 
-```powershell
-wingetcreate submit --token <GITHUB_PAT> winget
-```
-
-or by a pull request that copies the three files to `manifests/k/krystof2-ops/FinderWin/<version>/` in winget-pkgs (validate first with `winget validate winget`).
-
-### Update check
-
-Once a day at most, the app asks `https://api.github.com/repos/krystof2-ops/finder-win/releases/latest` whether a newer version exists and, if so, shows a small bar at the bottom with a link to the release page. That single GET is the only network request the app makes — no telemetry, nothing is sent. Turn it off in More → Check for Updates.
+Finder-Win makes exactly one kind of network request: at most once a day it asks the GitHub API (`api.github.com/repos/krystof2-ops/finder-win/releases/latest`) whether a newer version exists and, if so, shows a small bar with a link to the release page. No telemetry, nothing about you or your files is sent. Turn the check off in More → Check for Updates.
 
 ## Build from source
 
-Prerequisites:
-
-- [Node.js](https://nodejs.org/) 20+
-- [Rust](https://rustup.rs/) (stable)
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++")
-- WebView2 (preinstalled on Windows 10/11)
+Prerequisites: [Node.js](https://nodejs.org/) 20+, [Rust](https://rustup.rs/) (stable), [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) ("Desktop development with C++") and WebView2 (preinstalled on Windows 10/11).
 
 ```powershell
 npm install
 npm run tauri dev     # run in development mode
-npm run tauri build   # build the installer
+npm run tauri build   # build the installer → src-tauri/target/release/bundle/nsis/
 ```
 
-The installer is written to `src-tauri/target/release/bundle/nsis/`.
+## Contributing
 
-## Known limitations
+Bug reports and pull requests are welcome in [Issues](https://github.com/krystof2-ops/finder-win/issues). Before a PR, run `npm run build` and, in `src-tauri`, `cargo clippy -- -D warnings` and `cargo test`. UI texts go through the translation files in `src/i18n/` (English and Czech). Security issues: see [SECURITY.md](SECURITY.md).
 
-- **Windows only.**
-- **Undo history is not saved** – it lives only while the app runs (last 50 operations). A file overwritten by *Replace* can't be brought back, and undoing a copy or a new item on a drive without a Recycle Bin is refused rather than deleting permanently.
-- **No dragging out of the app** – files can be dragged *into* Finder-Win from Explorer, but not from Finder-Win to Explorer, the desktop or other apps. Use Ctrl+C and paste there instead.
-- **Phones and cameras** (iPhone, Android — MTP devices) are listed, but clicking them opens Windows Explorer; they can't be browsed inside the app.
-- Recursive search matches **file names only**, stops at **500 results** and skips `.git`, `node_modules` and Rust `target` folders (only those next to a `Cargo.toml`).
-- Tabs, but no multiple windows. Tabs are restored on start only when 2 or more are open, and only with their folder, view mode and sorting (history and selection start fresh).
-- **Local cache** – thumbnails are cached on disk in `%LOCALAPPDATA%\finder-win\thumbnails` (deleted after 30 days) and file icons in `%LOCALAPPDATA%\finder-win\icons`; nothing leaves your computer. At most 200 shell thumbnails are made per folder, the rest show an icon.
-- The installer is **not code-signed** (see SmartScreen above).
-
-## Changelog
-
-### 1.4.0
-
-- **Split window** – two independent panels (Ctrl+Shift+D), Tab switches, F5 / F6 copy / move to the other panel, draggable divider with a remembered ratio.
-- **Command palette** – Ctrl+K: folders, actions, tags, paths, Ctrl+Enter file search; one command registry drives shortcuts, the More menu, toolbar and palette.
-- **Video and PDF thumbnails** – in Icons view and the preview column, plus duration, resolution and page count; cached locally on disk.
-- **Terminal choice** – More → Terminal: Automatic, Windows Terminal, PowerShell, Command Prompt.
-- **Explorer-style tabs** – tab bar always visible, content-sized tabs, **+** right after the last tab, × on hover.
-- **Appearance menu** – Light · Dark · Match System (default, follows Windows live); lower title bar (32 px).
-- **Czech installer** – language choice during setup.
-
-### 1.3.0
-
-- **Tabs** – Ctrl+T / Ctrl+W / Ctrl+Tab / Ctrl+1…9, middle-click and *Open in New Tab*; each tab has its own history, view, sorting, selection, columns and search; reorder by dragging, drop files on a tab, restored on start (folder, view and sorting).
-- **Windows clipboard** – copy / cut / paste files between Finder-Win, Explorer, Outlook and browsers (CF_HDROP).
-- **Drag & drop from Explorer** – drop files from Explorer or the desktop onto a folder, a sidebar item, a tab or empty space.
-- **Undo / Redo** – rename, move, copy, new item, delete (from the Recycle Bin) and tags, last 50 operations.
-- **winget manifest** and an opt-out update check (one GET to the GitHub API per day, no telemetry).
-
-### 1.2.0
-
-- **English UI, language switcher, localized dates, sizes and plurals** – the app follows your Windows language (English or Czech) and can be switched in More → Language / Jazyk without a restart.
-
-### 1.1.0
-
-- **Audit fixes** – selection and navigation logic, safer file operations, security and configuration hardening.
-- **Multi-select and keyboard navigation** – Ctrl/Shift selection, arrow keys across all views, Sort, Share and Tags buttons in the toolbar.
-- **Collision dialog** – paste and move ask what to do when a file with the same name already exists (replace, keep both, skip).
-- **New design with shell icons** – real Windows file icons, Sonoma-style folders, image thumbnails, reworked toolbar, sidebar, views and dialogs, WCAG AA contrast in both themes.
-- **Animations and virtualization** – virtualized listings with streamed directory loading, jump-free navigation, micro-interactions, smoother scrolling and `prefers-reduced-motion` support.
+Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

@@ -14,7 +14,8 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 - `src-tauri/src/main.rs` – commandy a souborové operace; `clipboard.rs` – schránka Windows (CF_HDROP); `external_drop.rs` – drop z Průzkumníku.
 - `winget/` + `.github/workflows/winget-manifest.yml` – manifest a workflow (bere tag jen ve tvaru `vX.Y.Z`).
 - `src-tauri/nsis/Czech.nsh` – vlastní český překlad NSIS instalátoru (`bundle.windows.nsis.customLanguageFiles`).
-- README existuje ve dvou verzích (`README.md`, `README.cs.md`) – měň je společně.
+- README existuje ve dvou verzích (`README.md`, `README.cs.md`) – měň je společně. Changelog je v `CHANGELOG.md` (README jen odkazuje).
+- `docs/screenshots/`, `docs/demo.gif`, `docs/demo/` (demo data) a `scripts/docs-media/` (generátory) – viz sekce Screenshoty a demo.
 
 ## Konvence
 - Texty UI jen přes `t()` a klíče v `cs.ts` i `en.ts`; hlídá `npm run i18n:check` (běží v `npm run build`). Výjimka jde označit komentářem `i18n-ignore`.
@@ -30,6 +31,14 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 - V `src-tauri`: `cargo check`, `cargo clippy -- -D warnings`, `cargo test`. Test `trash_tests` je `#[ignore]` a sahá na skutečný Koš (`cargo test -- --ignored`).
 - `npm run tauri dev`; `npm run tauri build` → `src-tauri/target/release/bundle/nsis/`.
 - Živé testování: spustit dev s `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` a přes CDP (`http://127.0.0.1:9333/json/list`) vyhodnocovat JS ve webview.
+
+## Screenshoty a demo
+- `docs/screenshots/{hero-dark,hero-light,split-view,command-palette,previews}.png` (1280×800, ~100–140 kB) a `docs/demo.gif` (960 px, 15 fps, ~14 s, max 8 MB); používají je oba README.
+- Demo data v `docs/demo` – složka je v `.gitignore`, existuje jen lokálně (`Animace.gif` je netrackovaný, nekopírovat). Generování běží nad kopií v `C:\Demo` (cesty bez jména uživatele).
+- Skripty `scripts/docs-media/`: `cdp.mjs` (CDP klient, port 9333), `setup.mjs` (patch IPC `get_favorites` → složky na `C:\Demo`, reset záložek/tématu/jazyka, viewport 1280×800), `shots.mjs` (5 scén, argumentem jedna scéna), `demo.mjs` (screencast + ffmpeg palettegen → `docs/demo.gif`), `mksettings.mjs` (demo `settings.json`), `demo-conf.json` (identifier `….demo`).
+- Postup: 1) zkopírovat `docs/demo/{Documents,Downloads,Music,Photos,Projects,Videos}` do `C:\Demo`; 2) `node scripts/docs-media/mksettings.mjs` (aplikace nesmí běžet); 3) `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333 npm run tauri dev -- --config scripts/docs-media/demo-conf.json` (jiný identifier, skutečné nastavení se nedotkne); 4) `node scripts/docs-media/shots.mjs` a `node scripts/docs-media/demo.mjs` (před demem smazat `C:\Demo\Projects\meeting-notes.md`, F5 ho tam kopíruje); 5) uklidit `C:\Demo`, `%APPDATA%` a `%LOCALAPPDATA%\com.krystof2ops.finderwin.demo`, ukončit dev i osiřelý vite.
+- ffmpeg: `winget install Gyan.FFmpeg`; alias je v `%LOCALAPPDATA%\Microsoft\WinGet\Links`, v Git Bash nemusí být v PATH.
+- Pasti: `__TAURI_INTERNALS__.invoke` je non-writable → patchuje se `window.fetch` na `http://ipc.localhost/<cmd>`; `addScriptToEvaluateOnNewDocument` i `Emulation` platí jen po dobu jedné CDP session; store drží Rust v paměti, změna `settings.json` na disku se projeví až po restartu aplikace.
 
 ## Známé pasti
 - `dragDropEnabled` v `tauri.conf.json` musí zůstat `false` – jinak WebView2 vypne HTML5 drag & drop a interní tažení přestane fungovat. Drop zvenku jde přes `postMessageWithAdditionalObjects` (`dnd.ts` → `external_drop.rs`).
