@@ -16,6 +16,8 @@ type ActionItem = {
   checked?: boolean;
   /** Barevný puntík před názvem (menu Štítky). */
   dot?: string;
+  /** Ikona před názvem (16 px) — menu Nový. */
+  icon?: React.ReactNode;
   onSelect: () => void;
   /** Shift+klik (Shift+Enter) položku místo spuštění rozbalí na podmenu s těmito
    *  volbami — „Otevřít v terminálu" → všechny dostupné terminály. */
@@ -171,6 +173,11 @@ function ActionRow({
             boxShadow: "var(--swatch-edge)",
           }}
         />
+      )}
+      {item.icon && (
+        <span aria-hidden className="fw-menu-icon">
+          {item.icon}
+        </span>
       )}
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {item.shortcut && <span className="fw-menu-shortcut shrink-0">{item.shortcut}</span>}

@@ -120,6 +120,35 @@ export function availableTerminals(): Promise<TerminalId[]> {
   return terminalsOnce;
 }
 
+/** Typ z nabídky Průzkumníku Nový ▸ (registr ShellNew). */
+export type ShellNewType = {
+  extension: string;
+  /** Popisek v menu („Dokument Microsoft Wordu"). */
+  name: string;
+  /** Název nového souboru z registru (ItemName), jinak „Nový <name>". */
+  itemName: string | null;
+};
+
+/** Typy pro menu Nový — backend je načte jednou za běh. */
+let shellNewOnce: Promise<ShellNewType[]> | null = null;
+export function listShellNew(): Promise<ShellNewType[]> {
+  shellNewOnce ??= invoke<ShellNewType[]>("list_shell_new").catch(() => {
+    shellNewOnce = null;
+    return [];
+  });
+  return shellNewOnce;
+}
+
+/** Nový soubor typu `extension` jménem `name` (bez přípony); vrátí cestu. */
+export function createShellNew(dir: string, extension: string, name: string): Promise<string> {
+  return invoke<string>("create_shell_new", { dir, extension, name });
+}
+
+/** Ikona typu podle přípony (data URL) — soubor nemusí existovat. */
+export function getExtensionIcon(extension: string): Promise<string> {
+  return invoke<string>("get_extension_icon", { extension });
+}
+
 /** Vytvoří složku a vrátí její cestu (název se při kolizi očísluje). */
 export function createFolder(dir: string, name: string): Promise<string> {
   return invoke<string>("create_folder", { dir, name });

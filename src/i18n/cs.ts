@@ -140,6 +140,11 @@ export const cs = {
   "menu.quickLook": "Náhled",
   "menu.newFolder": "Nová složka",
   "menu.newFile": "Nový soubor",
+  "menu.new": "Nový",
+  "command.newItem": "Nový…",
+  "palette.newItem": "Nový: {type}",
+  "new.folder": "Složka",
+  "new.textDocument": "Textový dokument",
   "menu.rename": "Přejmenovat",
   "menu.duplicate": "Duplikovat",
   "menu.copy": "Kopírovat",
@@ -305,6 +310,7 @@ export const cs = {
   /* ------------------------------ výchozí názvy ------------------------------- */
   "name.newFolder": "Nová složka",
   "name.newFile": "Nový textový dokument.txt",
+  "name.newShellItem": "Nový {type}",
   "name.copySuffix": "kopie",
 
   /* ---------------------------------- okno ------------------------------------ */
@@ -459,6 +465,8 @@ export const cs = {
   "error.nameReserved": "„{name}“ je vyhrazený název Windows",
   "error.intoItself": "složku nelze vložit do sebe sama",
   "error.noFreeName": "nepodařilo se najít volný název",
+  "error.shellNewUnknown": "tenhle typ souboru se nedá vytvořit",
+  "error.shellNewTemplate": "šablona souboru nebyla nalezena",
   "error.noParent": "cesta nemá nadřazenou složku",
   "error.noName": "cesta nemá název",
   "error.openWithDialog": "dialog se nepodařilo otevřít (kód {code})",

@@ -141,6 +141,11 @@ export const en = {
   "menu.quickLook": "Quick Look",
   "menu.newFolder": "New Folder",
   "menu.newFile": "New File",
+  "menu.new": "New",
+  "command.newItem": "New…",
+  "palette.newItem": "New: {type}",
+  "new.folder": "Folder",
+  "new.textDocument": "Text Document",
   "menu.rename": "Rename",
   "menu.duplicate": "Duplicate",
   "menu.copy": "Copy",
@@ -286,6 +291,7 @@ export const en = {
   /* ------------------------------- default names ------------------------------ */
   "name.newFolder": "New folder",
   "name.newFile": "New Text Document.txt",
+  "name.newShellItem": "New {type}",
   "name.copySuffix": "copy",
 
   /* ---------------------------------- window ---------------------------------- */
@@ -437,6 +443,8 @@ export const en = {
   "error.nameReserved": "“{name}” is a reserved name in Windows",
   "error.intoItself": "a folder can't be placed inside itself",
   "error.noFreeName": "couldn't find a free name",
+  "error.shellNewUnknown": "this file type can't be created",
+  "error.shellNewTemplate": "the file template wasn't found",
   "error.noParent": "the path has no parent folder",
   "error.noName": "the path has no name",
   "error.openWithDialog": "couldn't open the dialog (code {code})",

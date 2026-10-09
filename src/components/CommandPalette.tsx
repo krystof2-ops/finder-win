@@ -30,8 +30,13 @@ type Result = {
   run: () => void;
 };
 
+/** Akce mimo registr příkazů, které vznikají za běhu (typy z menu Nový). */
+export type PaletteAction = { key: string; title: string; icon: React.ReactNode; run: () => void };
+
 type CommandPaletteProps = {
   commands: Command[];
+  /** Hledají se jen podle zadaného textu, do prázdného pole se nenabízejí. */
+  extraActions?: PaletteAction[];
   folders: PaletteFolder[];
   /** Nedávné složky pro prázdné pole (nejnovější první). */
   recentFolders: string[];
@@ -97,6 +102,7 @@ function folderTitle(path: string): string {
 
 export function CommandPalette({
   commands,
+  extraActions = [],
   folders,
   recentFolders,
   usage,
@@ -212,6 +218,10 @@ export function CommandPalette({
         // Častěji používané akce mírně dopředu.
         if (score !== null) all.push(commandResult(command, score + Math.min(usage[command.id] ?? 0, 20) * 0.2));
       }
+      for (const action of extraActions) {
+        const score = fuzzyScore(text, action.title);
+        if (score !== null) all.push({ key: `extra:${action.key}`, category: "actions", title: action.title, icon: action.icon, score: score - 1, run: action.run });
+      }
     }
     if (category === "all" || category === "tags") {
       for (const color of TAG_COLORS) {
@@ -236,7 +246,7 @@ export function CommandPalette({
     return limited;
     // sourceLabel a t závisí jen na jazyce, ten se během otevřené palety nemění.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, category, commands, folders, recentFolders, usage]);
+  }, [query, category, commands, extraActions, folders, recentFolders, usage]);
 
   useEffect(() => setSelected(0), [query, category]);
 

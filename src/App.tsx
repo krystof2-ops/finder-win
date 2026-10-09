@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { listen } from "@tauri-apps/api/event";
-import { CircleAlert, CircleCheck, FolderOpen, Search, SearchX, X } from "lucide-react";
+import { CircleAlert, CircleCheck, FolderOpen, Plus, Search, SearchX, X } from "lucide-react";
 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
@@ -27,7 +27,7 @@ import { TagView } from "./components/TagView";
 import { FolderIcon, folderDisplayName, sidebarIcon, sidebarIconColor } from "./components/icons";
 import { TitleBar } from "./components/TitleBar";
 import { Toolbar } from "./components/Toolbar";
-import { CommandPalette, type PaletteFolder } from "./components/CommandPalette";
+import { CommandPalette, type PaletteAction, type PaletteFolder } from "./components/CommandPalette";
 import { buildCommands, commandForKey, type Commands } from "./commands";
 import { TooltipLayer } from "./components/Tooltip";
 import { Skeleton, ViewTransition } from "./components/ViewTransition";
@@ -39,6 +39,9 @@ import {
   copyPath,
   createFile,
   createFolder,
+  createShellNew,
+  getExtensionIcon,
+  listShellNew,
   duplicatePath,
   invoke,
   movePath,
@@ -52,6 +55,7 @@ import {
   statPaths,
   trashIsPermanent,
   type OnConflict,
+  type ShellNewType,
   type TerminalId,
 } from "./fileops";
 import {
@@ -239,6 +243,28 @@ export default function App() {
     void availableTerminals().then(setTerminals);
   }, []);
   const hasTerminal = (id: TerminalId) => terminals === null || terminals.includes(id);
+
+  // Typy z nabídky Průzkumníku Nový ▸ a jejich ikony (data URL podle přípony).
+  const [shellNewTypes, setShellNewTypes] = useState<ShellNewType[]>([]);
+  const [typeIcons, setTypeIcons] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let alive = true;
+    void listShellNew().then((types) => {
+      if (!alive) return;
+      setShellNewTypes(types);
+      for (const extension of [".txt", ...types.map((type) => type.extension)]) {
+        getExtensionIcon(extension)
+          .then((icon) => alive && setTypeIcons((current) => ({ ...current, [extension]: icon })))
+          // Bez ikony zůstane položka jen s textem.
+          .catch(() => undefined);
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  /** Zvýšením se otevře menu Nový v toolbaru (příkaz newItem). */
+  const [newMenuRequest, setNewMenuRequest] = useState(0);
 
   // Režim Windows se sleduje za běhu — při volbě „Podle systému" se okno
   // přebarví hned, jak ho uživatel přepne v Nastavení.
@@ -1062,6 +1088,44 @@ export default function App() {
     [runOperation, requestSelect, record],
   );
 
+  /** Soubor typu z menu Nový (registr ShellNew), rovnou v přejmenování. */
+  const newShellItem = useCallback(
+    (dir: string, type: ShellNewType) => {
+      void runOperation("op.newFile", async () => {
+        const created = await createShellNew(dir, type.extension, type.itemName ?? t("name.newShellItem", { type: type.name }));
+        record({ kind: "create", path: created, folder: false, shellNew: type.extension });
+        requestSelect(dir, created, true);
+      });
+    },
+    [runOperation, requestSelect, record],
+  );
+
+  /** Menu Nový — toolbar i podmenu na prázdné ploše: Složka, Textový dokument, typy z registru. */
+  const newMenuEntries = useCallback(
+    (dir: string): Extract<MenuItem, { type: "item" } | { type: "separator" }>[] => {
+      const typeIcon = (extension: string) =>
+        typeIcons[extension] ? <img src={typeIcons[extension]} alt="" draggable={false} /> : undefined;
+      return [
+        {
+          type: "item",
+          label: t("new.folder"),
+          shortcut: "Ctrl+Shift+N",
+          icon: <FolderIcon size={16} />,
+          onSelect: () => newFolder(dir),
+        },
+        { type: "item", label: t("new.textDocument"), icon: typeIcon(".txt"), onSelect: () => newFile(dir) },
+        ...(shellNewTypes.length > 0 ? [{ type: "separator" as const }] : []),
+        ...shellNewTypes.map((type) => ({
+          type: "item" as const,
+          label: type.name,
+          icon: typeIcon(type.extension),
+          onSelect: () => newShellItem(dir, type),
+        })),
+      ];
+    },
+    [typeIcons, shellNewTypes, newFolder, newFile, newShellItem],
+  );
+
   /** `failed` = hláška pro případ, že schránka zápis odmítne. */
   const copyText = useCallback((text: string, failed: MessageKey) => {
     writeText(text).catch((err: unknown) => setNotice(failure(failed, err)));
@@ -1793,13 +1857,7 @@ export default function App() {
       const dirIsFavorite = favorites.some((item) => storage.samePath(item.path, dir));
 
       return [
-        {
-          type: "item",
-          label: t("menu.newFolder"),
-          shortcut: "Ctrl+Shift+N",
-          onSelect: () => newFolder(dir),
-        },
-        { type: "item", label: t("menu.newFile"), onSelect: () => newFile(dir) },
+        { type: "submenu", label: t("menu.new"), items: newMenuEntries(dir) },
         { type: "separator" },
         {
           type: "item",
@@ -2133,6 +2191,8 @@ export default function App() {
     deleteEntries,
     newFolder,
     newFile,
+    newMenuEntries,
+    terminalItems,
     refresh,
     selectAll,
     changeViewMode,
@@ -2178,6 +2238,20 @@ export default function App() {
   const lastUndo = history.undo[history.undo.length - 1];
   const lastRedo = history.redo[history.redo.length - 1];
   const overlayMode = tagFilter !== null || search !== null;
+  // Typy z menu Nový v paletě („Nový: Dokument aplikace Word").
+  const paletteNewActions: PaletteAction[] =
+    currentDir === null || overlayMode
+      ? []
+      : shellNewTypes.map((type) => ({
+          key: `new:${type.extension}`,
+          title: t("palette.newItem", { type: type.name }),
+          icon: typeIcons[type.extension] ? (
+            <img src={typeIcons[type.extension]} alt="" width={16} height={16} draggable={false} />
+          ) : (
+            <Plus size={15} strokeWidth={1.75} className="text-secondary" />
+          ),
+          run: () => newShellItem(currentDir, type),
+        }));
   const commands = buildCommands(
     {
       palette: { run: () => setPaletteOpen(true) },
@@ -2196,6 +2270,7 @@ export default function App() {
         },
         enabled: currentDir !== null && !overlayMode,
       },
+      newItem: { run: () => setNewMenuRequest((count) => count + 1), enabled: currentDir !== null && !overlayMode },
       viewIcons: { run: () => changeViewMode("icon"), checked: viewMode === "icon" },
       viewList: { run: () => changeViewMode("list"), checked: viewMode === "list" },
       viewColumns: { run: () => changeViewMode("column"), checked: viewMode === "column" },
@@ -2758,6 +2833,8 @@ export default function App() {
             sortItems={toolbarSortItems}
             shareItems={toolbarShareItems}
             tagItems={toolbarTagItems}
+            newItems={currentDir !== null && !overlayMode ? newMenuEntries(currentDir) : null}
+            newMenuRequest={newMenuRequest}
             commands={commands}
             onMenuOpenChange={setToolbarMenuOpen}
           />
@@ -2899,6 +2976,7 @@ export default function App() {
       {paletteOpen && (
         <CommandPalette
           commands={Object.values(commands).filter((command) => command.palette && command.enabled)}
+          extraActions={paletteNewActions}
           folders={paletteFolders}
           recentFolders={recents.filter((item) => item.type === "folder").map((item) => item.path)}
           usage={commandUsage}

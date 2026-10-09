@@ -885,6 +885,22 @@ body {
   color: var(--text-secondary);
 }
 
+/* Ikona typu v menu Nový — 16 px, k názvu blíž než mezera 16 px řádku. */
+.fw-menu-icon {
+  display: flex;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-right: -8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.fw-menu-icon img {
+  width: 16px;
+  height: 16px;
+}
+
 .fw-menu-item:hover:not(:disabled),
 .fw-menu-item.is-highlighted {
   background: var(--accent-fill);
@@ -1097,6 +1113,31 @@ body {
   background-color: var(--bg-toolbar);
   backdrop-filter: blur(20px) saturate(180%);
   border-bottom: 1px solid var(--border);
+  /* Šířka toolbaru (ne okna — sidebar ji mění) rozhoduje o popisku „Nový". */
+  container: toolbar / inline-size;
+}
+
+/* + Nový: ikona s popiskem jako v Průzkumníku, výška jako ostatní tlačítka. */
+.fw-new-btn {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px 0 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+@container toolbar (max-width: 820px) {
+  .fw-new-label {
+    display: none;
+  }
+
+  .fw-new-btn {
+    padding: 0 6px;
+  }
 }
 
 /* Paleta příkazů (Ctrl+K): nahoře uprostřed, jako Spotlight. Okno přijede

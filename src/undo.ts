@@ -2,6 +2,7 @@ import {
   copyPath,
   createFile,
   createFolder,
+  createShellNew,
   movePath,
   moveToTrash,
   parentPath,
@@ -30,12 +31,18 @@ export type UndoOp =
   | { kind: "move"; items: Moved[] }
   /** Kopie i duplikace: `to` je nově vzniklá položka. */
   | { kind: "copy"; items: Moved[] }
-  | { kind: "create"; path: string; folder: boolean }
+  /** `shellNew` = přípona typu z menu Nový — Znovu vytvoří soubor se stejným obsahem. */
+  | { kind: "create"; path: string; folder: boolean; shellNew?: string }
   /** `since` = unix sekundy těsně před smazáním — podle nich se hledá v Koši. */
   | { kind: "trash"; paths: string[]; since: number }
   | { kind: "tags"; before: Record<string, TagColor[]>; after: Record<string, TagColor[]> };
 
 const name = storage.lastSegment;
+
+/** Název bez přípony typu (create_shell_new ji přidá sám). */
+function stemOf(fileName: string, extension: string): string {
+  return fileName.toLowerCase().endsWith(extension.toLowerCase()) ? fileName.slice(0, -extension.length) : fileName;
+}
 
 /** Popisek do menu: „Přejmenovat „x.txt"", „Přesunout 3 položky". */
 export function undoLabel(op: UndoOp): string {
@@ -134,7 +141,11 @@ export async function redoOp(op: UndoOp): Promise<UndoOp> {
     }
     case "create": {
       const dir = parentOf(op.path);
-      const path = op.folder ? await createFolder(dir, name(op.path)) : await createFile(dir, name(op.path));
+      const path = op.folder
+        ? await createFolder(dir, name(op.path))
+        : op.shellNew
+          ? await createShellNew(dir, op.shellNew, stemOf(name(op.path), op.shellNew))
+          : await createFile(dir, name(op.path));
       return { ...op, path };
     }
     case "trash": {

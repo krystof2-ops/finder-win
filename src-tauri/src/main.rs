@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 mod clipboard;
 mod external_drop;
+mod shellnew;
 
 /* --------------------------------- chyby ----------------------------------- */
 
@@ -1882,7 +1883,7 @@ fn available_terminals() -> Vec<&'static str> {
     .collect()
 }
 
-/// Volný název pro novou položku: „Nová složka", „Nová složka 2", …
+/// Volný název pro novou složku: „Nová složka", „Nová složka (2)", … jako Průzkumník.
 ///
 /// Nepoužívá `unique_destination` — ten řeší kolizi kopie a přípona
 /// „(kopie)" by u čerstvě vytvořené složky nedržela smysl.
@@ -1893,7 +1894,7 @@ fn unique_new_name(dir: &Path, base: &str) -> CmdResult<PathBuf> {
     }
 
     for attempt in 2..10_000 {
-        let candidate = dir.join(format!("{} {}", base, attempt));
+        let candidate = dir.join(format!("{} ({})", base, attempt));
         if !candidate.exists() {
             return Ok(candidate);
         }
@@ -1920,8 +1921,7 @@ fn create_folder(dir: String, name: String) -> CmdResult<String> {
     Ok(target.to_string_lossy().to_string())
 }
 
-/// Vytvoří prázdný soubor a vrátí jeho cestu. Číslo při kolizi patří před
-/// příponu („Nový textový dokument 2.txt"), jinak by se přípona rozbila.
+/// Vytvoří prázdný soubor a vrátí jeho cestu (kolize viz `create_unique_file`).
 #[tauri::command(async)]
 fn create_file(dir: String, name: String) -> CmdResult<String> {
     validate_name(&name)?;
@@ -1931,7 +1931,15 @@ fn create_file(dir: String, name: String) -> CmdResult<String> {
         return Err(AppError::at(&dir, AppError::new("error.targetNotFound")));
     }
 
-    let name = name.trim();
+    create_unique_file(&directory, name.trim(), &[]).map(|path| path.to_string_lossy().to_string())
+}
+
+/// Nový soubor s obsahem `content` pod volným názvem. Číslo při kolizi patří
+/// před příponu jako v Průzkumníku („Nový textový dokument (2).txt"), jinak by
+/// se přípona rozbila.
+fn create_unique_file(directory: &Path, name: &str, content: &[u8]) -> CmdResult<PathBuf> {
+    use std::io::Write;
+
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
@@ -1941,16 +1949,21 @@ fn create_file(dir: String, name: String) -> CmdResult<String> {
         let candidate = if attempt == 1 {
             directory.join(name)
         } else {
-            directory.join(format!("{} {}{}", stem, attempt, extension))
+            directory.join(format!("{} ({}){}", stem, attempt, extension))
         };
 
         // create_new místo exists() + create — nic se nepřepíše ani při souběhu.
         match fs::OpenOptions::new().write(true).create_new(true).open(&candidate) {
-            Ok(_) => return Ok(candidate.to_string_lossy().to_string()),
-            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(err) => {
-                return Err(AppError::at(candidate.to_string_lossy(), describe_io(&err)))
+            Ok(mut file) => {
+                if let Err(err) = file.write_all(content) {
+                    drop(file);
+                    let _ = fs::remove_file(&candidate);
+                    return Err(AppError::at(candidate.to_string_lossy(), describe_io(&err)));
+                }
+                return Ok(candidate);
             }
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(AppError::at(candidate.to_string_lossy(), describe_io(&err))),
         }
     }
 
@@ -2163,11 +2176,14 @@ fn encode_png(width: u32, height: u32, rgba: &[u8]) -> CmdResult<Vec<u8>> {
     Ok(out)
 }
 
-/// HBITMAP ze shellu → RGBA. Shell vrací 32bit BGRA s přednásobenou alfou;
-/// PNG chce alfu nepřednásobenou, jinak by měly okraje ikon tmavý lem.
+/// HBITMAP → RGBA. Shell (IShellItemImageFactory) vrací 32bit BGRA
+/// s přednásobenou alfou (`premultiplied`); PNG chce alfu nepřednásobenou,
+/// jinak by měly okraje ikon tmavý lem. Barevná bitmapa ikony (GetIconInfo)
+/// má alfu už nepřednásobenou.
 #[cfg(windows)]
 unsafe fn bitmap_rgba(
     bitmap: windows::Win32::Graphics::Gdi::HBITMAP,
+    premultiplied: bool,
 ) -> CmdResult<(u32, u32, Vec<u8>)> {
     use windows::Win32::Graphics::Gdi::{
         GetDC, GetDIBits, GetObjectW, ReleaseDC, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
@@ -2226,7 +2242,7 @@ unsafe fn bitmap_rgba(
     for pixel in pixels.chunks_exact_mut(4) {
         let alpha = if has_alpha { pixel[3] } else { 255 };
         let straight = |channel: u8| -> u8 {
-            if alpha == 0 || alpha == 255 {
+            if !premultiplied || alpha == 0 || alpha == 255 {
                 channel
             } else {
                 ((channel as u32 * 255 + alpha as u32 / 2) / alpha as u32).min(255) as u8
@@ -2274,7 +2290,7 @@ fn render_shell_image(path: &str, size: u32, thumbnail: bool) -> CmdResult<Vec<u
             // Typ bez thumbnail handleru — volající nechá ikonu.
             .map_err(|err| if thumbnail { AppError::new("error.noThumbnail") } else { describe_win(&err) })?;
 
-        let pixels = bitmap_rgba(bitmap);
+        let pixels = bitmap_rgba(bitmap, true);
         let _ = DeleteObject(HGDIOBJ(bitmap.0));
 
         let (width, height, rgba) = pixels?;
@@ -2811,6 +2827,7 @@ fn main() {
             spawn_change_emitter(app.handle().clone(), receiver);
             spawn_drive_watcher(app.handle().clone());
             std::thread::spawn(prune_thumbnail_cache);
+            shellnew::preload();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2836,6 +2853,9 @@ fn main() {
             open_with,
             open_terminal,
             available_terminals,
+            shellnew::list_shell_new,
+            shellnew::create_shell_new,
+            shellnew::get_extension_icon,
             create_folder,
             create_file,
             watch_dirs,

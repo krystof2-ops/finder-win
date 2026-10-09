@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   List,
   MoreHorizontal,
+  Plus,
   Search,
   Share,
   SlidersHorizontal,
@@ -141,6 +142,10 @@ type ToolbarProps = {
   shareItems: MenuItem[];
   /** null = nic není vybrané, tlačítko Štítky je vypnuté. */
   tagItems: MenuItem[] | null;
+  /** Menu tlačítka Nový (Složka, Textový dokument, typy z registru); null = nejde (tag view, hledání). */
+  newItems: MenuItem[] | null;
+  /** Zvýšení čísla otevře menu Nový — příkaz newItem z palety a klávesnice. */
+  newMenuRequest: number;
   /** Registr příkazů (commands.ts) — tlačítka i menu Více z něj berou akce,
    *  stav i zkratky, takže se s klávesnicí a paletou nerozejdou. */
   commands: Commands;
@@ -160,7 +165,7 @@ export function commandMenuItem(command: Command, label?: string): MenuItem & { 
   };
 }
 
-type ToolbarMenu = "sort" | "share" | "tags" | "more";
+type ToolbarMenu = "new" | "sort" | "share" | "tags" | "more";
 
 export function Toolbar({
   folderName,
@@ -176,12 +181,26 @@ export function Toolbar({
   sortItems,
   shareItems,
   tagItems,
+  newItems,
+  newMenuRequest,
   commands,
   onMenuOpenChange,
 }: ToolbarProps) {
   const t = useT();
   // Otevřené může být jen jedno menu. Pozice se bere z rámečku tlačítka.
   const [menu, setMenu] = useState<{ kind: ToolbarMenu; x: number; y: number } | null>(null);
+  const newButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Příkaz newItem (paleta) otevře menu Nový pod tlačítkem. Pamatuje si
+  // zpracovanou hodnotu, ať se menu po remountu neotevře samo.
+  const handledNewRequest = useRef(newMenuRequest);
+  useEffect(() => {
+    const button = newButtonRef.current;
+    if (newMenuRequest === handledNewRequest.current || !button) return;
+    handledNewRequest.current = newMenuRequest;
+    const rect = button.getBoundingClientRect();
+    setMenu({ kind: "new", x: rect.left, y: rect.bottom + 4 });
+  }, [newMenuRequest]);
 
   useEffect(() => onMenuOpenChange(menu !== null), [menu, onMenuOpenChange]);
 
@@ -289,6 +308,24 @@ export function Toolbar({
 
       <div className="flex-1" />
 
+      {/* + Nový jako v Průzkumníku; na úzkém toolbaru jen ikona (index.css). */}
+      <button
+        ref={newButtonRef}
+        type="button"
+        aria-label={t("menu.new")}
+        data-tooltip={t("menu.new")}
+        data-fw-menu-trigger
+        disabled={newItems === null}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          toggleMenu("new")(event);
+        }}
+        className={`fw-tool-btn fw-new-btn ${menu?.kind === "new" ? "bg-selected" : "hover:bg-hover"} disabled:pointer-events-none disabled:opacity-35`}
+      >
+        <Plus size={16} strokeWidth={1.75} />
+        <span className="fw-new-label">{t("menu.new")}</span>
+      </button>
+
       <ViewSwitcher mode={viewMode} onChange={onViewModeChange} />
 
       <IconButton
@@ -390,7 +427,9 @@ export function Toolbar({
           x={menu.x}
           y={menu.y}
           items={
-            menu.kind === "sort"
+            menu.kind === "new"
+              ? (newItems ?? [])
+              : menu.kind === "sort"
               ? sortItems
               : menu.kind === "share"
                 ? shareItems

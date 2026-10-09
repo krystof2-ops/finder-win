@@ -14,6 +14,7 @@ export type CommandId =
   | "palette"
   | "newFolder"
   | "newFile"
+  | "newItem"
   | "newTab"
   | "closeTab"
   | "nextTab"
@@ -116,6 +117,8 @@ const DEFINITIONS: Record<CommandId, CommandDefinition> = {
   moveToOther: { title: "split.moveToOther", shortcut: "F6", keys: [{ key: "F6" }] },
   newFolder: { title: "menu.newFolder", shortcut: "Ctrl+Shift+N", keys: [{ code: "KeyN", ctrl: true, shift: true }] },
   newFile: { title: "menu.newFile" },
+  // Otevře menu Nový v toolbaru (Složka, Textový dokument, typy z registru).
+  newItem: { title: "command.newItem" },
   viewIcons: { title: "toolbar.viewAsIcons" },
   viewList: { title: "toolbar.viewAsList" },
   viewColumns: { title: "toolbar.viewAsColumns" },
