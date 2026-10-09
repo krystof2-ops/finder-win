@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 mod clipboard;
 mod external_drop;
+mod glass;
 mod native_drag;
 mod shellnew;
 
@@ -2827,12 +2828,15 @@ fn main() {
             });
             spawn_change_emitter(app.handle().clone(), receiver);
             spawn_drive_watcher(app.handle().clone());
+            glass::spawn_env_watcher(app.handle().clone());
             std::thread::spawn(prune_thumbnail_cache);
             shellnew::preload();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             app_ready,
+            glass::glass_env,
+            glass::set_glass,
             list_dir,
             list_dir_stream,
             can_list_dir,

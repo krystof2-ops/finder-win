@@ -19,7 +19,7 @@
         "resizable": true,
         "visible": false,
         "decorations": false,
-        "transparent": false,
+        "transparent": true,
         "shadow": true,
         "backgroundColor": "#ececec",
         "dragDropEnabled": false
