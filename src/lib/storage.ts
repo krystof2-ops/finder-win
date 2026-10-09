@@ -40,8 +40,9 @@ export type MotionPreference = "system" | "on" | "off";
 export type LanguagePreference = "system" | "en" | "cs";
 
 /** Terminál pro „Otevřít v Terminálu": auto = Windows Terminal, jinak PowerShell. */
-export type TerminalPreference = "auto" | "windowsTerminal" | "powershell" | "cmd";
-const TERMINALS: TerminalPreference[] = ["auto", "windowsTerminal", "powershell", "cmd"];
+/** `pwsh` = PowerShell 7, `powershell` = Windows PowerShell 5.1. */
+export type TerminalPreference = "auto" | "windowsTerminal" | "pwsh" | "powershell" | "cmd";
+const TERMINALS: TerminalPreference[] = ["auto", "windowsTerminal", "pwsh", "powershell", "cmd"];
 
 /** Jeden panel uložené záložky: složka, zobrazení a řazení. */
 export type SavedPanel = { path: string; view: ViewMode; sortKey: SortKey; sortDirection: SortDirection };

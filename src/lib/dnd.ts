@@ -121,17 +121,31 @@ type WebView2 = {
 const pendingDrops = new Map<number, (paths: string[]) => void>();
 let nextDropId = 0;
 let dropListener: Promise<unknown> | null = null;
+/** Při trvalé chybě se na Rust nenapojuje při každém dragover (desítky za
+ *  sekundu) — nejvýš jeden pokus za RETRY_MS. */
+const RETRY_MS = 5000;
+let lastFailure: { at: number; error: unknown } | null = null;
 
 function ensureDropListener(): Promise<unknown> {
+  if (dropListener === null && lastFailure !== null && Date.now() - lastFailure.at < RETRY_MS) {
+    return Promise.reject(lastFailure.error);
+  }
   dropListener ??= listen<{ id: number; paths: string[] }>("external-drop", ({ payload }) => {
     const resolve = pendingDrops.get(payload.id);
     pendingDrops.delete(payload.id);
     resolve?.(payload.paths);
-  }).catch((err: unknown) => {
-    // Nepovedená registrace se nesmí zapamatovat — příští drop to zkusí znovu.
-    dropListener = null;
-    throw err;
-  });
+  }).then(
+    (unlisten) => {
+      lastFailure = null;
+      return unlisten;
+    },
+    (err: unknown) => {
+      // Nepovedená registrace se nesmí zapamatovat — další pokus po RETRY_MS.
+      dropListener = null;
+      lastFailure = { at: Date.now(), error: err };
+      throw err;
+    },
+  );
   return dropListener;
 }
 

@@ -236,6 +236,7 @@ export function Toolbar({
       items: [
         item("terminalAuto", t("terminal.auto")),
         item("terminalWindows", t("terminal.windowsTerminal")),
+        item("terminalPwsh", t("terminal.pwsh")),
         item("terminalPowerShell", t("terminal.powershell")),
         item("terminalCmd", t("terminal.cmd")),
       ],

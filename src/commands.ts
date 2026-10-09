@@ -38,6 +38,7 @@ export type CommandId =
   | "motionOff"
   | "terminalAuto"
   | "terminalWindows"
+  | "terminalPwsh"
   | "terminalPowerShell"
   | "terminalCmd"
   | "goBack"
@@ -137,6 +138,7 @@ const DEFINITIONS: Record<CommandId, CommandDefinition> = {
   motionOff: { title: "command.motionOff" },
   terminalAuto: { title: "command.terminalAuto" },
   terminalWindows: { title: "command.terminalWindows" },
+  terminalPwsh: { title: "command.terminalPwsh" },
   terminalPowerShell: { title: "command.terminalPowerShell" },
   terminalCmd: { title: "command.terminalCmd" },
   goBack: {

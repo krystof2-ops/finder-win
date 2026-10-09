@@ -2,7 +2,7 @@ import { Channel, invoke as tauriInvoke, type InvokeArgs } from "@tauri-apps/api
 
 import { joinPath, splitPath } from "./format";
 import { errorText, isMessageKey, t, type Params } from "./i18n";
-import { getSnapshot } from "./lib/storage";
+import { getSnapshot, type TerminalPreference } from "./lib/storage";
 import type { FileEntry, FileProperties, FolderStats, OpResult, StatResult } from "./types";
 
 /* ------------------------------ chyby backendu ------------------------------ */
@@ -101,8 +101,23 @@ export function openWith(path: string): Promise<void> {
 
 /** Terminál ve složce — u souboru v té jeho. */
 /** Terminál podle volby v menu Více → Terminál (storage); u souboru v jeho složce. */
-export function openTerminal(path: string): Promise<void> {
-  return invoke<void>("open_terminal", { path, terminal: getSnapshot().terminal });
+/** Bez `terminal` podle volby v menu Více → Terminál (podmenu Shift+klik ho určí). */
+export function openTerminal(path: string, terminal?: TerminalPreference): Promise<void> {
+  return invoke<void>("open_terminal", { path, terminal: terminal ?? getSnapshot().terminal });
+}
+
+/** Terminál, který se dá spustit (bez `auto`). */
+export type TerminalId = Exclude<TerminalPreference, "auto">;
+
+/** Nainstalované terminály — zjistí se jednou za běh aplikace. */
+let terminalsOnce: Promise<TerminalId[]> | null = null;
+export function availableTerminals(): Promise<TerminalId[]> {
+  terminalsOnce ??= invoke<TerminalId[]>("available_terminals").catch(() => {
+    terminalsOnce = null;
+    // Bez odpovědi nic nezašedit — spuštění případně ohlásí chybu samo.
+    return ["windowsTerminal", "pwsh", "powershell", "cmd"] as TerminalId[];
+  });
+  return terminalsOnce;
 }
 
 /** Vytvoří složku a vrátí její cestu (název se při kolizi očísluje). */

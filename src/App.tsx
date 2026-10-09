@@ -44,6 +44,7 @@ import {
   movePath,
   moveToTrash,
   openInExplorer,
+  availableTerminals,
   openTerminal,
   openWith,
   parentPath,
@@ -51,6 +52,7 @@ import {
   statPaths,
   trashIsPermanent,
   type OnConflict,
+  type TerminalId,
 } from "./fileops";
 import {
   breadcrumbs,
@@ -144,6 +146,14 @@ function Placeholder({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Popisky terminálů (menu Více → Terminál a podmenu Shift+klik). */
+const TERMINAL_LABELS: Record<TerminalId, MessageKey> = {
+  windowsTerminal: "terminal.windowsTerminal",
+  pwsh: "terminal.pwsh",
+  powershell: "terminal.powershell",
+  cmd: "terminal.cmd",
+};
+
 export default function App() {
   const [windowFocused, setWindowFocused] = useState(true);
   /** Fokus okna — panely si z něj odvodí vlastní (neaktivní panel je „bez fokusu"). */
@@ -221,6 +231,14 @@ export default function App() {
   // Překreslení po přepnutí jazyka; texty se berou z `t`, které čte aktuální locale.
   const locale = useLocale();
   useEffect(() => applyMotion(motion), [motion]);
+
+  // Nainstalované terminály: menu Více → Terminál zbylé zašedí, Shift+klik
+  // na „Otevřít v terminálu" nabídne jen tyhle.
+  const [terminals, setTerminals] = useState<TerminalId[] | null>(null);
+  useEffect(() => {
+    void availableTerminals().then(setTerminals);
+  }, []);
+  const hasTerminal = (id: TerminalId) => terminals === null || terminals.includes(id);
 
   // Režim Windows se sleduje za běhu — při volbě „Podle systému" se okno
   // přebarví hned, jak ho uživatel přepne v Nastavení.
@@ -1722,10 +1740,21 @@ export default function App() {
   );
 
   const openTerminalAt = useCallback(
-    (path: string) => {
-      void runOperation("op.terminal", () => openTerminal(path));
+    (path: string, terminal?: TerminalId) => {
+      void runOperation("op.terminal", () => openTerminal(path, terminal));
     },
     [runOperation],
+  );
+
+  /** Podmenu Shift+klik na „Otevřít v terminálu": každý dostupný terminál. */
+  const terminalItems = useCallback(
+    (path: string): Extract<MenuItem, { type: "item" }>[] =>
+      (terminals ?? []).map((id) => ({
+        type: "item",
+        label: t(TERMINAL_LABELS[id]),
+        onSelect: () => openTerminalAt(path, id),
+      })),
+    [terminals, openTerminalAt],
   );
 
   const menuItems = useMemo((): MenuItem[] => {
@@ -1785,7 +1814,12 @@ export default function App() {
           label: t("menu.openInExplorer"),
           onSelect: () => revealInExplorer(dir),
         },
-        { type: "item", label: t("menu.openInTerminal"), onSelect: () => openTerminalAt(dir) },
+        {
+          type: "item",
+          label: t("menu.openInTerminal"),
+          onSelect: () => openTerminalAt(dir),
+          shiftItems: terminalItems(dir),
+        },
         copyPathItem(dir),
         { type: "separator" },
         {
@@ -1946,6 +1980,7 @@ export default function App() {
         label: t("menu.openInTerminal"),
         disabled: !single,
         onSelect: () => openTerminalAt(entry.path),
+        shiftItems: terminalItems(entry.path),
       },
       // Do "Moje oblíbené" smí složka i soubor: klik na složku tam naviguje,
       // klik na soubor ho otevře v systémové aplikaci.
@@ -2176,9 +2211,18 @@ export default function App() {
       motionOn: { run: () => void storage.setMotion("on"), checked: motion === "on" },
       motionOff: { run: () => void storage.setMotion("off"), checked: motion === "off" },
       terminalAuto: { run: () => void storage.setTerminal("auto"), checked: terminal === "auto" },
-      terminalWindows: { run: () => void storage.setTerminal("windowsTerminal"), checked: terminal === "windowsTerminal" },
-      terminalPowerShell: { run: () => void storage.setTerminal("powershell"), checked: terminal === "powershell" },
-      terminalCmd: { run: () => void storage.setTerminal("cmd"), checked: terminal === "cmd" },
+      terminalWindows: {
+        run: () => void storage.setTerminal("windowsTerminal"),
+        checked: terminal === "windowsTerminal",
+        enabled: hasTerminal("windowsTerminal"),
+      },
+      terminalPwsh: { run: () => void storage.setTerminal("pwsh"), checked: terminal === "pwsh", enabled: hasTerminal("pwsh") },
+      terminalPowerShell: {
+        run: () => void storage.setTerminal("powershell"),
+        checked: terminal === "powershell",
+        enabled: hasTerminal("powershell"),
+      },
+      terminalCmd: { run: () => void storage.setTerminal("cmd"), checked: terminal === "cmd", enabled: hasTerminal("cmd") },
       goBack: { run: goBack, enabled: nav.back.length > 0 },
       goForward: { run: goForward, enabled: nav.forward.length > 0 },
       goParent: { run: goToParent, enabled: currentDir !== null && parentPath(currentDir) !== null },

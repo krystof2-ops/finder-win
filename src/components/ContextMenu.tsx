@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronRight } from "lucide-react";
 
@@ -17,6 +17,9 @@ type ActionItem = {
   /** Barevný puntík před názvem (menu Štítky). */
   dot?: string;
   onSelect: () => void;
+  /** Shift+klik (Shift+Enter) položku místo spuštění rozbalí na podmenu s těmito
+   *  volbami — „Otevřít v terminálu" → všechny dostupné terminály. */
+  shiftItems?: SubmenuEntry[];
 };
 
 type SubmenuEntry = { type: "separator" } | ActionItem;
@@ -122,11 +125,14 @@ function ActionRow({
   item,
   onDone,
   onHover,
+  onExpand,
   highlighted = false,
 }: {
   item: ActionItem;
   onDone: () => void;
   onHover?: () => void;
+  /** Shift+klik na položku se `shiftItems` — rozbalit podmenu, nezavírat. */
+  onExpand?: () => void;
   /** Kurzor klávesnice stojí na téhle položce. */
   highlighted?: boolean;
 }) {
@@ -137,7 +143,11 @@ function ActionRow({
       aria-checked={item.checked}
       disabled={item.disabled}
       onMouseEnter={onHover}
-      onClick={() => {
+      onClick={(event) => {
+        if (event.shiftKey && item.shiftItems && onExpand) {
+          onExpand();
+          return;
+        }
         item.onSelect();
         onDone();
       }}
@@ -237,8 +247,19 @@ function SubmenuRow({
 
 /* -------------------------------- menu ------------------------------------ */
 
-export function ContextMenu({ x, y, items, onClose, triggerSelector }: ContextMenuProps) {
+export function ContextMenu({ x, y, items: given, onClose, triggerSelector }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Položka rozbalená Shift+klikem na podmenu ze svých `shiftItems`. */
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const items = useMemo(
+    () =>
+      given.map((item, index): MenuItem =>
+        index === expanded && item.type === "item" && item.shiftItems
+          ? { type: "submenu", label: item.label, items: item.shiftItems }
+          : item,
+      ),
+    [given, expanded],
+  );
   const [position, setPosition] = useState({ left: x, top: y });
   const [flip, setFlip] = useState(false);
   const [openSubmenu, setOpenSubmenu] = useState<number | null>(null);
@@ -261,6 +282,7 @@ export function ContextMenu({ x, y, items, onClose, triggerSelector }: ContextMe
   useEffect(() => {
     setOpenSubmenu(null);
     setCursor(-1);
+    setExpanded(null);
   }, [x, y]);
 
   // Po vykreslení se menu posune dovnitř okna, kdyby přetékalo.
@@ -324,6 +346,11 @@ export function ContextMenu({ x, y, items, onClose, triggerSelector }: ContextMe
           const item = list[cursorRef.current];
           if (!item) break;
           if (item.type === "item" && event.key === "Enter") {
+            if (event.shiftKey && item.shiftItems) {
+              setExpanded(cursorRef.current);
+              setOpenSubmenu(cursorRef.current);
+              break;
+            }
             item.onSelect();
             requestClose();
           } else if (item.type === "submenu" || item.type === "tags") {
@@ -439,6 +466,10 @@ export function ContextMenu({ x, y, items, onClose, triggerSelector }: ContextMe
             key={item.label}
             item={item}
             onDone={requestClose}
+            onExpand={() => {
+              setExpanded(index);
+              setOpenSubmenu(index);
+            }}
             highlighted={cursor === index}
             // Přejezd na obyčejnou položku zavře rozbalené podmenu.
             onHover={() => {

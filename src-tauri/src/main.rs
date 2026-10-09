@@ -1797,8 +1797,9 @@ fn open_with(path: String) -> CmdResult<()> {
 
 /// Otevře terminál ve složce. U souboru v jeho složce — „v souboru" se být nedá.
 ///
-/// `terminal` je volba z menu Více → Terminál: `windowsTerminal`, `powershell`,
-/// `cmd`, nebo `auto` — nejdřív Windows Terminal, pak PowerShell. `wt.exe` je
+/// `terminal` je volba z menu Více → Terminál: `windowsTerminal`, `pwsh`
+/// (PowerShell 7), `powershell` (Windows PowerShell), `cmd`, nebo `auto` —
+/// nejdřív Windows Terminal, pak Windows PowerShell. `wt.exe` je
 /// alias ze Storu, který na čisté instalaci být nemusí — spawn pak selže
 /// a u `auto` se padne na zálohu, u výslovné volby je to chyba.
 ///
@@ -1830,16 +1831,55 @@ fn open_terminal(path: String, terminal: String) -> CmdResult<()> {
             .map(|_| ())
             .map_err(|err| describe_io(&err))
     };
+    let pwsh = || {
+        let exe = find_pwsh().unwrap_or_else(|| PathBuf::from("pwsh.exe"));
+        shell_execute("open", exe.as_os_str(), Some("-NoExit"), Some(&directory)).map_err(failed)
+    };
     let powershell = || shell_execute("open", OsStr::new("powershell.exe"), Some("-NoExit"), Some(&directory)).map_err(failed);
     let cmd = || shell_execute("open", OsStr::new("cmd.exe"), Some("/K"), Some(&directory)).map_err(failed);
 
     let result = match terminal.as_str() {
         "windowsTerminal" => windows_terminal(),
+        "pwsh" => pwsh(),
         "powershell" => powershell(),
         "cmd" => cmd(),
         _ => windows_terminal().or_else(|_| powershell()),
     };
     result.map_err(|reason| AppError::at(directory.to_string_lossy(), reason))
+}
+
+/// Spustitelný soubor v PATH. `symlink_metadata`, ne `is_file`: `wt.exe`
+/// v %LOCALAPPDATA%MicrosoftWindowsApps je alias (reparse point), který
+/// se jako soubor otevřít nedá, ale ShellExecute/CreateProcess ho spustí.
+fn find_in_path(exe: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(exe))
+        .find(|candidate| fs::symlink_metadata(candidate).is_ok())
+}
+
+/// PowerShell 7 — v PATH, jinak v obvyklé instalační složce.
+fn find_pwsh() -> Option<PathBuf> {
+    find_in_path("pwsh.exe").or_else(|| {
+        let program_files = std::env::var_os("ProgramFiles")?;
+        let exe = PathBuf::from(program_files).join("PowerShell").join("7").join("pwsh.exe");
+        exe.is_file().then_some(exe)
+    })
+}
+
+/// Terminály, které na počítači jsou — menu Více → Terminál zbylé zašedí,
+/// podmenu „Otevřít v terminálu" (Shift+klik) nabídne jen tyhle.
+#[tauri::command(async)]
+fn available_terminals() -> Vec<&'static str> {
+    [
+        ("windowsTerminal", find_in_path("wt.exe").is_some()),
+        ("pwsh", find_pwsh().is_some()),
+        ("powershell", find_in_path("powershell.exe").is_some()),
+        ("cmd", find_in_path("cmd.exe").is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(id, found)| found.then_some(id))
+    .collect()
 }
 
 /// Volný název pro novou položku: „Nová složka", „Nová složka 2", …
@@ -2795,6 +2835,7 @@ fn main() {
             search_recursive,
             open_with,
             open_terminal,
+            available_terminals,
             create_folder,
             create_file,
             watch_dirs,
