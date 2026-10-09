@@ -1,5 +1,5 @@
 // Nahraje demo scénář přes Page.startScreencast a složí docs/demo.gif (ffmpeg, 960 px, 15 fps).
-// Před spuštěním smaž C:\Demo\Projects\meeting-notes.md (F5 ho tam kopíruje).
+// Před spuštěním smaž C:\Demo\Projects\meeting-notes.md (F5 ho tam kopíruje) a ideas.txt (vytvoří ho + New).
 import fs from "fs";
 import os from "os";
 import path from "path";
@@ -92,7 +92,15 @@ await c.sleep(500);
 await hud("F5 – copy to the other panel");
 await c.key("F5", "F5", 116);
 await c.sleep(PAUSE + 400);
-// 5) paleta příkazů
+// 5) + New → Text Document, rovnou v přejmenování
+await clickAt(".fw-new-btn");
+await c.sleep(700);
+await clickAt(".fw-menu-item", "Text Document");
+await c.sleep(600);
+await c.type("ideas", 110);
+await c.key("Enter", "Enter", 13, 0, "\r");
+await c.sleep(PAUSE);
+// 6) paleta příkazů
 await hud("Ctrl + K");
 await c.key("k", "KeyK", 75, 2);
 await c.sleep(500);

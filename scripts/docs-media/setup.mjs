@@ -1,5 +1,5 @@
 // Namapuje standardní složky na C:\Demo (bez jména uživatele), zahodí cloud sekci,
-// nastaví viewport a znovu načte stránku. Patch žije jen po dobu CDP session.
+// podvrhne typy menu + New, nastaví viewport a znovu načte stránku. Patch žije jen po dobu CDP session.
 // Předpoklad: složky z docs/demo zkopírované do C:\Demo a běžící dev s CDP na portu 9333.
 import { connect } from "./cdp.mjs";
 
@@ -7,12 +7,23 @@ const MAP = {
   desktop: "C:\\Demo", downloads: "C:\\Demo\\Downloads", documents: "C:\\Demo\\Documents",
   pictures: "C:\\Demo\\Photos", music: "C:\\Demo\\Music", videos: "C:\\Demo\\Videos", home: "C:\\Demo",
 };
+// Menu + New: neutrální anglický seznam místo typů z registru tohohle počítače.
+const SHELL_NEW = [
+  { extension: ".docx", name: "Microsoft Word Document", itemName: null },
+  { extension: ".xlsx", name: "Microsoft Excel Worksheet", itemName: null },
+  { extension: ".pptx", name: "Microsoft PowerPoint Presentation", itemName: null },
+  { extension: ".zip", name: "Compressed (zipped) Folder", itemName: "New Compressed (zipped) Folder" },
+];
 const patch = `(() => {
   const MAP = ${JSON.stringify(MAP)};
+  const SHELL_NEW = ${JSON.stringify(SHELL_NEW)};
   const of = window.fetch.bind(window);
   window.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input.url;
     const res = await of(input, init);
+    if (url.startsWith("http://ipc.localhost/list_shell_new") && res.ok) {
+      return new Response(JSON.stringify(SHELL_NEW), { status: res.status, headers: res.headers });
+    }
     if (!url.startsWith("http://ipc.localhost/get_favorites") || !res.ok) return res;
     const r = await res.json();
     const out = r.filter((s) => s.id !== "cloud").map((s) => ({ ...s,
