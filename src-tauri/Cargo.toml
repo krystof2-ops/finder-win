@@ -20,6 +20,8 @@ tauri-build = { version = "2", features = [] }
 # protocol-asset obsluhuje URL z convertFileSrc — bez něj se náhledy nenačtou.
 tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
+# Už v závislostech Tauri; tady jen kontrola importovaného settings.json (Store build).
+serde_json = "1"
 dirs = "6.0.0"
 opener = "0.8.5"
 trash = "5.2.6"

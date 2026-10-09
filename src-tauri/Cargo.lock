@@ -856,6 +856,7 @@ dependencies = [
  "opener",
  "png 0.18.1",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-clipboard-manager",

@@ -2717,14 +2717,19 @@ fn import_nsis_settings() {
     );
 }
 
-/// Zkopíruje `from` do `to`, jen když `to` ještě neexistuje. Přes dočasný soubor
-/// a přejmenování — store nikdy nenačte useknutý JSON.
+/// Zkopíruje `from` do `to`, jen když `to` ještě neexistuje a `from` je platný
+/// JSON objekt (jinak Store verze začne s výchozím nastavením). Přes dočasný
+/// soubor a přejmenování — store nikdy nenačte useknutý JSON.
 #[cfg_attr(not(feature = "store"), allow(dead_code))]
 fn import_settings_file(from: &Path, to: &Path) -> std::io::Result<bool> {
     if to.exists() || !from.is_file() {
         return Ok(false);
     }
     let bytes = fs::read(from)?;
+    let valid = serde_json::from_slice::<serde_json::Value>(&bytes).is_ok_and(|value| value.is_object());
+    if !valid {
+        return Ok(false);
+    }
     if let Some(dir) = to.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -2853,6 +2858,13 @@ mod settings_import_tests {
         let missing = root.join("none").join("settings.json");
         let fresh = root.join("fresh").join("settings.json");
         assert!(!import_settings_file(&missing, &fresh).unwrap());
+        assert!(!fresh.exists());
+
+        // Poškozený (useknutý) NSIS soubor se nepřevezme — Store verze začne s výchozím.
+        let broken = root.join("broken").join("settings.json");
+        fs::create_dir_all(broken.parent().unwrap()).unwrap();
+        fs::write(&broken, br#"{"favorites":["C:\\A""#).unwrap();
+        assert!(!import_settings_file(&broken, &fresh).unwrap());
         assert!(!fresh.exists());
 
         let _ = fs::remove_dir_all(&root);
