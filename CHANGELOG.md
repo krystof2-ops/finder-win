@@ -2,6 +2,14 @@
 
 Notable changes in each Finder-Win release. Installers are on the [Releases](https://github.com/krystof2-ops/finder-win/releases) page.
 
+## [1.4.2](https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.2) – 2026-10-09
+
+- **Drag out of the app** – drag files and folders from Finder-Win to File Explorer, the desktop, a browser upload, Discord or an e-mail. Copy by default, Shift moves. Drag & drop now works both ways.
+- **New button** – **+ New** in the toolbar, like File Explorer: Folder, Text Document and every file type Windows offers in New (Word, Excel, ZIP …); also in the context menu (New ▸) and the command palette.
+- **Rounded tabs** – each tab is a rounded chip; the active one is highlighted without blending into the content.
+- **Terminals** – More → Terminal lists PowerShell 7 and Windows PowerShell separately; unavailable ones are greyed out. Shift+click Open in Terminal picks any installed terminal.
+- **Names like File Explorer** – new items that collide get “(2)”, e.g. “New folder (2)”.
+
 ## [1.4.1](https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.1) – 2026-10-09
 
 - **Fixed:** drag & drop from File Explorer did not work.

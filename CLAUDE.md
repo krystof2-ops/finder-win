@@ -11,7 +11,7 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 - `src/fileops.ts` – typované wrappery nad `invoke`, vč. `localizeError`.
 - `src/lib/*` – `storage.ts` (settings.json přes tauri-plugin-store), `dnd.ts`, `motion.ts`, `updates.ts` (kontrola aktualizací) aj.
 - `src/i18n/cs.ts` + `en.ts` – překlady; `src/components/` – UI (např. `TabBar.tsx`, `CommandPalette.tsx`).
-- `src-tauri/src/main.rs` – commandy a souborové operace; `clipboard.rs` – schránka Windows (CF_HDROP); `external_drop.rs` – drop z Průzkumníku.
+- `src-tauri/src/main.rs` – commandy a souborové operace; `clipboard.rs` – schránka Windows (CF_HDROP); `external_drop.rs` – drop z Průzkumníku; `native_drag.rs` – tažení ven (nativní OLE drag); `shellnew.rs` – nabídka Nový (registr ShellNew).
 - `winget/` + `.github/workflows/winget-manifest.yml` – manifest a workflow (bere tag jen ve tvaru `vX.Y.Z`).
 - `src-tauri/nsis/Czech.nsh` – vlastní český překlad NSIS instalátoru (`bundle.windows.nsis.customLanguageFiles`).
 - README existuje ve dvou verzích (`README.md`, `README.cs.md`) – měň je společně. Changelog je v `CHANGELOG.md` (README jen odkazuje).

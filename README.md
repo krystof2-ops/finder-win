@@ -38,7 +38,7 @@ or: `winget install krystof2-ops.FinderWin` *(coming soon)*
 </picture>
 
 - **Icons, List and Columns** views; thumbnails for images, videos (with a ▶ badge) and PDFs.
-- **Tabs** – each with its own history, view, sorting and selection; drag to reorder, drop files on a tab to move them there.
+- **Tabs** – rounded chips, each with its own history, view, sorting and selection; drag to reorder, drop files on a tab to move them there.
 - **Light and dark mode** following Windows, or set it in More → Appearance. English and Czech UI.
 
 ### Split view
@@ -67,7 +67,10 @@ or: `winget install krystof2-ops.FinderWin` *(coming soon)*
 
 ### Everyday file work
 
-- **Real Windows clipboard** – Ctrl+C / Ctrl+X / Ctrl+V work with Explorer, Outlook and browsers; drag files in from Explorer or the desktop.
+- **Real Windows clipboard** – Ctrl+C / Ctrl+X / Ctrl+V work with Explorer, Outlook and browsers.
+- **Drag & drop both ways** – drop files in from Explorer or the desktop; drag them out to Explorer, the desktop, a browser upload, Discord or an e-mail. Copy by default, `Shift` moves.
+- **+ New button** in the toolbar – Folder, Text Document and every file type from Windows' New menu (Word, Excel, ZIP …); also in the context menu (New ▸) and the command palette. Name collisions get “(2)” like in Explorer.
+- **Terminals** – PowerShell 7 and Windows PowerShell are listed separately in More → Terminal; `Shift`+click Open in Terminal picks any installed terminal.
 - **Undo / Redo** (Ctrl+Z / Ctrl+Y) for the last 50 renames, moves, copies, new items, deletions and tag changes.
 - **Sidebar** with standard folders, all drives (updates when a USB drive is plugged in), custom favorites, recents and Finder-style color tags.
 
@@ -130,7 +133,6 @@ Also coming: **winget** (`winget install krystof2-ops.FinderWin`; the manifest i
 
 - Windows only.
 - Undo history lives only while the app runs. A file overwritten by *Replace* can't be brought back.
-- Files can be dragged *into* Finder-Win, but not out of it to Explorer or other apps – use Ctrl+C and paste there.
 - Phones and cameras (MTP) are listed, but open in Windows Explorer.
 - Recursive search matches file names only and stops at 500 results.
 - Tabs, but no multiple windows.

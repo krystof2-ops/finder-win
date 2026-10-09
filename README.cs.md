@@ -38,7 +38,7 @@ nebo: `winget install krystof2-ops.FinderWin` *(brzy)*
 </picture>
 
 - Zobrazení **Ikony, Seznam a Sloupce**; náhledy obrázků, videí (s odznakem ▶) a PDF.
-- **Záložky** – každá s vlastní historií, zobrazením, řazením a výběrem; přerovnání tažením, soubor puštěný na záložku se přesune do její složky.
+- **Záložky** – zaoblené čipy, každá s vlastní historií, zobrazením, řazením a výběrem; přerovnání tažením, soubor puštěný na záložku se přesune do její složky.
 - **Světlý a tmavý režim** podle Windows, nebo nastavený v Více → Vzhled. Rozhraní česky a anglicky.
 
 ### Rozdělené okno
@@ -67,7 +67,10 @@ nebo: `winget install krystof2-ops.FinderWin` *(brzy)*
 
 ### Běžná práce se soubory
 
-- **Skutečná schránka Windows** – Ctrl+C / Ctrl+X / Ctrl+V fungují s Průzkumníkem, Outlookem i prohlížeči; soubory jde přetáhnout dovnitř z Průzkumníku nebo z plochy.
+- **Skutečná schránka Windows** – Ctrl+C / Ctrl+X / Ctrl+V fungují s Průzkumníkem, Outlookem i prohlížeči.
+- **Drag & drop oběma směry** – soubory jde pustit dovnitř z Průzkumníku nebo z plochy a přetáhnout ven do Průzkumníku, na plochu, do uploadu v prohlížeči, do Discordu nebo do e-mailu. Výchozí je kopie, `Shift` přesouvá.
+- **Tlačítko + Nový** v toolbaru – Složka, Textový dokument a všechny typy z nabídky Nový ve Windows (Word, Excel, ZIP …); také v kontextovém menu (Nový ▸) a v paletě příkazů. Kolize názvů dostanou „(2)“ jako v Průzkumníku.
+- **Terminály** – PowerShell 7 a Windows PowerShell jsou v Více → Terminál zvlášť; `Shift`+klik na Otevřít v terminálu nabídne libovolný nainstalovaný terminál.
 - **Zpět / Znovu** (Ctrl+Z / Ctrl+Y) pro posledních 50 přejmenování, přesunů, kopií, nových položek, smazání a změn štítků.
 - **Postranní panel** se standardními složkami, všemi disky (aktualizuje se po připojení USB), vlastními oblíbenými, nedávnými a barevnými štítky jako ve Finderu.
 
@@ -130,7 +133,6 @@ Připravujeme: **winget** (`winget install krystof2-ops.FinderWin`; manifest je 
 
 - Jen pro Windows.
 - Historie Zpět platí jen za běhu aplikace. Soubor přepsaný volbou *Nahradit* se vrátit nedá.
-- Soubory jde do Finder-Winu přetáhnout, ale ne ven do Průzkumníku nebo jiných aplikací – místo toho Ctrl+C a vložit tam.
 - Telefony a fotoaparáty (MTP) jsou v panelu vidět, ale otevřou se v Průzkumníku Windows.
 - Rekurzivní hledání porovnává jen názvy souborů a končí na 500 výsledcích.
 - Záložky ano, víc oken ne.

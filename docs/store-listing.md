@@ -27,21 +27,26 @@ Browse deep folder trees in Column view with a preview pane, or switch to Icons 
 
 Press Ctrl+K to open the command palette: jump to favorites, recent folders and tabs, run any action, or type a path. Press Space for a quick preview – images, PDF, video, audio, text, source code and Markdown.
 
-Finder-Win works with the real Windows clipboard, so you can copy files to and from File Explorer, Outlook or your browser. Drag files in from File Explorer or the desktop. Undo and redo cover the last 50 operations, including deletions (restored from the Recycle Bin).
+Finder-Win works with the real Windows clipboard, so you can copy files to and from File Explorer, Outlook or your browser. Drag & drop works both ways: drag files in from File Explorer or the desktop, and drag them out to File Explorer, the desktop, a browser upload, Discord or an e-mail. The New button creates folders, text documents and every file type Windows offers in its New menu. Undo and redo cover the last 50 operations, including deletions (restored from the Recycle Bin).
 
 Light and dark mode follow Windows. The interface is in English and Czech.
 
 Privacy: no telemetry, no account, no ads. The Microsoft Store version itself makes no network requests – updates come from the Store.
 
-### Features (6–8)
+### What's new
+First Microsoft Store release.
+
+### Features (6–10)
 1. Column view with a preview pane, plus Icons and List views
 2. Tabs with their own history, view and sorting
 3. Split view: two panels, F5 / F6 copy and move between them
 4. Command palette (Ctrl+K) for folders, actions, tags and paths
 5. Quick preview (Space) for images, PDF, video, audio, text and Markdown
 6. Video and PDF thumbnails with duration, resolution and page count
-7. Real Windows clipboard and drag & drop from File Explorer
-8. Undo / redo for the last 50 file operations; light and dark mode
+7. Real Windows clipboard; drag & drop to and from File Explorer, browser, Discord and e-mail
+8. New button: folder, text document and the Windows New file types
+9. Undo / redo for the last 50 file operations
+10. Light and dark mode that follows Windows; English and Czech
 
 ### Keywords (max 7)
 file manager, mac-style, file explorer, column view, tabs, dual pane, explorer alternative
@@ -63,21 +68,26 @@ Hluboké stromy složek procházíš ve sloupcovém zobrazení s náhledovým pa
 
 Ctrl+K otevře paletu příkazů: skok na oblíbené a nedávné složky či záložky, libovolná akce nebo zadání cesty. Mezerník otevře rychlý náhled – obrázky, PDF, video, zvuk, text, zdrojáky i Markdown.
 
-Finder-Win používá skutečnou schránku Windows, takže soubory kopíruješ z i do Průzkumníku, Outlooku nebo prohlížeče. Soubory jde přetáhnout dovnitř z Průzkumníku nebo z plochy. Zpět a Znovu fungují pro posledních 50 operací včetně mazání (obnoví z Koše).
+Finder-Win používá skutečnou schránku Windows, takže soubory kopíruješ z i do Průzkumníku, Outlooku nebo prohlížeče. Přetahování funguje oběma směry: soubory přetáhneš dovnitř z Průzkumníku nebo z plochy a ven do Průzkumníku, na plochu, do prohlížeče, Discordu nebo e-mailu. Tlačítko Nový vytvoří složku, textový dokument i jakýkoli typ souboru z nabídky Nový ve Windows. Zpět a Znovu fungují pro posledních 50 operací včetně mazání (obnoví z Koše).
 
 Světlý a tmavý režim se řídí Windows. Rozhraní je česky a anglicky.
 
 Soukromí: žádná telemetrie, žádný účet, žádné reklamy. Verze z Microsoft Storu sama nedělá žádné síťové požadavky – aktualizace přicházejí ze Storu.
 
-### Funkce (6–8)
+### Novinky
+První vydání v Microsoft Storu.
+
+### Funkce (6–10)
 1. Sloupcové zobrazení s náhledovým panelem, k tomu Ikony a Seznam
 2. Záložky s vlastní historií, zobrazením a řazením
 3. Rozdělené okno: dva panely, F5 / F6 kopíruje a přesouvá mezi nimi
 4. Paleta příkazů (Ctrl+K) pro složky, akce, štítky a cesty
 5. Rychlý náhled (mezerník) pro obrázky, PDF, video, zvuk, text a Markdown
 6. Náhledy videí a PDF s délkou, rozlišením a počtem stran
-7. Skutečná schránka Windows a přetahování z Průzkumníku
-8. Zpět / Znovu pro posledních 50 operací; světlý a tmavý režim
+7. Skutečná schránka Windows; přetahování z i do Průzkumníku, prohlížeče, Discordu a e-mailu
+8. Tlačítko Nový: složka, textový dokument a typy souborů z nabídky Nový ve Windows
+9. Zpět / Znovu pro posledních 50 operací
+10. Světlý a tmavý režim podle Windows; čeština a angličtina
 
 ### Klíčová slova (max 7)
 správce souborů, styl macu, průzkumník, sloupcové zobrazení, záložky, dva panely, file manager
