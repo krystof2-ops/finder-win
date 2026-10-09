@@ -39,6 +39,9 @@ encoding_rs = "0.8"
 # Cesty souborů přetažených z Průzkumníku (postMessageWithAdditionalObjects).
 # Stejná verze, jakou už táhne wry — nic nového se nekompiluje.
 webview2-com = "0.38"
+# Makro #[implement] (IDropSource v native_drag.rs) odkazuje na windows_core
+# přímo. Stejná verze, jakou už táhne windows — nic nového se nekompiluje.
+windows-core = "0.61"
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
@@ -58,11 +61,16 @@ windows = { version = "0.61", features = [
     "Win32_Security",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    # Tažení položek ven z aplikace (OLE DoDragDrop, IDropSource) — native_drag.rs.
+    "Win32_System_Ole",
     # Výčet telefonů a fotoaparátů v „Tento počítač" (IShellItem::GetAttributes).
     "Win32_System_SystemServices",
     # Nastavení Průzkumníku „Zobrazovat skryté soubory" jako výchozí stav.
     "Win32_System_Registry",
     "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    # Stav levého tlačítka na startu nativního tažení (native_drag.rs).
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

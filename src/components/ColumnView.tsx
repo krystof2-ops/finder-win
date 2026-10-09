@@ -5,7 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { canThumbnail, EntryIcon, SmallEntryIcon } from "./icons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
-import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
+import { dragItemsFor, endDrag, startEntryDrag } from "../lib/dnd";
 import {
   dropPropsFor,
   selectMods,
@@ -80,7 +80,7 @@ const ColumnRow = memo(
         data-tooltip={entry.name}
         draggable={!renaming}
         onDragStart={(event) =>
-          startDrag({ kind: "entry", items: handlers.dragItems(entry) }, event.dataTransfer)
+          startEntryDrag(handlers.dragItems(entry), event)
         }
         onDragEnd={endDrag}
         {...dropPropsFor(entry, handlers.drop)}

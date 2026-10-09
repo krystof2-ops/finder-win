@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { pathKey } from "./storage";
@@ -44,6 +45,46 @@ export function startDrag(payload: DragPayload, dataTransfer: DataTransfer): voi
   dataTransfer.setData(DRAG_MIME, payloadText(payload));
   dataTransfer.setData("text/plain", payloadText(payload));
   emit();
+}
+
+/**
+ * Přetažení ven z aplikace (Průzkumník, plocha, prohlížeč, Discord, mail).
+ * true: položky z panelu se táhnou nativním OLE dragem (native_drag.rs) už od
+ * dragstart — nad vlastním oknem pak přijdou jako HTML5 drop s typem "Files",
+ * ale payload tady v modulu je nastavený, takže je cíle obslouží interně jako
+ * dřív. false: dnešní HTML5 drag jen uvnitř aplikace (rollback jednou změnou).
+ */
+export const NATIVE_DRAG_OUT = true;
+
+/** Posluchač konce nativního tažení — payload se uklidí, i když drop nepřišel k nám. */
+let nativeDragEnd: Promise<unknown> | null = null;
+function ensureNativeDragEnd(): Promise<unknown> {
+  nativeDragEnd ??= listen("native-drag-end", () => endDrag()).catch((err: unknown) => {
+    nativeDragEnd = null;
+    throw err;
+  });
+  return nativeDragEnd;
+}
+
+// Posluchač hned při načtení modulu — u prvního tažení by jinak čekal start.
+if (NATIVE_DRAG_OUT) ensureNativeDragEnd().catch(() => undefined);
+
+/** Tažení položek z hlavního panelu (řádek, ikona, sloupec). */
+export function startEntryDrag(items: DragItem[], event: { dataTransfer: DataTransfer; preventDefault(): void }): void {
+  const payload: DragPayload = { kind: "entry", items };
+  if (!NATIVE_DRAG_OUT) {
+    startDrag(payload, event.dataTransfer);
+    return;
+  }
+  // HTML5 drag Chromia by běžel ve vlastní OLE smyčce a ven by nesl jen text —
+  // zrušit ho a pustit nativní drag s cestami (tlačítko myši je pořád dole).
+  event.preventDefault();
+  current = payload;
+  emit();
+  const paths = items.map((item) => item.path);
+  ensureNativeDragEnd()
+    .then(() => invoke("start_native_drag", { paths }))
+    .catch(() => endDrag());
 }
 
 export function endDrag(): void {

@@ -443,6 +443,7 @@ export const en = {
   "error.nameReserved": "“{name}” is a reserved name in Windows",
   "error.intoItself": "a folder can't be placed inside itself",
   "error.noFreeName": "couldn't find a free name",
+  "error.dragNoItems": "nothing to drag",
   "error.shellNewUnknown": "this file type can't be created",
   "error.shellNewTemplate": "the file template wasn't found",
   "error.noParent": "the path has no parent folder",

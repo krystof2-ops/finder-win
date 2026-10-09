@@ -6,7 +6,7 @@ import { canShellThumbnail, SHELL_THUMBNAIL_LIMIT } from "../lib/fileIcons";
 import { RenameInput } from "./RenameInput";
 import { TagDots } from "./TagDots";
 import { entryOpacity } from "../format";
-import { dragItemsFor, endDrag, startDrag } from "../lib/dnd";
+import { dragItemsFor, endDrag, startEntryDrag } from "../lib/dnd";
 import {
   dropPropsFor,
   selectMods,
@@ -93,7 +93,7 @@ const IconCell = memo(
         // Přejmenovaný řádek se netahá — jinak by drag ukradl výběr v inputu.
         draggable={!renaming}
         onDragStart={(event) =>
-          startDrag({ kind: "entry", items: handlers.dragItems(entry) }, event.dataTransfer)
+          startEntryDrag(handlers.dragItems(entry), event)
         }
         onDragEnd={endDrag}
         {...dropPropsFor(entry, handlers.drop)}

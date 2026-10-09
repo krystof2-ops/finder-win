@@ -785,13 +785,22 @@ export default function App() {
   // výpis sám. Ve výsledcích hledání ne — přehledávat kvůli každé změně
   // v podkladové složce celý strom by bylo drahé a výsledky by poskakovaly.
   useEffect(() => {
-    const unlisten = listen("dir-changed", () => {
+    const refreshVisible = () => {
       for (const index of visibleRef.current) {
         const target = panelsRef.current[index];
         if (target.search === null) target.refresh();
       }
+    };
+    const unlisten = listen("dir-changed", refreshVisible);
+    // Přesun tažením ven (Průzkumník, Shift) — položky zmizí hned, nečeká se
+    // na watcher. Cílovou složku neznáme, takže do Zpět se to nezapíše.
+    const unlistenDrag = listen<{ effect: string }>("native-drag-end", ({ payload }) => {
+      if (payload.effect === "move") refreshVisible();
     });
-    return () => void unlisten.then((stop) => stop());
+    return () => {
+      void unlisten.then((stop) => stop());
+      void unlistenDrag.then((stop) => stop());
+    };
   }, []);
 
   /** Jediná cesta k otevření souboru — proto se nedávné zapisují právě tady. */

@@ -465,6 +465,7 @@ export const cs = {
   "error.nameReserved": "„{name}“ je vyhrazený název Windows",
   "error.intoItself": "složku nelze vložit do sebe sama",
   "error.noFreeName": "nepodařilo se najít volný název",
+  "error.dragNoItems": "není co táhnout",
   "error.shellNewUnknown": "tenhle typ souboru se nedá vytvořit",
   "error.shellNewTemplate": "šablona souboru nebyla nalezena",
   "error.noParent": "cesta nemá nadřazenou složku",

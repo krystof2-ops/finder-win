@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 mod clipboard;
 mod external_drop;
+mod native_drag;
 mod shellnew;
 
 /* --------------------------------- chyby ----------------------------------- */
@@ -2856,6 +2857,7 @@ fn main() {
             shellnew::list_shell_new,
             shellnew::create_shell_new,
             shellnew::get_extension_icon,
+            native_drag::start_native_drag,
             create_folder,
             create_file,
             watch_dirs,
