@@ -15,15 +15,12 @@ struct ExternalDrop {
     paths: Vec<String>,
 }
 
-/// Zpráva stránky je objekt `{"finderWinDrop": <id>}`. IPC Tauri posílá
-/// řetězce, takže se s ním nedá splést (a wry tenhle objekt naopak ignoruje).
-fn drop_id(json: &str) -> Option<u64> {
-    json.trim()
-        .strip_prefix("{\"finderWinDrop\":")?
-        .strip_suffix('}')?
-        .trim()
-        .parse()
-        .ok()
+/// Zpráva stránky je řetězec `finderWinDrop:<id>`. Musí to být řetězec: wry
+/// registruje svůj handler dřív a u neřetězcové zprávy vrátí chybu, po které
+/// WebView2 (runtime 154+) další handlery nezavolá. IPC Tauri posílá JSON
+/// objekt s `cmd`, takže se prefix s ním nesplete.
+fn drop_id(message: &str) -> Option<u64> {
+    message.strip_prefix("finderWinDrop:")?.parse().ok()
 }
 
 #[cfg(windows)]
@@ -44,9 +41,12 @@ pub fn install(window: &tauri::WebviewWindow) {
         let handler = WebMessageReceivedEventHandler::create(Box::new(move |_, args| {
             let Some(args) = args else { return Ok(()) };
 
-            let mut json = PWSTR::null();
-            args.WebMessageAsJson(&mut json)?;
-            let Some(id) = drop_id(&take_pwstr(json)) else {
+            let mut text = PWSTR::null();
+            // Neřetězcové zprávy nejsou naše – ticho, ne chyba.
+            if args.TryGetWebMessageAsString(&mut text).is_err() {
+                return Ok(());
+            }
+            let Some(id) = drop_id(&take_pwstr(text)) else {
                 return Ok(());
             };
 
@@ -97,8 +97,11 @@ mod tests {
 
     #[test]
     fn parses_only_drop_messages() {
-        assert_eq!(drop_id("{\"finderWinDrop\":12}"), Some(12));
-        assert_eq!(drop_id("\"{\\\"cmd\\\":\\\"x\\\"}\""), None);
-        assert_eq!(drop_id("{\"other\":1}"), None);
+        assert_eq!(drop_id("finderWinDrop:12"), Some(12));
+        // IPC Tauri, starý objektový tvar a neúplné zprávy nejsou drop.
+        assert_eq!(drop_id("{\"cmd\":\"x\",\"callback\":1}"), None);
+        assert_eq!(drop_id("{\"finderWinDrop\":12}"), None);
+        assert_eq!(drop_id("finderWinDrop:"), None);
+        assert_eq!(drop_id("finderWinDrop:abc"), None);
     }
 }

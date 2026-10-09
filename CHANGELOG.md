@@ -2,6 +2,10 @@
 
 Notable changes in each Finder-Win release. Installers are on the [Releases](https://github.com/krystof2-ops/finder-win/releases) page.
 
+## [1.4.1](https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.1) – 2026-10-09
+
+- **Fixed:** drag & drop from File Explorer did not work.
+
 ## [1.4.0](https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.0) – 2026-10-07
 
 - **Split window** – two independent panels (Ctrl+Shift+D), Tab switches, F5 / F6 copy / move to the other panel, draggable divider with a remembered ratio.

@@ -161,6 +161,8 @@ export async function droppedPaths(dataTransfer: DataTransfer): Promise<string[]
     window.setTimeout(() => {
       if (pendingDrops.delete(id)) resolve([]);
     }, DROP_TIMEOUT_MS);
-    webview.postMessageWithAdditionalObjects?.({ finderWinDrop: id }, files);
+    // Řetězec, ne objekt: wry čte každou zprávu jako text a u objektu vrátí chybu;
+    // novější WebView2 pak další handlery (náš v external_drop.rs) už nezavolá.
+    webview.postMessageWithAdditionalObjects?.(`finderWinDrop:${id}`, files);
   });
 }

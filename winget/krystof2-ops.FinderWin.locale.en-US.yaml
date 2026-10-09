@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: krystof2-ops.FinderWin
-PackageVersion: 1.4.0
+PackageVersion: 1.4.1
 PackageLocale: en-US
 Publisher: krystof2-ops
 PublisherUrl: https://github.com/krystof2-ops
@@ -16,6 +16,6 @@ Tags:
   - file-manager
   - finder
   - tauri
-ReleaseNotesUrl: https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.0
+ReleaseNotesUrl: https://github.com/krystof2-ops/finder-win/releases/tag/v1.4.1
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0
