@@ -35,9 +35,9 @@ const TAB_MIME = "application/x-finder-win-tab";
 
 /** Rozměry z index.css (.fw-tab, .fw-tab-new, .fw-tabbar) — pro zjištění, kdy se ouška nevejdou. */
 const TAB_MIN_WIDTH = 120;
-const TAB_GAP = 2;
-/** Tlačítko + včetně mezery flexu a vlastního okraje vlevo. */
-const NEW_BUTTON_WIDTH = 28 + TAB_GAP + 2;
+const TAB_GAP = 4;
+/** Tlačítko + včetně mezery flexu. */
+const NEW_BUTTON_WIDTH = 28 + TAB_GAP;
 const BAR_PADDING = 16;
 
 /** Popisek záložky: přeložený název složky jako v záhlaví toolbaru. */
@@ -49,8 +49,8 @@ function tabTitle(path: string | null): string {
 }
 
 /**
- * Lišta záložek pod toolbarem, vždy vidět — ouška zarovnaná doleva jako
- * v Průzkumníku, šířka podle obsahu (120–240 px). Ouška jdou přerovnat
+ * Lišta záložek pod toolbarem, vždy vidět — zaoblené čipy (ouška) zarovnané
+ * doleva, šířka podle obsahu (120–240 px). Ouška jdou přerovnat
  * tažením a dá se na ně pustit soubor (přesun do složky záložky, s Ctrl
  * kopie). Když se nevejdou, zúží se rovnoměrně.
  */
@@ -159,8 +159,10 @@ export function TabBar({ tabs, activeId, windowFocused, onSelect, onClose, onReo
               onDropInto(folder, payload.items.map((item) => item.path), copy);
             }}
           >
-            <FolderIcon size={14} />
-            <span className="min-w-0 flex-1 truncate">{title}</span>
+            <span className="fw-tab-icon">
+              <FolderIcon size={14} />
+            </span>
+            <span className="fw-tab-title min-w-0 flex-1 truncate">{title}</span>
             <button
               type="button"
               className="fw-tab-close"
