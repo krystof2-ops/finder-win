@@ -941,6 +941,8 @@ const RELEASE_TAG_URL: &str = "https://github.com/krystof2-ops/finder-win/releas
 /// `…/releases/tag/<tag>`, kde tag je jen z písmen, číslic, teček a pomlček.
 /// Prefix sám nestačí: `…/releases/../../jiny/repo` by prohlížeč dot-segmenty
 /// srovnal a otevřel úplně jiné místo.
+// Ve Store buildu ho používají už jen testy.
+#[cfg_attr(feature = "store", allow(dead_code))]
 fn is_release_page(url: &str) -> bool {
     let Some(tag) = url.strip_prefix(RELEASE_TAG_URL) else { return false };
     !tag.is_empty()
@@ -948,12 +950,21 @@ fn is_release_page(url: &str) -> bool {
         && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
 }
 
+#[cfg(not(feature = "store"))]
 #[tauri::command(async)]
 fn open_release_page(url: String) -> CmdResult<()> {
     if !is_release_page(&url) {
         return Err(AppError::new("error.notReleaseUrl"));
     }
     opener::open_browser(&url).map_err(|err| describe_open(&err))
+}
+
+/// Store build (`--features store`): aktualizace řeší Microsoft Store, odkaz na
+/// GitHub se neotevírá. Command zůstává, ať je seznam v generate_handler stejný.
+#[cfg(feature = "store")]
+#[tauri::command(async)]
+fn open_release_page(_url: String) -> CmdResult<()> {
+    Err(AppError::new("error.notReleaseUrl"))
 }
 
 /* --------------------------- souborové operace ---------------------------- */
@@ -2259,9 +2270,13 @@ fn on_com_thread<T: Send + 'static>(
         .map_err(|_| AppError::new("error.iconTimeout"))?
 }
 
-/// Soubor cache obrázků: %LOCALAPPDATA%\finder-win\<kind>\<hash>.png.
+/// Složka cache v %LOCALAPPDATA%. Store verze má vlastní, ať se s NSIS verzí
+/// nesdílí a odinstalace MSIX ji smaže (MSIX přesměruje jen složky, které ještě neexistují).
+const CACHE_DIR: &str = if cfg!(feature = "store") { "finder-win-store" } else { "finder-win" };
+
+/// Soubor cache obrázků: %LOCALAPPDATA%\<CACHE_DIR>\<kind>\<hash>.png.
 fn image_cache_file(kind: &str, key: &str) -> Option<PathBuf> {
-    dirs::data_local_dir().map(|dir| dir.join("finder-win").join(kind).join(format!("{:016x}.png", fnv1a(key))))
+    dirs::data_local_dir().map(|dir| dir.join(CACHE_DIR).join(kind).join(format!("{:016x}.png", fnv1a(key))))
 }
 
 /// PNG z cache na disku (`kind` = podsložka), jinak z `render` — a uložit.
@@ -2314,7 +2329,7 @@ fn cached_png(kind: &str, key: &str, render: impl FnOnce() -> CmdResult<Vec<u8>>
 /// Úklid cache náhledů: smaže soubory starší než THUMBNAIL_MAX_AGE. Běží
 /// na pozadí při startu; chyby se ignorují, je to jen cache.
 fn prune_thumbnail_cache() {
-    let Some(dir) = dirs::data_local_dir().map(|dir| dir.join("finder-win").join("thumbnails")) else {
+    let Some(dir) = dirs::data_local_dir().map(|dir| dir.join(CACHE_DIR).join("thumbnails")) else {
         return;
     };
     let Ok(entries) = fs::read_dir(dir) else {
@@ -2687,7 +2702,46 @@ fn app_ready(window: tauri::WebviewWindow) {
     show_main_window(&window);
 }
 
+/// Store verze: při prvním startu (vlastní settings.json ještě není) převezme
+/// nastavení z NSIS verze, ať uživatel nepřijde o oblíbené a štítky. NSIS soubor
+/// se jen čte. Identifiery odpovídají tauri.conf.json a tauri.store.conf.json.
+#[cfg(feature = "store")]
+fn import_nsis_settings() {
+    const NSIS_IDENTIFIER: &str = "com.krystof2ops.finderwin";
+    const STORE_IDENTIFIER: &str = "com.krystof2ops.finderwin.store";
+    // tauri-plugin-store ukládá do app_data_dir = %APPDATA%\<identifier>.
+    let Some(roaming) = dirs::data_dir() else { return };
+    let _ = import_settings_file(
+        &roaming.join(NSIS_IDENTIFIER).join("settings.json"),
+        &roaming.join(STORE_IDENTIFIER).join("settings.json"),
+    );
+}
+
+/// Zkopíruje `from` do `to`, jen když `to` ještě neexistuje. Přes dočasný soubor
+/// a přejmenování — store nikdy nenačte useknutý JSON.
+#[cfg_attr(not(feature = "store"), allow(dead_code))]
+fn import_settings_file(from: &Path, to: &Path) -> std::io::Result<bool> {
+    if to.exists() || !from.is_file() {
+        return Ok(false);
+    }
+    let bytes = fs::read(from)?;
+    if let Some(dir) = to.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let temp = to.with_extension("json.import");
+    fs::write(&temp, bytes)?;
+    if let Err(err) = fs::rename(&temp, to) {
+        let _ = fs::remove_file(&temp);
+        return Err(err);
+    }
+    Ok(true)
+}
+
 fn main() {
+    // Před startem Tauri, ať frontend při načtení store už najde importovaný soubor.
+    #[cfg(feature = "store")]
+    import_nsis_settings();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -2770,6 +2824,38 @@ mod release_url_tests {
         assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/v1/x"));
         assert!(!is_release_page("https://github.com/krystof2-ops/finder-win/releases/tag/v1?x=1"));
         assert!(!is_release_page("https://evil.example/krystof2-ops/finder-win/releases/tag/v1"));
+    }
+}
+
+#[cfg(test)]
+mod settings_import_tests {
+    use super::import_settings_file;
+    use std::fs;
+
+    #[test]
+    fn imports_once_and_leaves_source_alone() {
+        let root = std::env::temp_dir().join(format!("finder-win-import-{}", std::process::id()));
+        let from = root.join("nsis").join("settings.json");
+        let to = root.join("store").join("settings.json");
+        fs::create_dir_all(from.parent().unwrap()).unwrap();
+        fs::write(&from, br#"{"favorites":["C:\\A"]}"#).unwrap();
+
+        assert!(import_settings_file(&from, &to).unwrap());
+        assert_eq!(fs::read(&to).unwrap(), fs::read(&from).unwrap());
+
+        // Druhý start: vlastní nastavení Store verze se nepřepíše.
+        fs::write(&to, b"{}").unwrap();
+        assert!(!import_settings_file(&from, &to).unwrap());
+        assert_eq!(fs::read(&to).unwrap(), b"{}");
+        assert_eq!(fs::read(&from).unwrap(), br#"{"favorites":["C:\\A"]}"#);
+
+        // Bez NSIS verze se nic nevytvoří.
+        let missing = root.join("none").join("settings.json");
+        let fresh = root.join("fresh").join("settings.json");
+        assert!(!import_settings_file(&missing, &fresh).unwrap());
+        assert!(!fresh.exists());
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
 

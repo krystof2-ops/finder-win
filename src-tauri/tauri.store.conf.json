@@ -1,0 +1,13 @@
+{
+  "identifier": "com.krystof2ops.finderwin.store",
+  "app": {
+    "security": {
+      "csp": {
+        "connect-src": "'self' ipc: http://ipc.localhost"
+      },
+      "devCsp": {
+        "connect-src": "'self' ipc: http://ipc.localhost ws://localhost:1420"
+      }
+    }
+  }
+}

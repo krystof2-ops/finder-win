@@ -5,7 +5,8 @@ import { readThemeMirror, writeThemeMirror, type ThemePreference } from "../them
 import type { CustomFavorite, RecentEntry, RecentKind, TagColor, TagMap, ViewMode } from "../types";
 
 /**
- * Persistentní nastavení v `settings.json` v app config adresáři.
+ * Persistentní nastavení v `settings.json` v app data adresáři (`%APPDATA%\<identifier>`,
+ * Store build má vlastní identifier `….store`).
  *
  * Čtení jde vždycky z in-memory cache a je synchronní — o to tady jde. Kdyby
  * getFavorites() vracelo Promise, každý řádek sidebaru by se plnil přes efekt

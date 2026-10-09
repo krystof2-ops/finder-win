@@ -250,7 +250,7 @@ export function Toolbar({
       ],
     },
     { type: "separator" },
-    item("checkUpdates"),
+    ...(__STORE__ ? [] : [item("checkUpdates")]),
     item("about"),
   ];
 

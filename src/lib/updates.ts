@@ -44,6 +44,8 @@ async function fetchLatest(): Promise<AvailableUpdate | null> {
  * v settings.json, takže proužek se ukáže i ve dny, kdy se GitHubu neptá.
  */
 export async function checkForUpdate(): Promise<AvailableUpdate | null> {
+  // Store build se GitHubu neptá vůbec – aktualizace řeší Store (a CSP GitHub ani nepovolí).
+  if (__STORE__) return null;
   await storage.init();
   const settings = storage.getSnapshot().updates;
   if (!settings.check) return null;

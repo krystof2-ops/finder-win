@@ -173,7 +173,8 @@ const DEFINITIONS: Record<CommandId, CommandDefinition> = {
   delete: { title: "menu.delete", shortcut: "Delete", keys: [{ key: "Delete" }] },
   copyPath: { title: "menu.copyPath", scope: "overlay" },
   openTerminal: { title: "menu.openInTerminal", scope: "overlay" },
-  checkUpdates: { title: "toolbar.checkUpdates" },
+  // Ve Store buildu se nenabízí (ani v menu Více, viz Toolbar).
+  checkUpdates: { title: "toolbar.checkUpdates", palette: !__STORE__ },
   about: { title: "toolbar.about" },
 };
 

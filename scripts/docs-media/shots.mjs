@@ -1,11 +1,17 @@
 // Screenshoty do docs/screenshots (viz CLAUDE.md, sekce Screenshoty a demo).
 // node scripts/docs-media/shots.mjs [jméno …]   (bez argumentu všech pět)
+// --store: 1920×1080 do docs/store/ (Microsoft Store chce aspoň 1366×768).
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { setup, panel, TABS } from "./setup.mjs";
 
 const ALL = ["hero-dark", "hero-light", "split-view", "command-palette", "previews"];
-const which = process.argv.length > 2 ? process.argv.slice(2) : ALL;
-const OUT = fileURLToPath(new URL("../../docs/screenshots/", import.meta.url));
+const STORE = process.argv.includes("--store");
+const args = process.argv.slice(2).filter((a) => a !== "--store");
+const which = args.length > 0 ? args : ALL;
+const [W, H] = STORE ? [1920, 1080] : [1280, 800];
+const OUT = fileURLToPath(new URL(STORE ? "../../docs/store/" : "../../docs/screenshots/", import.meta.url));
+fs.mkdirSync(OUT, { recursive: true });
 
 async function helpers(c) {
   // Klik na prvek podle selektoru (a volitelně textu) skutečnou myší přes CDP.
@@ -48,7 +54,7 @@ const scenes = {
       if (panels < 2) await h.ctrl("d", "KeyD", 68, true);
       await c.sleep(1200);
       // Klik do prázdna v pravém panelu ho aktivuje.
-      await c.click(860, 600);
+      await c.click(Math.round(W * 0.67), Math.round(H * 0.75));
       await c.sleep(400);
       await h.ctrl("l", "KeyL", 76);
       await c.sleep(400);
@@ -68,7 +74,7 @@ const scenes = {
 
 for (const name of which) {
   const scene = scenes[name];
-  const c = await setup(1280, 800, scene.opts);
+  const c = await setup(W, H, scene.opts);
   const h = await helpers(c);
   await c.sleep(1500);
   try { await scene.run(c, h); } catch (e) { console.error(e.message); }

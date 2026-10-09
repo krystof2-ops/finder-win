@@ -9,6 +9,13 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
 
+  // Store build (FINDERWIN_STORE=1, viz scripts/build-msix.ps1): kontrola aktualizací
+  // se z bundlu vypustí úplně, aktualizace řeší Microsoft Store.
+  define: {
+    // @ts-expect-error process is a nodejs global
+    __STORE__: JSON.stringify(process.env.FINDERWIN_STORE === "1"),
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors

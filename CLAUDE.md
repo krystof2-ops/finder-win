@@ -35,6 +35,9 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 ## Vydání
 - Verze v `package.json`, `src-tauri/Cargo.toml` (+ `Cargo.lock`, `package-lock.json`), záznam do `CHANGELOG.md`, commit „Release X.Y.Z“.
 - `npm run tauri build`, pak přegeneruj download tlačítka: `node scripts/docs-media/buttons.mjs` (verze z `package.json`, velikost z `Finder-Win_<verze>_x64-setup.exe` v `bundle/nsis/`) a commitni `docs/buttons/`.
+- Microsoft Store: `scripts/build-msix.ps1` (Windows SDK) → nepodepsaný `bundle/msix/Finder-Win_<verze>.0_x64.msix`, `-TestSign` jen pro lokální test (WACK), nikdy do Storu. Store build = `FINDERWIN_STORE=1` (`__STORE__` ve frontendu) + Cargo feature `store` + `tauri.store.conf.json` (CSP bez GitHubu), vlastní `CARGO_TARGET_DIR` `target/store`; bez kontroly aktualizací a bez jakýchkoli síťových požadavků. Texty listingu `docs/store-listing.md`, zásady `PRIVACY.md` (URL v Partner Center míří na master).
+- Store verze má vlastní data: identifier `com.krystof2ops.finderwin.store` (settings.json, WebView2) a cache `%LOCALAPPDATA%\finder-win-store` (`CACHE_DIR`), aby se nesdílela s NSIS verzí a odinstalace MSIX je smazala. Při prvním startu (vlastní settings.json chybí) převezme settings.json z NSIS verze (`import_nsis_settings`, NSIS soubor jen čte).
+- Ochranná známka: v textech pro Store nepoužívat „Finder“ / „macOS Finder“ (jen „Mac-style“, „inspired by macOS“). Pokud certifikace odmítne název kvůli ochranné známce, přejmenuje se jen Store verze (DisplayName v `build-msix.ps1` + listing); GitHub/NSIS zůstane Finder-Win.
 
 ## Screenshoty a demo
 - `docs/screenshots/{hero-dark,hero-light,split-view,command-palette,previews}.png` (1280×800, ~100–140 kB) a `docs/demo.gif` (960 px, 15 fps, ~14 s, max 8 MB); používají je oba README.
@@ -50,7 +53,7 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 - Tažení ven z aplikace není (tauri-plugin-drag by kolidoval s HTML5 dragem).
 - Záložky: živý je jen stav aktivní záložky, ostatní jsou `TabSnapshot`; watcher (`watch_dirs`) běží jen pro aktivní. Na disk se ukládají jen při 2+ záložkách (cesta, zobrazení, řazení).
 - Aplikace je GUI bez konzole: cmd/PowerShell se nesmí spouštět přes `Command::spawn` (prázdný stdin, hned skončí) – jde to přes ShellExecuteW (`shell_execute` v `main.rs`).
-- Ikony a náhledy se cachují na disku v `%LOCALAPPDATA%\finder-win\{icons,thumbnails}`; timeout shellu u náhledu se v paměti necachuje.
+- Ikony a náhledy se cachují na disku v `%LOCALAPPDATA%\finder-win\{icons,thumbnails}` (Store build `finder-win-store`, `CACHE_DIR`); timeout shellu u náhledu se v paměti necachuje.
 - Nastavení `theme` a `terminal` jsou v settings.json.
 - Při změně `nsis.languages` musí mít jazyk mimo seznam Tauri vlastní `.nsh` (Tauri 2.11 češtinu nemá).
 - Python na tomhle stroji není – skripty přes node.
