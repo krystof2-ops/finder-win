@@ -58,6 +58,7 @@ Finder-like správce souborů pro Windows (jen Windows). Tauri 2 + React 19/TS +
 - Nastavení `theme` a `terminal` jsou v settings.json.
 - Při změně `nsis.languages` musí mít jazyk mimo seznam Tauri vlastní `.nsh` (Tauri 2.11 češtinu nemá).
 - Python na tomhle stroji není – skripty přes node.
+- Nativní Mica/Acrylic (DWM backdrop) se na tomto stroji (hybridní GPU AMD + NVIDIA) nekreslí ani v systémových aplikacích – jen plochá šedá. Spike je ve větvi `spike/glass-mica`; plán pro 1.5 = CSS sklo bez nativního efektu.
 - Osiřelý vite po ukončení `tauri dev` drží port 1420.
 - Pokud běží `finder-win.exe`, build přepisující binárku selže – použít jiný `CARGO_TARGET_DIR`.
 - CSP `connect-src` povoluje navíc jen `api.github.com`.
